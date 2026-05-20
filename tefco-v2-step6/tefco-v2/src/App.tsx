@@ -13,6 +13,8 @@ type Ticket = {
   status: string
   observed_inputs?: any
   calculation_results?: any
+  approved_by?: string | null
+  approved_at?: string | null
 }
 
 export default function App() {
@@ -149,10 +151,36 @@ export default function App() {
   }
 
   async function updateTicketStatus(ticketId: string, status: string) {
+    const { data: userData } = await supabase.auth.getUser()
+    const userId = userData.user?.id
+
+    const ticketBefore = tickets.find((t) => t.id === ticketId)
+
+    const updateData: any = { status }
+
+    if (status === 'approved') {
+      updateData.approved_by = userId
+      updateData.approved_at = new Date().toISOString()
+    }
+
     await supabase
       .from('tickets')
-      .update({ status })
+      .update(updateData)
       .eq('id', ticketId)
+
+    await supabase.from('audit_logs').insert({
+      company_id: companyId,
+      user_id: userId,
+      action: `ticket_status_changed_to_${status}`,
+      entity_type: 'ticket',
+      entity_id: ticketId,
+      before_data: ticketBefore || {},
+      after_data: updateData,
+    })
+
+    setSelectedTicket((prev) =>
+      prev ? { ...prev, ...updateData } : prev
+    )
 
     loadAll()
   }
@@ -432,6 +460,14 @@ export default function App() {
                     padding: 20,
                     borderRadius: 10,
                     marginBottom: 15,
+                    borderLeft:
+                      t.status === 'approved'
+                        ? '8px solid #16a34a'
+                        : t.status === 'submitted'
+                        ? '8px solid #f59e0b'
+                        : t.status === 'voided'
+                        ? '8px solid #dc2626'
+                        : '8px solid #64748b',
                   }}
                 >
                   <div>
@@ -469,6 +505,26 @@ export default function App() {
                   <strong>Status:</strong>{' '}
                   {selectedTicket.status}
                 </div>
+
+                {selectedTicket.approved_at && (
+                  <div style={{ marginTop: 10, color: '#86efac' }}>
+                    <strong>Approved At:</strong>{' '}
+                    {new Date(selectedTicket.approved_at).toLocaleString()}
+                  </div>
+                )}
+
+                {selectedTicket.status === 'approved' && (
+                  <div
+                    style={{
+                      marginTop: 15,
+                      padding: 12,
+                      background: '#14532d',
+                      borderRadius: 6,
+                    }}
+                  >
+                    Approved ticket is locked for custody transfer.
+                  </div>
+                )}
 
                 <hr style={{ margin: '20px 0' }} />
 
@@ -555,6 +611,14 @@ function CalculationSection({ ticket, refresh }: any) {
     gsv * (1 - Number(bsw || 0) / 100)
 
   async function saveCalculations() {
+    if (ticket.status === 'approved') {
+      alert('Approved tickets are locked and cannot be edited.')
+      return
+    }
+
+    const { data: userData } = await supabase.auth.getUser()
+    const userId = userData.user?.id
+
     await supabase
       .from('tickets')
       .update({
@@ -571,6 +635,27 @@ function CalculationSection({ ticket, refresh }: any) {
         },
       })
       .eq('id', ticket.id)
+
+    await supabase.from('audit_logs').insert({
+      user_id: userId,
+      action: 'ticket_calculation_saved',
+      entity_type: 'ticket',
+      entity_id: ticket.id,
+      before_data: ticket.calculation_results || {},
+      after_data: {
+        observed_inputs: {
+          iv,
+          ctl,
+          cpl,
+          mf,
+          bsw,
+        },
+        calculation_results: {
+          gsv,
+          nsv,
+        },
+      },
+    })
 
     alert('Calculations Saved')
 
@@ -613,6 +698,7 @@ function CalculationSection({ ticket, refresh }: any) {
         style={input}
         placeholder="IV"
         value={iv}
+        disabled={ticket.status === 'approved'}
         onChange={(e) => setIv(e.target.value)}
       />
 
@@ -620,6 +706,7 @@ function CalculationSection({ ticket, refresh }: any) {
         style={input}
         placeholder="CTL"
         value={ctl}
+        disabled={ticket.status === 'approved'}
         onChange={(e) => setCtl(e.target.value)}
       />
 
@@ -627,6 +714,7 @@ function CalculationSection({ ticket, refresh }: any) {
         style={input}
         placeholder="CPL"
         value={cpl}
+        disabled={ticket.status === 'approved'}
         onChange={(e) => setCpl(e.target.value)}
       />
 
@@ -634,6 +722,7 @@ function CalculationSection({ ticket, refresh }: any) {
         style={input}
         placeholder="MF"
         value={mf}
+        disabled={ticket.status === 'approved'}
         onChange={(e) => setMf(e.target.value)}
       />
 
@@ -641,6 +730,7 @@ function CalculationSection({ ticket, refresh }: any) {
         style={input}
         placeholder="BS&W %"
         value={bsw}
+        disabled={ticket.status === 'approved'}
         onChange={(e) => setBsw(e.target.value)}
       />
 
@@ -664,10 +754,15 @@ function CalculationSection({ ticket, refresh }: any) {
       </div>
 
       <button
-        style={button}
+        style={{
+          ...button,
+          background: ticket.status === 'approved' ? '#64748b' : '#2563eb',
+        }}
         onClick={saveCalculations}
       >
-        Save Calculations
+        {ticket.status === 'approved'
+          ? 'Locked - Approved Ticket'
+          : 'Save Calculations'}
       </button>
     </div>
   )

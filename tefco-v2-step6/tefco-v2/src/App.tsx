@@ -117,9 +117,7 @@ export default function App() {
 
   useEffect(() => {
     const latestReading = readings.find((r) => r.meter_id === selectedMeter)
-    const latestApprovedProving = provings.find(
-      (p) => p.meter_id === selectedMeter && p.status === 'approved'
-    )
+    const latestApprovedProving = provings.find((p) => p.meter_id === selectedMeter && p.status === 'approved')
     const producer = producers.find((p) => p.id === selectedProducer)
     const profile = profiles.find((p) => p.id === producer?.calculation_profile_id)
 
@@ -161,9 +159,7 @@ export default function App() {
   const provedMeterIds = new Set(approvedThisMonth.map((p) => p.meter_id))
   const provedThisMonthCount = activeMeters.filter((m) => provedMeterIds.has(m.id)).length
   const remainingProvingCount = Math.max(activeMeters.length - provedThisMonthCount, 0)
-  const provingCompliance =
-    activeMeters.length > 0 ? Math.round((provedThisMonthCount / activeMeters.length) * 100) : 0
-
+  const provingCompliance = activeMeters.length > 0 ? Math.round((provedThisMonthCount / activeMeters.length) * 100) : 0
   const pendingProvings = provings.filter((p) => p.status !== 'approved')
   const approvedProvings = provings.filter((p) => p.status === 'approved')
 
@@ -251,9 +247,7 @@ export default function App() {
   }
 
   async function uploadProvingPdf(provingId: string) {
-    if (!provingPdfFile || !companyId) {
-      return { pdfUrl: null, fileName: null }
-    }
+    if (!provingPdfFile || !companyId) return { pdfUrl: null, fileName: null }
 
     const safeName = provingPdfFile.name.replace(/\s+/g, '_')
     const filePath = `${companyId}/${provingId}/${Date.now()}-${safeName}`
@@ -297,15 +291,10 @@ export default function App() {
     const observedMF =
       Number(proverVolume || 0) > 0 &&
       Number(provingIndicatedVolume || 0) > 0
-        ? roundFactor(
-            Number(proverVolume) /
-              Number(provingIndicatedVolume)
-          )
+        ? roundFactor(Number(proverVolume) / Number(provingIndicatedVolume))
         : 0
 
-    const finalAcceptedMF = roundFactor(
-      Number(acceptedMF || observedMF || 0)
-    )
+    const finalAcceptedMF = roundFactor(Number(acceptedMF || observedMF || 0))
 
     const { data: inserted, error } = await supabase
       .from('meter_provings')
@@ -325,32 +314,23 @@ export default function App() {
       .single()
 
     if (error || !inserted) {
-      alert(
-        'Could not save proving: ' +
-          (error?.message || 'unknown error')
-      )
+      alert('Could not save proving: ' + (error?.message || 'unknown error'))
       return
     }
 
-    const uploaded = await uploadProvingPdf(
-      inserted.id
-    )
+    const uploaded = await uploadProvingPdf(inserted.id)
 
     if (uploaded.pdfUrl) {
-      const { error: updateError } =
-        await supabase
-          .from('meter_provings')
-          .update({
-            pdf_url: uploaded.pdfUrl,
-            pdf_file_name: uploaded.fileName,
-          })
-          .eq('id', inserted.id)
+      const { error: updateError } = await supabase
+        .from('meter_provings')
+        .update({
+          pdf_url: uploaded.pdfUrl,
+          pdf_file_name: uploaded.fileName,
+        })
+        .eq('id', inserted.id)
 
       if (updateError) {
-        alert(
-          'Proving saved, but PDF link failed: ' +
-            updateError.message
-        )
+        alert('Proving saved, but PDF link failed: ' + updateError.message)
         return
       }
     }
@@ -365,111 +345,64 @@ export default function App() {
     setProvingPdfFile(null)
 
     alert('Proving saved successfully.')
-
     loadAll()
   }
 
-  async function approveProving(
-    proving: Proving
-  ) {
-    const { data: userData } =
-      await supabase.auth.getUser()
+  async function approveProving(proving: Proving) {
+    const { data: userData } = await supabase.auth.getUser()
 
-    const { error: updateError } =
-      await supabase
-        .from('meter_provings')
-        .update({
-          status: 'approved',
-          approved_by: userData.user?.id,
-          approved_at:
-            new Date().toISOString(),
-        })
-        .eq('id', proving.id)
+    const { error: updateError } = await supabase
+      .from('meter_provings')
+      .update({
+        status: 'approved',
+        approved_by: userData.user?.id,
+        approved_at: new Date().toISOString(),
+      })
+      .eq('id', proving.id)
 
     if (updateError) {
-      alert(
-        'Could not approve proving: ' +
-          updateError.message
-      )
+      alert('Could not approve proving: ' + updateError.message)
       return
     }
 
     alert('Proving approved.')
-
     loadAll()
   }
 
   async function createTicket() {
     if (!companyId) return
 
-    const {
-      data: generatedNumber,
-      error,
-    } = await supabase.rpc(
+    const { data: generatedNumber, error } = await supabase.rpc(
       'generate_ticket_number',
-      {
-        p_company_id: companyId,
-      }
+      { p_company_id: companyId }
     )
 
     if (error || !generatedNumber) {
-      alert(
-        'Could not generate ticket number.'
-      )
+      alert('Could not generate ticket number.')
       return
     }
 
-    const producer = producers.find(
-      (p) => p.id === selectedProducer
+    const producer = producers.find((p) => p.id === selectedProducer)
+    const profile = profiles.find((p) => p.id === producer?.calculation_profile_id)
+    const latestReading = readings.find((r) => r.meter_id === selectedMeter)
+    const latestApprovedProving = provings.find(
+      (p) => p.meter_id === selectedMeter && p.status === 'approved'
     )
 
-    const profile = profiles.find(
-      (p) =>
-        p.id === producer?.calculation_profile_id
-    )
-
-    const latestReading = readings.find(
-      (r) => r.meter_id === selectedMeter
-    )
-
-    const latestApprovedProving =
-      provings.find(
-        (p) =>
-          p.meter_id === selectedMeter &&
-          p.status === 'approved'
-      )
-
-    const iv = Number(
-      latestReading?.indicated_volume || 0
-    )
-
+    const iv = Number(latestReading?.indicated_volume || 0)
     const ctl = 1
     const cpl = 1
     const ctlp = 1
-
     const factorToUse = Number(
       latestApprovedProving?.accepted_meter_factor ||
         latestReading?.meter_factor ||
         1
     )
-
     const mf = roundFactor(factorToUse)
-
-    const csw =
-      1 -
-      Number(latestReading?.bsw || 0) / 100
-
-    const isApi12 =
-      profile?.standard === 'API 12'
-
-    const ccf = roundFactor(
-      ctl * ctlp * mf
-    )
-
-    const gsv = isApi12
-      ? iv * ctl * cpl * mf
-      : iv * ccf
-
+    const csw = 1 - Number(latestReading?.bsw || 0) / 100
+    const isApi12 = profile?.standard === 'API 12'
+    const ccf = roundFactor(ctl * ctlp * mf)
+    const gsv = isApi12 ? iv * ctl * cpl * mf : iv * ccf
     const nsv = gsv * csw
 
     await supabase.from('tickets').insert({
@@ -477,90 +410,110 @@ export default function App() {
       ticket_number: generatedNumber,
       ticket_type: ticketType,
       status: 'draft',
-      producer_id:
-        selectedProducer || null,
-      segment_id:
-        selectedSegment ||
-        latestReading?.segment_id ||
-        null,
+      producer_id: selectedProducer || null,
+      segment_id: selectedSegment || latestReading?.segment_id || null,
       meter_id: selectedMeter || null,
-      linked_reading_id:
-        latestReading?.id || null,
-      linked_proving_id:
-        latestApprovedProving?.id || null,
-      calculation_profile_id:
-        profile?.id || null,
-      calculation_profile_snapshot:
-        profile || {},
+      linked_reading_id: latestReading?.id || null,
+      linked_proving_id: latestApprovedProving?.id || null,
+      calculation_profile_id: profile?.id || null,
+      calculation_profile_snapshot: profile || {},
       observed_inputs: {
         iv,
         ctl,
         cpl,
         ctlp,
         mf,
-        factor_type:
-          latestApprovedProving?.factor_type ||
-          'MF',
+        factor_type: latestApprovedProving?.factor_type || 'MF',
         csw,
-        api_gravity:
-          latestReading?.api_gravity ||
-          null,
-        temperature:
-          latestReading?.temperature ||
-          null,
-        bsw_percent:
-          latestReading?.bsw || null,
-        mf_source:
-          latestApprovedProving
-            ? 'latest_approved_proving'
-            : 'reading_fallback',
+        api_gravity: latestReading?.api_gravity || null,
+        temperature: latestReading?.temperature || null,
+        bsw_percent: latestReading?.bsw || null,
+        mf_source: latestApprovedProving
+          ? 'latest_approved_proving'
+          : 'reading_fallback',
       },
       calculation_results: {
         ccf,
         gsv,
         nsv,
-        formula_profile: isApi12
-          ? 'API 12 2021'
-          : 'API 11.1',
+        formula_profile: isApi12 ? 'API 12 2021' : 'API 11.1',
       },
     })
 
-    alert(
-      `Draft ticket created: ${generatedNumber}`
-    )
-
+    alert(`Draft ticket created: ${generatedNumber}`)
     loadAll()
   }
 
-  async function updateTicketStatus(
-    ticket: Ticket,
-    status: string
-  ) {
-    const { data: userData } =
-      await supabase.auth.getUser()
+  async function updateTicketStatus(ticket: Ticket, status: string) {
+    const { data: userData } = await supabase.auth.getUser()
 
-    const updateData: any = {
-      status,
-    }
+    const updateData: any = { status }
 
     if (status === 'approved') {
-      updateData.approved_by =
-        userData.user?.id
-      updateData.approved_at =
-        new Date().toISOString()
+      updateData.approved_by = userData.user?.id
+      updateData.approved_at = new Date().toISOString()
     }
 
-    await supabase
-      .from('tickets')
-      .update(updateData)
-      .eq('id', ticket.id)
+    await supabase.from('tickets').update(updateData).eq('id', ticket.id)
 
-    setSelectedTicket({
-      ...ticket,
-      ...updateData,
-    })
-
+    setSelectedTicket({ ...ticket, ...updateData })
     loadAll()
+  }
+
+  function generatePdfPreview(ticket: Ticket) {
+    const producer = producers.find((p) => p.id === ticket.producer_id)
+    const meter = meters.find((m) => m.id === ticket.meter_id)
+    const segment = segments.find((s) => s.id === ticket.segment_id)
+
+    const html = `
+      <html>
+        <head>
+          <title>${ticket.ticket_number}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
+            .box { border: 1px solid #333; padding: 12px; margin: 12px 0; }
+            .row { display: flex; justify-content: space-between; border-bottom: 1px solid #ddd; padding: 6px 0; }
+          </style>
+        </head>
+        <body>
+          <h1>TEFCO Measurement Ticket</h1>
+          <h2>${ticket.ticket_number}</h2>
+
+          <div class="box">
+            <div class="row"><strong>Status</strong><span>${ticket.status}</span></div>
+            <div class="row"><strong>Type</strong><span>${ticket.ticket_type}</span></div>
+            <div class="row"><strong>Producer</strong><span>${producer?.name || ''}</span></div>
+            <div class="row"><strong>Meter</strong><span>${meter?.meter_number || ''}</span></div>
+            <div class="row"><strong>Segment</strong><span>${segment?.name || ''}</span></div>
+            <div class="row"><strong>Profile</strong><span>${ticket.calculation_profile_snapshot?.name || ''}</span></div>
+          </div>
+
+          <div class="box">
+            <h3>Inputs</h3>
+            <div class="row"><strong>IV</strong><span>${ticket.observed_inputs?.iv ?? ''}</span></div>
+            <div class="row"><strong>CTL</strong><span>${ticket.observed_inputs?.ctl ?? ''}</span></div>
+            <div class="row"><strong>CPL</strong><span>${ticket.observed_inputs?.cpl ?? ''}</span></div>
+            <div class="row"><strong>CTLP</strong><span>${ticket.observed_inputs?.ctlp ?? ''}</span></div>
+            <div class="row"><strong>${ticket.observed_inputs?.factor_type || 'MF'}</strong><span>${ticket.observed_inputs?.mf ?? ''}</span></div>
+            <div class="row"><strong>CSW</strong><span>${ticket.observed_inputs?.csw ?? ''}</span></div>
+          </div>
+
+          <div class="box">
+            <h3>Results</h3>
+            <div class="row"><strong>GSV</strong><span>${ticket.calculation_results?.gsv ?? ''}</span></div>
+            <div class="row"><strong>NSV</strong><span>${ticket.calculation_results?.nsv ?? ''}</span></div>
+          </div>
+
+          <script>window.print()</script>
+        </body>
+      </html>
+    `
+
+    const printWindow = window.open('', '_blank')
+    if (printWindow) {
+      printWindow.document.write(html)
+      printWindow.document.close()
+    }
   }
 
   async function logout() {
@@ -602,112 +555,169 @@ export default function App() {
     cursor: 'pointer',
   }
 
-  if (loading) {
-    return (
-      <div
-        style={{
-          padding: 40,
-          color: 'white',
-        }}
-      >
-        Loading...
-      </div>
-    )
-  }
-
-  if (!session) {
-    return <Login />
-  }
+  if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
+  if (!session) return <Login />
 
   return (
-    <div
-      style={{
-        background: '#020617',
-        color: 'white',
-        minHeight: '100vh',
-        display: 'flex',
-      }}
-    >
-      <aside
-        style={{
-          width: 220,
-          background: '#0f172a',
-          padding: 20,
-        }}
-      >
+    <div style={{ background: '#020617', color: 'white', minHeight: '100vh', display: 'flex' }}>
+      <aside style={{ width: 220, background: '#0f172a', padding: 20 }}>
         <h2>TEFCO V2</h2>
 
         {[
           'dashboard',
+          'areas',
+          'segments',
+          'leases',
+          'producers',
+          'meters',
+          'readings',
           'provings',
           'tickets',
         ].map((p) => (
-          <button
-            key={p}
-            onClick={() => setPage(p)}
-            style={button}
-          >
+          <button key={p} onClick={() => setPage(p)} style={button}>
             {p.toUpperCase()}
           </button>
         ))}
 
-        <button
-          onClick={logout}
-          style={{
-            ...button,
-            background: '#dc2626',
-            marginTop: 30,
-          }}
-        >
+        <button onClick={logout} style={{ ...button, background: '#dc2626', marginTop: 30 }}>
           Logout
         </button>
       </aside>
 
-      <main
-        style={{
-          flex: 1,
-          padding: 30,
-        }}
-      >
+      <main style={{ flex: 1, padding: 30 }}>
         {page === 'dashboard' && (
           <>
             <h1>Dashboard</h1>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 20 }}>
+              <div style={box}>Areas<h2>{areas.length}</h2></div>
+              <div style={box}>Segments<h2>{segments.length}</h2></div>
+              <div style={box}>Leases<h2>{leases.length}</h2></div>
+              <div style={box}>Producers<h2>{producers.length}</h2></div>
+              <div style={box}>Meters<h2>{meters.length}</h2></div>
+              <div style={box}>Readings<h2>{readings.length}</h2></div>
+              <div style={box}>Provings<h2>{provings.length}</h2></div>
+              <div style={box}>Tickets<h2>{tickets.length}</h2></div>
+            </div>
+          </>
+        )}
 
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns:
-                  'repeat(4, 1fr)',
-                gap: 20,
-              }}
-            >
-              <div style={box}>
-                Active Meters
-                <h2>
-                  {activeMeters.length}
-                </h2>
-              </div>
+        {page === 'areas' && (
+          <>
+            <h1>Areas</h1>
+            <div style={box}>
+              <input style={input} placeholder="Area Name" value={newArea} onChange={(e) => setNewArea(e.target.value)} />
+              <button style={button} onClick={addArea}>Add Area</button>
+            </div>
+            {areas.map((a) => <div key={a.id} style={box}>{a.name}</div>)}
+          </>
+        )}
 
-              <div style={box}>
-                Proved This Month
-                <h2>
-                  {provedThisMonthCount}
-                </h2>
-              </div>
+        {page === 'segments' && (
+          <>
+            <h1>Segments</h1>
+            <div style={box}>
+              <input style={input} placeholder="Segment Name" value={newSegment} onChange={(e) => setNewSegment(e.target.value)} />
+              <button style={button} onClick={addSegment}>Add Segment</button>
+            </div>
+            {segments.map((s) => <div key={s.id} style={box}>{s.name}</div>)}
+          </>
+        )}
 
-              <div style={box}>
-                Remaining
-                <h2>
-                  {remainingProvingCount}
-                </h2>
-              </div>
+        {page === 'producers' && (
+          <>
+            <h1>Producers</h1>
+            <div style={box}>
+              <input style={input} placeholder="Producer Name" value={newProducer} onChange={(e) => setNewProducer(e.target.value)} />
+              <select style={input} value={newProducerProfile} onChange={(e) => setNewProducerProfile(e.target.value)}>
+                <option value="">Select API Chapter</option>
+                {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <button style={button} onClick={addProducer}>Add Producer</button>
+            </div>
+            {producers.map((p) => <div key={p.id} style={box}>{p.name}</div>)}
+          </>
+        )}
 
-              <div style={box}>
-                Compliance
-                <h2>
-                  {provingCompliance}%
-                </h2>
+        {page === 'leases' && (
+          <>
+            <h1>Leases</h1>
+            <div style={box}>
+              <input style={input} placeholder="Lease Name" value={newLeaseName} onChange={(e) => setNewLeaseName(e.target.value)} />
+              <input style={input} placeholder="Lease Number" value={newLeaseNumber} onChange={(e) => setNewLeaseNumber(e.target.value)} />
+              <select style={input} value={selectedArea} onChange={(e) => setSelectedArea(e.target.value)}>
+                <option value="">Select Area</option>
+                {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <select style={input} value={selectedSegment} onChange={(e) => setSelectedSegment(e.target.value)}>
+                <option value="">Select Segment</option>
+                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <select style={input} value={selectedProducer} onChange={(e) => setSelectedProducer(e.target.value)}>
+                <option value="">Select Producer</option>
+                {producers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <button style={button} onClick={addLease}>Add Lease</button>
+            </div>
+            {leases.map((l) => (
+              <div key={l.id} style={box}>
+                <strong>{l.lease_name}</strong>
+                <div>{l.lease_number}</div>
               </div>
+            ))}
+          </>
+        )}
+
+        {page === 'meters' && (
+          <>
+            <h1>Master Meter List</h1>
+            <div style={box}>
+              <input style={input} placeholder="Meter Number" value={newMeter} onChange={(e) => setNewMeter(e.target.value)} />
+              <input style={input} placeholder="Meter Name" value={newMeterName} onChange={(e) => setNewMeterName(e.target.value)} />
+              <select style={input} value={selectedArea} onChange={(e) => setSelectedArea(e.target.value)}>
+                <option value="">Select Area</option>
+                {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <select style={input} value={selectedLease} onChange={(e) => setSelectedLease(e.target.value)}>
+                <option value="">Select Lease</option>
+                {leases.map((l) => <option key={l.id} value={l.id}>{l.lease_name}</option>)}
+              </select>
+              <select style={input} value={selectedProducer} onChange={(e) => setSelectedProducer(e.target.value)}>
+                <option value="">Select Producer</option>
+                {producers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <button style={button} onClick={addMeter}>Add Meter</button>
+            </div>
+            {meters.map((m) => (
+              <div key={m.id} style={box}>
+                <strong>{m.meter_number}</strong>
+                <div>{m.meter_name}</div>
+              </div>
+            ))}
+          </>
+        )}
+
+        {page === 'readings' && (
+          <>
+            <h1>Operator Readings</h1>
+            <div style={box}>
+              <select style={input} value={selectedReadingMeter} onChange={(e) => setSelectedReadingMeter(e.target.value)}>
+                <option value="">Select Meter</option>
+                {meters.map((m) => <option key={m.id} value={m.id}>{m.meter_number}</option>)}
+              </select>
+              <select style={input} value={selectedReadingSegment} onChange={(e) => setSelectedReadingSegment(e.target.value)}>
+                <option value="">Select Segment</option>
+                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <input style={input} placeholder="Opening Reading" value={readingOpen} onChange={(e) => setReadingOpen(e.target.value)} />
+              <input style={input} placeholder="Closing Reading" value={readingClose} onChange={(e) => setReadingClose(e.target.value)} />
+              <input style={input} placeholder="API Gravity" value={readingGravity} onChange={(e) => setReadingGravity(e.target.value)} />
+              <input style={input} placeholder="Temperature" value={readingTemp} onChange={(e) => setReadingTemp(e.target.value)} />
+              <input style={input} placeholder="BS&W %" value={readingBSW} onChange={(e) => setReadingBSW(e.target.value)} />
+              <input style={input} placeholder="Fallback Meter Factor" value={readingMF} onChange={(e) => setReadingMF(e.target.value)} />
+              <div style={{ marginTop: 15 }}>
+                IV: {(Number(readingClose || 0) - Number(readingOpen || 0)).toFixed(2)}
+              </div>
+              <button style={button} onClick={saveReading}>Save Reading</button>
             </div>
           </>
         )}
@@ -717,365 +727,172 @@ export default function App() {
             <h1>Meter Provings</h1>
 
             <div style={box}>
-              <h2>
-                Monthly Proving KPI
-              </h2>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns:
-                    'repeat(4, 1fr)',
-                  gap: 20,
-                  marginTop: 20,
-                }}
-              >
-                <div style={card}>
-                  Active Meters
-                  <h2>
-                    {activeMeters.length}
-                  </h2>
-                </div>
-
-                <div style={card}>
-                  Proved This Month
-                  <h2>
-                    {provedThisMonthCount}
-                  </h2>
-                </div>
-
-                <div style={card}>
-                  Remaining
-                  <h2>
-                    {remainingProvingCount}
-                  </h2>
-                </div>
-
-                <div style={card}>
-                  Compliance
-                  <h2>
-                    {provingCompliance}%
-                  </h2>
-                </div>
+              <h2>Monthly Proving KPI</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginTop: 20 }}>
+                <div style={card}>Active Meters<h2>{activeMeters.length}</h2></div>
+                <div style={card}>Proved This Month<h2>{provedThisMonthCount}</h2></div>
+                <div style={card}>Remaining<h2>{remainingProvingCount}</h2></div>
+                <div style={card}>Compliance<h2>{provingCompliance}%</h2></div>
               </div>
             </div>
 
             <div style={box}>
               <h2>New Proving</h2>
-
-              <select
-                style={input}
-                value={provingMeter}
-                onChange={(e) =>
-                  setProvingMeter(
-                    e.target.value
-                  )
-                }
-              >
-                <option value="">
-                  Select Meter
-                </option>
-
-                {meters.map((m) => (
-                  <option
-                    key={m.id}
-                    value={m.id}
-                  >
-                    {m.meter_number}
-                  </option>
-                ))}
+              <select style={input} value={provingMeter} onChange={(e) => setProvingMeter(e.target.value)}>
+                <option value="">Select Meter</option>
+                {meters.map((m) => <option key={m.id} value={m.id}>{m.meter_number}</option>)}
               </select>
-
-              <select
-                style={input}
-                value={provingFactorType}
-                onChange={(e) =>
-                  setProvingFactorType(
-                    e.target.value
-                  )
-                }
-              >
-                <option value="MF">
-                  MF
-                </option>
-                <option value="CMF">
-                  CMF
-                </option>
+              <select style={input} value={provingFactorType} onChange={(e) => setProvingFactorType(e.target.value)}>
+                <option value="MF">MF</option>
+                <option value="CMF">CMF</option>
               </select>
-
-              <input
-                style={input}
-                type="date"
-                value={provingDate}
-                onChange={(e) =>
-                  setProvingDate(
-                    e.target.value
-                  )
-                }
-              />
-
-              <input
-                style={input}
-                placeholder="Prover Volume"
-                value={proverVolume}
-                onChange={(e) =>
-                  setProverVolume(
-                    e.target.value
-                  )
-                }
-              />
-
-              <input
-                style={input}
-                placeholder="Indicated Volume"
-                value={
-                  provingIndicatedVolume
-                }
-                onChange={(e) =>
-                  setProvingIndicatedVolume(
-                    e.target.value
-                  )
-                }
-              />
-
-              <input
-                style={input}
-                placeholder="Accepted MF/CMF"
-                value={acceptedMF}
-                onChange={(e) =>
-                  setAcceptedMF(
-                    e.target.value
-                  )
-                }
-              />
-
-              <input
-                style={input}
-                placeholder="Witness"
-                value={provingWitness}
-                onChange={(e) =>
-                  setProvingWitness(
-                    e.target.value
-                  )
-                }
-              />
-
-              <input
-                style={input}
-                type="file"
-                accept="application/pdf"
-                onChange={(e) =>
-                  setProvingPdfFile(
-                    e.target.files?.[0] ||
-                      null
-                  )
-                }
-              />
+              <input style={input} type="date" value={provingDate} onChange={(e) => setProvingDate(e.target.value)} />
+              <input style={input} placeholder="Prover Volume" value={proverVolume} onChange={(e) => setProverVolume(e.target.value)} />
+              <input style={input} placeholder="Indicated Volume" value={provingIndicatedVolume} onChange={(e) => setProvingIndicatedVolume(e.target.value)} />
+              <input style={input} placeholder="Accepted MF/CMF" value={acceptedMF} onChange={(e) => setAcceptedMF(e.target.value)} />
+              <input style={input} placeholder="Witness" value={provingWitness} onChange={(e) => setProvingWitness(e.target.value)} />
+              <input style={input} type="file" accept="application/pdf" onChange={(e) => setProvingPdfFile(e.target.files?.[0] || null)} />
 
               <div style={card}>
-                Calculated{' '}
-                {provingFactorType}:{' '}
-                {Number(
-                  proverVolume || 0
-                ) > 0 &&
-                Number(
-                  provingIndicatedVolume ||
-                    0
-                ) > 0
-                  ? roundFactor(
-                      Number(
-                        proverVolume
-                      ) /
-                        Number(
-                          provingIndicatedVolume
-                        )
-                    ).toFixed(4)
+                Calculated {provingFactorType}:{' '}
+                {Number(proverVolume || 0) > 0 && Number(provingIndicatedVolume || 0) > 0
+                  ? roundFactor(Number(proverVolume) / Number(provingIndicatedVolume)).toFixed(4)
                   : '0.0000'}
               </div>
 
-              <button
-                style={button}
-                onClick={saveProving}
-              >
-                Save Draft Proving
-              </button>
+              <button style={button} onClick={saveProving}>Save Draft Proving</button>
             </div>
 
             <div style={box}>
-              <h2>
-                Needs Approval
-              </h2>
+              <h2>Needs Approval</h2>
+              {pendingProvings.length === 0 && <div style={card}>No pending provings.</div>}
+              {pendingProvings.map((p) => {
+                const meter = meters.find((m) => m.id === p.meter_id)
+                return (
+                  <div key={p.id} style={card}>
+                    <strong>{meter?.meter_number || 'Meter'}</strong>
+                    <div>Date: {p.proving_date}</div>
+                    <div>Status: {p.status}</div>
+                    <div>Type: {p.factor_type || 'MF'}</div>
+                    <div>Accepted {p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>
+                    <div>Witness: {p.witness || ''}</div>
+                    <div>PDF: {p.pdf_file_name || 'None'}</div>
+                    {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
+                    <button style={button} onClick={() => approveProving(p)}>Approve Proving</button>
+                  </div>
+                )
+              })}
+            </div>
 
-              {pendingProvings.length ===
-                0 && (
-                <div style={card}>
-                  No pending provings.
+            <div style={box}>
+              <h2>Approved History</h2>
+              {approvedProvings.map((p) => {
+                const meter = meters.find((m) => m.id === p.meter_id)
+                return (
+                  <div key={p.id} style={card}>
+                    <strong>{meter?.meter_number || 'Meter'}</strong>
+                    <div>Date: {p.proving_date}</div>
+                    <div>Approved: {p.approved_at ? new Date(p.approved_at).toLocaleString() : 'No'}</div>
+                    <div>{p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>
+                    {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
+
+        {page === 'tickets' && (
+          <>
+            <h1>Ticket Workflow</h1>
+            <div style={box}>
+              <h3>Create Draft Ticket</h3>
+              <select style={input} value={selectedProducer} onChange={(e) => setSelectedProducer(e.target.value)}>
+                <option value="">Select Producer</option>
+                {producers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <select style={input} value={selectedMeter} onChange={(e) => setSelectedMeter(e.target.value)}>
+                <option value="">Select Meter</option>
+                {meters.map((m) => <option key={m.id} value={m.id}>{m.meter_number}</option>)}
+              </select>
+              <select style={input} value={ticketType} onChange={(e) => setTicketType(e.target.value)}>
+                <option value="meter">Meter Ticket</option>
+                <option value="tank">Tank Ticket</option>
+                <option value="truck">Truck Ticket</option>
+              </select>
+
+              <div style={card}>
+                <h3>Autofill Preview</h3>
+                <div>Profile: {autofillPreview?.profile?.name || 'None'}</div>
+                <div>IV: {autofillPreview?.reading?.indicated_volume ?? 'None'}</div>
+                <div>Gravity: {autofillPreview?.reading?.api_gravity ?? 'None'}</div>
+                <div>Temp: {autofillPreview?.reading?.temperature ?? 'None'}</div>
+                <div>Latest Approved {autofillPreview?.proving?.factor_type || 'MF'}: {autofillPreview?.proving?.accepted_meter_factor ?? 'None'}</div>
+              </div>
+
+              <button style={button} onClick={createTicket}>Auto Build Draft Ticket</button>
+            </div>
+
+            <div style={box}>
+              <h3>Workflow Queue</h3>
+              {tickets.map((t) => (
+                <div key={t.id} style={card}>
+                  <strong>{t.ticket_number}</strong>
+                  <div>Status: {t.status}</div>
+                  <div>Type: {t.ticket_type}</div>
+                  <div>Factor Type: {t.observed_inputs?.factor_type || 'MF'}</div>
+                  <div>Factor Source: {t.observed_inputs?.mf_source || 'None'}</div>
+                  <div>GSV: {t.calculation_results?.gsv ?? 'None'}</div>
+                  <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
+                  <button style={button} onClick={() => setSelectedTicket(t)}>Open Ticket</button>
                 </div>
-              )}
-
-              {pendingProvings.map(
-                (p) => {
-                  const meter =
-                    meters.find(
-                      (m) =>
-                        m.id ===
-                        p.meter_id
-                    )
-
-                  return (
-                    <div
-                      key={p.id}
-                      style={card}
-                    >
-                      <strong>
-                        {meter?.meter_number ||
-                          'Meter'}
-                      </strong>
-
-                      <div>
-                        Date:{' '}
-                        {p.proving_date}
-                      </div>
-
-                      <div>
-                        Status:{' '}
-                        {p.status}
-                      </div>
-
-                      <div>
-                        Type:{' '}
-                        {p.factor_type ||
-                          'MF'}
-                      </div>
-
-                      <div>
-                        Accepted{' '}
-                        {p.factor_type ||
-                          'MF'}
-                        :{' '}
-                        {Number(
-                          p.accepted_meter_factor ||
-                            0
-                        ).toFixed(4)}
-                      </div>
-
-                      <div>
-                        Witness:{' '}
-                        {p.witness ||
-                          ''}
-                      </div>
-
-                      <div>
-                        PDF:{' '}
-                        {p.pdf_file_name ||
-                          'None'}
-                      </div>
-
-                      {p.pdf_url && (
-                        <button
-                          style={
-                            button
-                          }
-                          onClick={() =>
-                            viewProvingPdf(
-                              p.pdf_url
-                            )
-                          }
-                        >
-                          View
-                          Proving
-                          PDF
-                        </button>
-                      )}
-
-                      <button
-                        style={
-                          button
-                        }
-                        onClick={() =>
-                          approveProving(
-                            p
-                          )
-                        }
-                      >
-                        Approve
-                        Proving
-                      </button>
-                    </div>
-                  )
-                }
-              )}
+              ))}
             </div>
 
-            <div style={box}>
-              <h2>
-                Approved History
-              </h2>
+            {selectedTicket && (
+              <div style={box}>
+                <h2>Ticket Detail</h2>
+                <div><strong>Ticket:</strong> {selectedTicket.ticket_number}</div>
+                <div><strong>Status:</strong> {selectedTicket.status}</div>
+                <div><strong>Type:</strong> {selectedTicket.ticket_type}</div>
+                <div><strong>Profile:</strong> {selectedTicket.calculation_profile_snapshot?.name || 'None'}</div>
 
-              {approvedProvings.map(
-                (p) => {
-                  const meter =
-                    meters.find(
-                      (m) =>
-                        m.id ===
-                        p.meter_id
-                    )
+                {selectedTicket.approved_at && (
+                  <div style={{ color: '#86efac', marginTop: 10 }}>
+                    Approved At: {new Date(selectedTicket.approved_at).toLocaleString()}
+                  </div>
+                )}
 
-                  return (
-                    <div
-                      key={p.id}
-                      style={card}
-                    >
-                      <strong>
-                        {meter?.meter_number ||
-                          'Meter'}
-                      </strong>
+                {selectedTicket.status === 'approved' && (
+                  <div style={{ background: '#14532d', padding: 12, borderRadius: 8, marginTop: 12 }}>
+                    Approved ticket is locked for custody transfer.
+                  </div>
+                )}
 
-                      <div>
-                        Date:{' '}
-                        {p.proving_date}
-                      </div>
+                <div style={card}>
+                  <h3>Inputs</h3>
+                  <div>IV: {selectedTicket.observed_inputs?.iv}</div>
+                  <div>CTL: {selectedTicket.observed_inputs?.ctl}</div>
+                  <div>CPL: {selectedTicket.observed_inputs?.cpl}</div>
+                  <div>CTLP: {selectedTicket.observed_inputs?.ctlp}</div>
+                  <div>{selectedTicket.observed_inputs?.factor_type || 'MF'}: {selectedTicket.observed_inputs?.mf}</div>
+                  <div>Factor Source: {selectedTicket.observed_inputs?.mf_source}</div>
+                  <div>CSW: {selectedTicket.observed_inputs?.csw}</div>
+                </div>
 
-                      <div>
-                        Approved:{' '}
-                        {p.approved_at
-                          ? new Date(
-                              p.approved_at
-                            ).toLocaleString()
-                          : 'No'}
-                      </div>
+                <div style={card}>
+                  <h3>Results</h3>
+                  <div>GSV: {selectedTicket.calculation_results?.gsv}</div>
+                  <div>NSV: {selectedTicket.calculation_results?.nsv}</div>
+                </div>
 
-                      <div>
-                        {p.factor_type ||
-                          'MF'}
-                        :{' '}
-                        {Number(
-                          p.accepted_meter_factor ||
-                            0
-                        ).toFixed(4)}
-                      </div>
-
-                      {p.pdf_url && (
-                        <button
-                          style={
-                            button
-                          }
-                          onClick={() =>
-                            viewProvingPdf(
-                              p.pdf_url
-                            )
-                          }
-                        >
-                          View
-                          Proving
-                          PDF
-                        </button>
-                      )}
-                    </div>
-                  )
-                }
-              )}
-            </div>
+                <button style={button} onClick={() => updateTicketStatus(selectedTicket, 'submitted')}>Submit Ticket</button>
+                <button style={button} onClick={() => updateTicketStatus(selectedTicket, 'approved')}>Approve Ticket</button>
+                <button style={button} onClick={() => updateTicketStatus(selectedTicket, 'draft')}>Reject to Draft</button>
+                <button style={{ ...button, background: '#dc2626' }} onClick={() => updateTicketStatus(selectedTicket, 'voided')}>Void Ticket</button>
+                <button style={{ ...button, background: '#16a34a' }} onClick={() => generatePdfPreview(selectedTicket)}>Generate PDF Preview</button>
+              </div>
+            )}
           </>
         )}
       </main>

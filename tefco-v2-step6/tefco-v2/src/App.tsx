@@ -42,14 +42,20 @@ export default function App() {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
       setLoading(false)
-      if (data.session) loadAll()
+
+      if (data.session) {
+        loadAll()
+      }
     })
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
-      if (session) loadAll()
+
+      if (session) {
+        loadAll()
+      }
     })
 
     return () => subscription.unsubscribe()
@@ -63,9 +69,21 @@ export default function App() {
 
     if (cu) setCompanyId(cu.company_id)
 
-    const { data: segs } = await supabase.from('segments').select('*').order('name')
-    const { data: tankData } = await supabase.from('tanks').select('*').order('tank_number')
-    const { data: meterData } = await supabase.from('meters').select('*').order('meter_number')
+    const { data: segs } = await supabase
+      .from('segments')
+      .select('*')
+      .order('name')
+
+    const { data: tankData } = await supabase
+      .from('tanks')
+      .select('*')
+      .order('tank_number')
+
+    const { data: meterData } = await supabase
+      .from('meters')
+      .select('*')
+      .order('meter_number')
+
     const { data: ticketData } = await supabase
       .from('tickets')
       .select('*')
@@ -79,21 +97,36 @@ export default function App() {
 
   async function addSegment() {
     if (!newSegment || !companyId) return
-    await supabase.from('segments').insert({ company_id: companyId, name: newSegment })
+
+    await supabase.from('segments').insert({
+      company_id: companyId,
+      name: newSegment,
+    })
+
     setNewSegment('')
     loadAll()
   }
 
   async function addTank() {
     if (!newTank || !companyId) return
-    await supabase.from('tanks').insert({ company_id: companyId, tank_number: newTank })
+
+    await supabase.from('tanks').insert({
+      company_id: companyId,
+      tank_number: newTank,
+    })
+
     setNewTank('')
     loadAll()
   }
 
   async function addMeter() {
     if (!newMeter || !companyId) return
-    await supabase.from('meters').insert({ company_id: companyId, meter_number: newMeter })
+
+    await supabase.from('meters').insert({
+      company_id: companyId,
+      meter_number: newMeter,
+    })
+
     setNewMeter('')
     loadAll()
   }
@@ -116,8 +149,11 @@ export default function App() {
   }
 
   async function updateTicketStatus(ticketId: string, status: string) {
-    await supabase.from('tickets').update({ status }).eq('id', ticketId)
-    setSelectedTicket((prev) => (prev ? { ...prev, status } : prev))
+    await supabase
+      .from('tickets')
+      .update({ status })
+      .eq('id', ticketId)
+
     loadAll()
   }
 
@@ -125,49 +161,80 @@ export default function App() {
     await supabase.auth.signOut()
   }
 
-  function statusColor(status: string) {
-    if (status === 'approved') return '#16a34a'
-    if (status === 'submitted') return '#f59e0b'
-    if (status === 'voided') return '#dc2626'
-    return '#475569'
-  }
-
   const box = {
-    background: '#1e293b',
+    background: '#0f172a',
     padding: 20,
     borderRadius: 10,
-    marginTop: 20,
+    marginBottom: 20,
   }
 
   const input = {
     width: '100%',
-    padding: 10,
+    padding: 12,
     marginTop: 10,
+    color: 'black',
+    background: 'white',
+    borderRadius: 6,
+    border: 'none',
   }
 
   const button = {
     width: '100%',
-    padding: 10,
+    padding: 12,
     marginTop: 10,
+    background: '#2563eb',
+    color: 'white',
+    border: 'none',
+    borderRadius: 6,
     cursor: 'pointer',
   }
 
-  if (loading) return <div style={{ color: 'white', padding: 40 }}>Loading...</div>
-  if (!session) return <Login />
+  if (loading) {
+    return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
+  }
+
+  if (!session) {
+    return <Login />
+  }
 
   return (
-    <div style={{ background: '#020617', color: 'white', minHeight: '100vh', display: 'flex' }}>
-      <aside style={{ width: 240, background: '#0f172a', padding: 20 }}>
+    <div
+      style={{
+        background: '#020617',
+        color: 'white',
+        minHeight: '100vh',
+        display: 'flex',
+      }}
+    >
+      <aside
+        style={{
+          width: 220,
+          background: '#0f172a',
+          padding: 20,
+        }}
+      >
         <h2>TEFCO V2</h2>
-        <p style={{ color: '#94a3b8' }}>Measurement Platform</p>
 
-        {['dashboard', 'segments', 'tanks', 'meters', 'tickets'].map((p) => (
-          <button key={p} onClick={() => setPage(p)} style={button}>
-            {p.toUpperCase()}
-          </button>
-        ))}
+        {['dashboard', 'segments', 'tanks', 'meters', 'tickets'].map(
+          (p) => (
+            <button
+              key={p}
+              onClick={() => setPage(p)}
+              style={button}
+            >
+              {p.toUpperCase()}
+            </button>
+          )
+        )}
 
-        <button onClick={logout} style={{ ...button, marginTop: 30 }}>
+        <button
+          onClick={logout}
+          style={{
+            ...button,
+            background: '#dc2626',
+            marginTop: 30,
+          }}
+        >
           Logout
         </button>
       </aside>
@@ -176,11 +243,33 @@ export default function App() {
         {page === 'dashboard' && (
           <>
             <h1>Dashboard</h1>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 20 }}>
-              <div style={box}>Segments:<h2>{segments.length}</h2></div>
-              <div style={box}>Tanks:<h2>{tanks.length}</h2></div>
-              <div style={box}>Meters:<h2>{meters.length}</h2></div>
-              <div style={box}>Tickets:<h2>{tickets.length}</h2></div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr 1fr 1fr',
+                gap: 20,
+              }}
+            >
+              <div style={box}>
+                Segments
+                <h2>{segments.length}</h2>
+              </div>
+
+              <div style={box}>
+                Tanks
+                <h2>{tanks.length}</h2>
+              </div>
+
+              <div style={box}>
+                Meters
+                <h2>{meters.length}</h2>
+              </div>
+
+              <div style={box}>
+                Tickets
+                <h2>{tickets.length}</h2>
+              </div>
             </div>
           </>
         )}
@@ -188,79 +277,176 @@ export default function App() {
         {page === 'segments' && (
           <>
             <h1>Segments</h1>
+
             <div style={box}>
-              <input style={input} value={newSegment} onChange={(e) => setNewSegment(e.target.value)} placeholder="New Segment" />
-              <button style={button} onClick={addSegment}>Add Segment</button>
-              {segments.map((s) => <div key={s.id} style={box}>{s.name}</div>)}
+              <input
+                style={input}
+                placeholder="New Segment"
+                value={newSegment}
+                onChange={(e) => setNewSegment(e.target.value)}
+              />
+
+              <button style={button} onClick={addSegment}>
+                Add Segment
+              </button>
             </div>
+
+            {segments.map((s) => (
+              <div key={s.id} style={box}>
+                {s.name}
+              </div>
+            ))}
           </>
         )}
 
         {page === 'tanks' && (
           <>
             <h1>Tanks</h1>
+
             <div style={box}>
-              <input style={input} value={newTank} onChange={(e) => setNewTank(e.target.value)} placeholder="Tank Number" />
-              <button style={button} onClick={addTank}>Add Tank</button>
-              {tanks.map((t) => <div key={t.id} style={box}>Tank {t.tank_number}</div>)}
+              <input
+                style={input}
+                placeholder="Tank Number"
+                value={newTank}
+                onChange={(e) => setNewTank(e.target.value)}
+              />
+
+              <button style={button} onClick={addTank}>
+                Add Tank
+              </button>
             </div>
+
+            {tanks.map((t) => (
+              <div key={t.id} style={box}>
+                Tank {t.tank_number}
+              </div>
+            ))}
           </>
         )}
 
         {page === 'meters' && (
           <>
             <h1>Meters</h1>
+
             <div style={box}>
-              <input style={input} value={newMeter} onChange={(e) => setNewMeter(e.target.value)} placeholder="Meter Number" />
-              <button style={button} onClick={addMeter}>Add Meter</button>
-              {meters.map((m) => <div key={m.id} style={box}>Meter {m.meter_number}</div>)}
+              <input
+                style={input}
+                placeholder="Meter Number"
+                value={newMeter}
+                onChange={(e) => setNewMeter(e.target.value)}
+              />
+
+              <button style={button} onClick={addMeter}>
+                Add Meter
+              </button>
             </div>
+
+            {meters.map((m) => (
+              <div key={m.id} style={box}>
+                Meter {m.meter_number}
+              </div>
+            ))}
           </>
         )}
 
         {page === 'tickets' && (
           <>
-            <h1>Tickets</h1>
+            <h1>Ticket Engine</h1>
 
             <div style={box}>
-              <h2>Create Draft Ticket</h2>
+              <h3>Create Draft Ticket</h3>
 
-              <input style={input} value={ticketNumber} onChange={(e) => setTicketNumber(e.target.value)} placeholder="Ticket Number" />
+              <input
+                style={input}
+                placeholder="Ticket Number"
+                value={ticketNumber}
+                onChange={(e) => setTicketNumber(e.target.value)}
+              />
 
-              <select style={input} value={ticketType} onChange={(e) => setTicketType(e.target.value)}>
+              <select
+                style={input}
+                value={ticketType}
+                onChange={(e) => setTicketType(e.target.value)}
+              >
                 <option value="tank">Tank Ticket</option>
                 <option value="meter">Meter Ticket</option>
                 <option value="truck">Truck Ticket</option>
                 <option value="plains_style">Plains Style</option>
               </select>
 
-              <select style={input} value={selectedSegment} onChange={(e) => setSelectedSegment(e.target.value)}>
+              <select
+                style={input}
+                value={selectedSegment}
+                onChange={(e) => setSelectedSegment(e.target.value)}
+              >
                 <option value="">Select Segment</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+
+                {segments.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
               </select>
 
-              <select style={input} value={selectedTank} onChange={(e) => setSelectedTank(e.target.value)}>
+              <select
+                style={input}
+                value={selectedTank}
+                onChange={(e) => setSelectedTank(e.target.value)}
+              >
                 <option value="">Select Tank</option>
-                {tanks.map((t) => <option key={t.id} value={t.id}>Tank {t.tank_number}</option>)}
+
+                {tanks.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    Tank {t.tank_number}
+                  </option>
+                ))}
               </select>
 
-              <select style={input} value={selectedMeter} onChange={(e) => setSelectedMeter(e.target.value)}>
+              <select
+                style={input}
+                value={selectedMeter}
+                onChange={(e) => setSelectedMeter(e.target.value)}
+              >
                 <option value="">Select Meter</option>
-                {meters.map((m) => <option key={m.id} value={m.id}>Meter {m.meter_number}</option>)}
+
+                {meters.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    Meter {m.meter_number}
+                  </option>
+                ))}
               </select>
 
-              <button style={button} onClick={createTicket}>Save Draft Ticket</button>
+              <button style={button} onClick={createTicket}>
+                Save Draft Ticket
+              </button>
             </div>
 
             <div style={box}>
-              <h2>Workflow Queue</h2>
+              <h3>Workflow Queue</h3>
 
               {tickets.map((t) => (
-                <div key={t.id} style={{ ...box, borderLeft: '8px solid ' + statusColor(t.status) }}>
-                  <strong>{t.ticket_number}</strong>
+                <div
+                  key={t.id}
+                  style={{
+                    background: '#1e293b',
+                    padding: 20,
+                    borderRadius: 10,
+                    marginBottom: 15,
+                  }}
+                >
+                  <div>
+                    <strong>{t.ticket_number}</strong>
+                  </div>
+
                   <div>Type: {t.ticket_type}</div>
                   <div>Status: {t.status}</div>
-                  <button style={button} onClick={() => setSelectedTicket(t)}>Open Ticket</button>
+
+                  <button
+                    style={button}
+                    onClick={() => setSelectedTicket(t)}
+                  >
+                    Open Ticket
+                  </button>
                 </div>
               ))}
             </div>
@@ -269,29 +455,76 @@ export default function App() {
               <div style={box}>
                 <h2>Ticket Detail</h2>
 
-                <div>Ticket: {selectedTicket.ticket_number}</div>
-                <div>Type: {selectedTicket.ticket_type}</div>
-                <div>Status: {selectedTicket.status}</div>
+                <div>
+                  <strong>Ticket:</strong>{' '}
+                  {selectedTicket.ticket_number}
+                </div>
+
+                <div style={{ marginTop: 10 }}>
+                  <strong>Type:</strong>{' '}
+                  {selectedTicket.ticket_type}
+                </div>
+
+                <div style={{ marginTop: 10 }}>
+                  <strong>Status:</strong>{' '}
+                  {selectedTicket.status}
+                </div>
 
                 <hr style={{ margin: '20px 0' }} />
 
-                <h3>Calculation Engine</h3>
+                <CalculationSection
+                  ticket={selectedTicket}
+                  refresh={loadAll}
+                />
 
-                <CalculationSection ticket={selectedTicket} refresh={loadAll} />
-
-                <button style={button} onClick={() => updateTicketStatus(selectedTicket.id, 'submitted')}>
+                <button
+                  style={button}
+                  onClick={() =>
+                    updateTicketStatus(
+                      selectedTicket.id,
+                      'submitted'
+                    )
+                  }
+                >
                   Submit Ticket
                 </button>
 
-                <button style={button} onClick={() => updateTicketStatus(selectedTicket.id, 'approved')}>
+                <button
+                  style={button}
+                  onClick={() =>
+                    updateTicketStatus(
+                      selectedTicket.id,
+                      'approved'
+                    )
+                  }
+                >
                   Approve Ticket
                 </button>
 
-                <button style={button} onClick={() => updateTicketStatus(selectedTicket.id, 'draft')}>
+                <button
+                  style={button}
+                  onClick={() =>
+                    updateTicketStatus(
+                      selectedTicket.id,
+                      'draft'
+                    )
+                  }
+                >
                   Reject to Draft
                 </button>
 
-                <button style={button} onClick={() => updateTicketStatus(selectedTicket.id, 'voided')}>
+                <button
+                  style={{
+                    ...button,
+                    background: '#dc2626',
+                  }}
+                  onClick={() =>
+                    updateTicketStatus(
+                      selectedTicket.id,
+                      'voided'
+                    )
+                  }
+                >
                   Void Ticket
                 </button>
               </div>
@@ -305,55 +538,135 @@ export default function App() {
 
 function CalculationSection({ ticket, refresh }: any) {
   const existingInputs = ticket.observed_inputs || {}
-  const existingResults = ticket.calculation_results || {}
 
-  const [iv, setIv] = useState(Number(existingInputs.iv || 0))
-  const [ctl, setCtl] = useState(Number(existingInputs.ctl || 1))
-  const [cpl, setCpl] = useState(Number(existingInputs.cpl || 1))
-  const [mf, setMf] = useState(Number(existingInputs.mf || 1))
-  const [bsw, setBsw] = useState(Number(existingInputs.bsw || 0))
+  const [iv, setIv] = useState(existingInputs.iv || '')
+  const [ctl, setCtl] = useState(existingInputs.ctl || '')
+  const [cpl, setCpl] = useState(existingInputs.cpl || '')
+  const [mf, setMf] = useState(existingInputs.mf || '')
+  const [bsw, setBsw] = useState(existingInputs.bsw || '')
 
-  const gsv = Number(iv) * Number(ctl) * Number(cpl) * Number(mf)
-  const nsv = gsv * (1 - Number(bsw) / 100)
+  const gsv =
+    Number(iv || 0) *
+    Number(ctl || 0) *
+    Number(cpl || 0) *
+    Number(mf || 0)
+
+  const nsv =
+    gsv * (1 - Number(bsw || 0) / 100)
 
   async function saveCalculations() {
     await supabase
       .from('tickets')
       .update({
-        observed_inputs: { iv, ctl, cpl, mf, bsw },
-        calculation_results: { gsv, nsv },
+        observed_inputs: {
+          iv,
+          ctl,
+          cpl,
+          mf,
+          bsw,
+        },
+        calculation_results: {
+          gsv,
+          nsv,
+        },
       })
       .eq('id', ticket.id)
 
+    alert('Calculations Saved')
+
     refresh()
-    alert('Calculations saved')
   }
 
-  const input = { width: '100%', padding: 10, marginTop: 10 }
-  const button = { width: '100%', padding: 10, marginTop: 10, cursor: 'pointer' }
+  const input = {
+    width: '100%',
+    padding: 12,
+    marginTop: 10,
+    color: 'black',
+    background: 'white',
+    borderRadius: 6,
+    border: 'none',
+  }
+
+  const button = {
+    width: '100%',
+    padding: 12,
+    marginTop: 10,
+    background: '#2563eb',
+    color: 'white',
+    border: 'none',
+    borderRadius: 6,
+    cursor: 'pointer',
+  }
 
   return (
-    <div style={{ background: '#334155', padding: 20, borderRadius: 10, marginTop: 20 }}>
-      <input type="number" placeholder="IV" style={input} value={iv} onChange={(e) => setIv(Number(e.target.value))} />
-      <input type="number" step="0.0001" placeholder="CTL" style={input} value={ctl} onChange={(e) => setCtl(Number(e.target.value))} />
-      <input type="number" step="0.0001" placeholder="CPL" style={input} value={cpl} onChange={(e) => setCpl(Number(e.target.value))} />
-      <input type="number" step="0.0001" placeholder="MF" style={input} value={mf} onChange={(e) => setMf(Number(e.target.value))} />
-      <input type="number" step="0.01" placeholder="BS&W %" style={input} value={bsw} onChange={(e) => setBsw(Number(e.target.value))} />
+    <div
+      style={{
+        background: '#1e293b',
+        padding: 20,
+        borderRadius: 10,
+        marginTop: 20,
+      }}
+    >
+      <h3>Calculation Engine</h3>
+
+      <input
+        style={input}
+        placeholder="IV"
+        value={iv}
+        onChange={(e) => setIv(e.target.value)}
+      />
+
+      <input
+        style={input}
+        placeholder="CTL"
+        value={ctl}
+        onChange={(e) => setCtl(e.target.value)}
+      />
+
+      <input
+        style={input}
+        placeholder="CPL"
+        value={cpl}
+        onChange={(e) => setCpl(e.target.value)}
+      />
+
+      <input
+        style={input}
+        placeholder="MF"
+        value={mf}
+        onChange={(e) => setMf(e.target.value)}
+      />
+
+      <input
+        style={input}
+        placeholder="BS&W %"
+        value={bsw}
+        onChange={(e) => setBsw(e.target.value)}
+      />
 
       <div style={{ marginTop: 20 }}>
-        <strong>Formula</strong>
-        <div style={{ marginTop: 10 }}>IV × CTL × CPL × MF = GSV</div>
-        <div style={{ marginTop: 10 }}>GSV × (1 - BS&W%) = NSV</div>
+        <div>IV × CTL × CPL × MF = GSV</div>
+        <div style={{ marginTop: 10 }}>
+          GSV × (1 - BS&W%) = NSV
+        </div>
       </div>
 
       <div style={{ marginTop: 20 }}>
-        <div>GSV: {gsv.toFixed(2)}</div>
-        <div style={{ marginTop: 10 }}>NSV: {nsv.toFixed(2)}</div>
-        {existingResults.gsv && <div style={{ marginTop: 10 }}>Saved GSV: {Number(existingResults.gsv).toFixed(2)}</div>}
-        {existingResults.nsv && <div style={{ marginTop: 10 }}>Saved NSV: {Number(existingResults.nsv).toFixed(2)}</div>}
+        <div>
+          <strong>GSV:</strong>{' '}
+          {isNaN(gsv) ? '0.00' : gsv.toFixed(2)}
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          <strong>NSV:</strong>{' '}
+          {isNaN(nsv) ? '0.00' : nsv.toFixed(2)}
+        </div>
       </div>
 
-      <button style={button} onClick={saveCalculations}>
+      <button
+        style={button}
+        onClick={saveCalculations}
+      >
         Save Calculations
       </button>
     </div>

@@ -535,37 +535,79 @@ export default function App() {
             </div>
 
             {selectedTicket && (
-              <div style={box}>
-                <h2>
-                  Ticket Detail
-                </h2>
+  <div style={box}>
+    <h2>Ticket Detail</h2>
 
-                <div>
-                  Ticket:
-                  {' '}
-                  {selectedTicket.ticket_number}
-                </div>
+    <div>
+      Ticket: {selectedTicket.ticket_number}
+    </div>
 
-                <div>
-                  Type:
-                  {' '}
-                  {selectedTicket.ticket_type}
-                </div>
+    <div>
+      Type: {selectedTicket.ticket_type}
+    </div>
 
-                <div>
-                  Status:
-                  {' '}
-                  {selectedTicket.status}
-                </div>
+    <div>
+      Status: {selectedTicket.status}
+    </div>
 
-                <button
-                  style={button}
-                  onClick={() =>
-                    updateTicketStatus(
-                      selectedTicket.id,
-                      'submitted'
-                    )
-                  }
+    <hr style={{ margin: '20px 0' }} />
+
+    <h3>Calculation Engine</h3>
+
+    <CalculationSection
+      ticket={selectedTicket}
+      refresh={loadAll}
+    />
+
+    <button
+      style={button}
+      onClick={() =>
+        updateTicketStatus(
+          selectedTicket.id,
+          'submitted'
+        )
+      }
+    >
+      Submit Ticket
+    </button>
+
+    <button
+      style={button}
+      onClick={() =>
+        updateTicketStatus(
+          selectedTicket.id,
+          'approved'
+        )
+      }
+    >
+      Approve Ticket
+    </button>
+
+    <button
+      style={button}
+      onClick={() =>
+        updateTicketStatus(
+          selectedTicket.id,
+          'draft'
+        )
+      }
+    >
+      Reject to Draft
+    </button>
+
+    <button
+      style={button}
+      onClick={() =>
+        updateTicketStatus(
+          selectedTicket.id,
+          'voided'
+        )
+      }
+    >
+      Void Ticket
+    </button>
+  </div>
+)}
                 >
                   Submit Ticket
                 </button>
@@ -610,6 +652,153 @@ export default function App() {
           </>
         )}
       </main>
+    </div>
+  )
+}
+function CalculationSection({
+  ticket,
+  refresh,
+}: any) {
+  const [iv, setIv] = useState(0)
+  const [ctl, setCtl] = useState(1)
+  const [cpl, setCpl] = useState(1)
+  const [mf, setMf] = useState(1)
+  const [bsw, setBsw] = useState(0)
+
+  const gsv =
+    Number(iv) *
+    Number(ctl) *
+    Number(cpl) *
+    Number(mf)
+
+  const nsv =
+    gsv * (1 - Number(bsw) / 100)
+
+  async function saveCalculations() {
+    await supabase
+      .from('tickets')
+      .update({
+        observed_inputs: {
+          iv,
+          ctl,
+          cpl,
+          mf,
+          bsw,
+        },
+        calculation_results: {
+          gsv,
+          nsv,
+        },
+      })
+      .eq('id', ticket.id)
+
+    refresh()
+  }
+
+  const input = {
+    width: '100%',
+    padding: 10,
+    marginTop: 10,
+  }
+
+  const button = {
+    width: '100%',
+    padding: 10,
+    marginTop: 10,
+    cursor: 'pointer',
+  }
+
+  return (
+    <div
+      style={{
+        background: '#334155',
+        padding: 20,
+        borderRadius: 10,
+        marginTop: 20,
+      }}
+    >
+      <input
+        type="number"
+        placeholder="IV"
+        style={input}
+        value={iv}
+        onChange={(e) =>
+          setIv(Number(e.target.value))
+        }
+      />
+
+      <input
+        type="number"
+        step="0.0001"
+        placeholder="CTL"
+        style={input}
+        value={ctl}
+        onChange={(e) =>
+          setCtl(Number(e.target.value))
+        }
+      />
+
+      <input
+        type="number"
+        step="0.0001"
+        placeholder="CPL"
+        style={input}
+        value={cpl}
+        onChange={(e) =>
+          setCpl(Number(e.target.value))
+        }
+      />
+
+      <input
+        type="number"
+        step="0.0001"
+        placeholder="MF"
+        style={input}
+        value={mf}
+        onChange={(e) =>
+          setMf(Number(e.target.value))
+        }
+      />
+
+      <input
+        type="number"
+        step="0.01"
+        placeholder="BS&W %"
+        style={input}
+        value={bsw}
+        onChange={(e) =>
+          setBsw(Number(e.target.value))
+        }
+      />
+
+      <div style={{ marginTop: 20 }}>
+        <strong>Formula</strong>
+
+        <div style={{ marginTop: 10 }}>
+          IV × CTL × CPL × MF = GSV
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          GSV × (1 - BS&W%) = NSV
+        </div>
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <div>
+          GSV: {gsv.toFixed(2)}
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          NSV: {nsv.toFixed(2)}
+        </div>
+      </div>
+
+      <button
+        style={button}
+        onClick={saveCalculations}
+      >
+        Save Calculations
+      </button>
     </div>
   )
 }

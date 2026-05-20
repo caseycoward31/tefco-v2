@@ -5,14 +5,7 @@ import Login from './pages/Login'
 type Area = { id: string; name: string }
 type Segment = { id: string; name: string }
 type Lease = { id: string; lease_name: string; lease_number?: string }
-type Meter = {
-  id: string
-  meter_number: string
-  meter_name?: string
-  area_id?: string
-  lease_id?: string
-  producer_id?: string
-}
+type Meter = { id: string; meter_number: string; meter_name?: string }
 type Profile = { id: string; name: string; standard: string; version: string }
 type Producer = { id: string; name: string; calculation_profile_id?: string | null }
 type Ticket = {
@@ -23,11 +16,21 @@ type Ticket = {
   producer_id?: string | null
   meter_id?: string | null
   segment_id?: string | null
-  tank_id?: string | null
   observed_inputs?: any
   calculation_results?: any
   calculation_profile_snapshot?: any
-  approved_by?: string | null
+  approved_at?: string | null
+}
+type Proving = {
+  id: string
+  meter_id: string
+  proving_date: string
+  observed_meter_factor?: number
+  accepted_meter_factor?: number
+  prover_volume?: number
+  indicated_volume?: number
+  status: string
+  witness?: string
   approved_at?: string | null
 }
 
@@ -45,6 +48,7 @@ export default function App() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [producers, setProducers] = useState<Producer[]>([])
   const [readings, setReadings] = useState<any[]>([])
+  const [provings, setProvings] = useState<Proving[]>([])
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
 
   const [newArea, setNewArea] = useState('')
@@ -73,6 +77,13 @@ export default function App() {
   const [readingBSW, setReadingBSW] = useState('')
   const [readingMF, setReadingMF] = useState('')
 
+  const [provingMeter, setProvingMeter] = useState('')
+  const [provingDate, setProvingDate] = useState('')
+  const [proverVolume, setProverVolume] = useState('')
+  const [provingIndicatedVolume, setProvingIndicatedVolume] = useState('')
+  const [acceptedMF, setAcceptedMF] = useState('')
+  const [provingWitness, setProvingWitness] = useState('')
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
@@ -90,15 +101,19 @@ export default function App() {
 
   useEffect(() => {
     const latestReading = readings.find((r) => r.meter_id === selectedMeter)
+    const latestApprovedProving = provings.find(
+      (p) => p.meter_id === selectedMeter && p.status === 'approved'
+    )
     const producer = producers.find((p) => p.id === selectedProducer)
     const profile = profiles.find((p) => p.id === producer?.calculation_profile_id)
 
     setAutofillPreview({
       reading: latestReading || null,
+      proving: latestApprovedProving || null,
       producer: producer || null,
       profile: profile || null,
     })
-  }, [selectedMeter, selectedProducer, readings, producers, profiles])
+  }, [selectedMeter, selectedProducer, readings, provings, producers, profiles])
 
   async function loadAll() {
     const { data: cu } = await supabase.from('company_users').select('company_id').single()
@@ -112,6 +127,7 @@ export default function App() {
     const { data: profileData } = await supabase.from('calculation_profiles').select('*').order('name')
     const { data: producerData } = await supabase.from('producers').select('*').order('name')
     const { data: readingData } = await supabase.from('operator_readings').select('*').order('created_at', { ascending: false })
+    const { data: provingData } = await supabase.from('meter_provings').select('*').order('proving_date', { ascending: false })
 
     if (areaData) setAreas(areaData)
     if (segData) setSegments(segData)
@@ -121,6 +137,7 @@ export default function App() {
     if (profileData) setProfiles(profileData)
     if (producerData) setProducers(producerData)
     if (readingData) setReadings(readingData)
+    if (provingData) setProvings(provingData)
   }
 
   async function addArea() {
@@ -181,7 +198,6 @@ export default function App() {
 
   async function saveReading() {
     if (!companyId) return
-
     const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     await supabase.from('operator_readings').insert({
@@ -206,6 +222,59 @@ export default function App() {
     loadAll()
   }
 
+  async function saveProving() {
+    if (!companyId || !provingMeter || !provingDate) return
+
+    const observedMF =
+      Number(proverVolume || 0) > 0 && Number(provingIndicatedVolume || 0) > 0
+        ? Number(proverVolume) / Number(provingIndicatedVolume)
+        : 0
+
+    await supabase.from('meter_provings').insert({
+      company_id: companyId,
+      meter_id: provingMeter,
+      proving_date: provingDate,
+      prover_volume: Number(proverVolume || 0),
+      indicated_volume: Number(provingIndicatedVolume || 0),
+      observed_meter_factor: observedMF,
+      accepted_meter_factor: Number(acceptedMF || observedMF || 0),
+      witness: provingWitness,
+      status: 'draft',
+    })
+
+    setProvingMeter('')
+    setProvingDate('')
+    setProverVolume('')
+    setProvingIndicatedVolume('')
+    setAcceptedMF('')
+    setProvingWitness('')
+    loadAll()
+  }
+
+  async function approveProving(proving: Proving) {
+    const { data: userData } = await supabase.auth.getUser()
+    await supabase
+      .from('meter_provings')
+      .update({
+        status: 'approved',
+        approved_by: userData.user?.id,
+        approved_at: new Date().toISOString(),
+      })
+      .eq('id', proving.id)
+
+    await supabase.from('audit_logs').insert({
+      company_id: companyId,
+      user_id: userData.user?.id,
+      action: 'meter_proving_approved',
+      entity_type: 'meter_proving',
+      entity_id: proving.id,
+      before_data: proving,
+      after_data: { status: 'approved' },
+    })
+
+    loadAll()
+  }
+
   async function createTicket() {
     if (!companyId) return
 
@@ -221,12 +290,15 @@ export default function App() {
     const producer = producers.find((p) => p.id === selectedProducer)
     const profile = profiles.find((p) => p.id === producer?.calculation_profile_id)
     const latestReading = readings.find((r) => r.meter_id === selectedMeter)
+    const latestApprovedProving = provings.find(
+      (p) => p.meter_id === selectedMeter && p.status === 'approved'
+    )
 
     const iv = Number(latestReading?.indicated_volume || 0)
     const ctl = 1
     const cpl = 1
     const ctlp = 1
-    const mf = Number(latestReading?.meter_factor || 1)
+    const mf = Number(latestApprovedProving?.accepted_meter_factor || latestReading?.meter_factor || 1)
     const csw = 1 - Number(latestReading?.bsw || 0) / 100
     const isApi12 = profile?.standard === 'API 12'
     const ccf = ctl * ctlp * mf
@@ -242,6 +314,7 @@ export default function App() {
       segment_id: selectedSegment || latestReading?.segment_id || null,
       meter_id: selectedMeter || null,
       linked_reading_id: latestReading?.id || null,
+      linked_proving_id: latestApprovedProving?.id || null,
       calculation_profile_id: profile?.id || null,
       calculation_profile_snapshot: profile || {},
       observed_inputs: {
@@ -254,7 +327,8 @@ export default function App() {
         api_gravity: latestReading?.api_gravity || null,
         temperature: latestReading?.temperature || null,
         bsw_percent: latestReading?.bsw || null,
-        source: 'autofill_from_latest_reading',
+        mf_source: latestApprovedProving ? 'latest_approved_proving' : 'reading_fallback',
+        source: 'autofill_from_latest_reading_and_proving',
       },
       calculation_results: {
         ccf,
@@ -271,7 +345,6 @@ export default function App() {
   async function updateTicketStatus(ticket: Ticket, status: string) {
     const { data: userData } = await supabase.auth.getUser()
     const userId = userData.user?.id
-
     const updateData: any = { status }
 
     if (status === 'approved') {
@@ -314,7 +387,6 @@ export default function App() {
         <body>
           <h1>TEFCO Measurement Ticket</h1>
           <h2>${ticket.ticket_number}</h2>
-
           <div class="box">
             <div class="row"><strong>Status</strong><span>${ticket.status}</span></div>
             <div class="row"><strong>Type</strong><span>${ticket.ticket_type}</span></div>
@@ -323,7 +395,6 @@ export default function App() {
             <div class="row"><strong>Segment</strong><span>${segment?.name || ''}</span></div>
             <div class="row"><strong>Profile</strong><span>${ticket.calculation_profile_snapshot?.name || ''}</span></div>
           </div>
-
           <div class="box">
             <h3>Inputs</h3>
             <div class="row"><strong>IV</strong><span>${ticket.observed_inputs?.iv ?? ''}</span></div>
@@ -331,16 +402,14 @@ export default function App() {
             <div class="row"><strong>CPL</strong><span>${ticket.observed_inputs?.cpl ?? ''}</span></div>
             <div class="row"><strong>CTLP</strong><span>${ticket.observed_inputs?.ctlp ?? ''}</span></div>
             <div class="row"><strong>MF</strong><span>${ticket.observed_inputs?.mf ?? ''}</span></div>
+            <div class="row"><strong>MF Source</strong><span>${ticket.observed_inputs?.mf_source ?? ''}</span></div>
             <div class="row"><strong>CSW</strong><span>${ticket.observed_inputs?.csw ?? ''}</span></div>
           </div>
-
           <div class="box">
             <h3>Results</h3>
             <div class="row"><strong>GSV</strong><span>${ticket.calculation_results?.gsv ?? ''}</span></div>
             <div class="row"><strong>NSV</strong><span>${ticket.calculation_results?.nsv ?? ''}</span></div>
           </div>
-
-          <p>Generated preview. Formal PDF storage will be added next.</p>
           <script>window.print()</script>
         </body>
       </html>
@@ -369,7 +438,7 @@ export default function App() {
     <div style={{ background: '#020617', color: 'white', minHeight: '100vh', display: 'flex' }}>
       <aside style={{ width: 220, background: '#0f172a', padding: 20 }}>
         <h2>TEFCO V2</h2>
-        {['dashboard', 'areas', 'segments', 'leases', 'producers', 'meters', 'readings', 'tickets'].map((p) => (
+        {['dashboard', 'areas', 'segments', 'leases', 'producers', 'meters', 'readings', 'provings', 'tickets'].map((p) => (
           <button key={p} onClick={() => setPage(p)} style={button}>{p.toUpperCase()}</button>
         ))}
         <button onClick={logout} style={{ ...button, background: '#dc2626', marginTop: 30 }}>Logout</button>
@@ -379,13 +448,14 @@ export default function App() {
         {page === 'dashboard' && (
           <>
             <h1>Dashboard</h1>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 20 }}>
               <div style={box}>Areas<h2>{areas.length}</h2></div>
               <div style={box}>Segments<h2>{segments.length}</h2></div>
               <div style={box}>Leases<h2>{leases.length}</h2></div>
               <div style={box}>Producers<h2>{producers.length}</h2></div>
               <div style={box}>Meters<h2>{meters.length}</h2></div>
               <div style={box}>Readings<h2>{readings.length}</h2></div>
+              <div style={box}>Provings<h2>{provings.length}</h2></div>
               <div style={box}>Tickets<h2>{tickets.length}</h2></div>
             </div>
           </>
@@ -493,9 +563,56 @@ export default function App() {
               <input style={input} placeholder="API Gravity" value={readingGravity} onChange={(e) => setReadingGravity(e.target.value)} />
               <input style={input} placeholder="Temperature" value={readingTemp} onChange={(e) => setReadingTemp(e.target.value)} />
               <input style={input} placeholder="BS&W %" value={readingBSW} onChange={(e) => setReadingBSW(e.target.value)} />
-              <input style={input} placeholder="Meter Factor" value={readingMF} onChange={(e) => setReadingMF(e.target.value)} />
+              <input style={input} placeholder="Fallback Meter Factor" value={readingMF} onChange={(e) => setReadingMF(e.target.value)} />
               <div style={{ marginTop: 15 }}>IV: {(Number(readingClose || 0) - Number(readingOpen || 0)).toFixed(2)}</div>
               <button style={button} onClick={saveReading}>Save Reading</button>
+            </div>
+          </>
+        )}
+
+        {page === 'provings' && (
+          <>
+            <h1>Meter Provings</h1>
+            <div style={box}>
+              <h3>New Proving</h3>
+              <select style={input} value={provingMeter} onChange={(e) => setProvingMeter(e.target.value)}>
+                <option value="">Select Meter</option>
+                {meters.map((m) => <option key={m.id} value={m.id}>{m.meter_number}</option>)}
+              </select>
+              <input style={input} type="date" value={provingDate} onChange={(e) => setProvingDate(e.target.value)} />
+              <input style={input} placeholder="Prover Volume" value={proverVolume} onChange={(e) => setProverVolume(e.target.value)} />
+              <input style={input} placeholder="Indicated Volume" value={provingIndicatedVolume} onChange={(e) => setProvingIndicatedVolume(e.target.value)} />
+              <input style={input} placeholder="Accepted MF, blank uses calculated" value={acceptedMF} onChange={(e) => setAcceptedMF(e.target.value)} />
+              <input style={input} placeholder="Witness" value={provingWitness} onChange={(e) => setProvingWitness(e.target.value)} />
+
+              <div style={card}>
+                Calculated MF:{' '}
+                {Number(proverVolume || 0) > 0 && Number(provingIndicatedVolume || 0) > 0
+                  ? (Number(proverVolume) / Number(provingIndicatedVolume)).toFixed(6)
+                  : '0.000000'}
+              </div>
+
+              <button style={button} onClick={saveProving}>Save Draft Proving</button>
+            </div>
+
+            <div style={box}>
+              <h3>Proving History</h3>
+              {provings.map((p) => {
+                const meter = meters.find((m) => m.id === p.meter_id)
+                return (
+                  <div key={p.id} style={card}>
+                    <strong>{meter?.meter_number || 'Meter'}</strong>
+                    <div>Date: {p.proving_date}</div>
+                    <div>Status: {p.status}</div>
+                    <div>Observed MF: {p.observed_meter_factor}</div>
+                    <div>Accepted MF: {p.accepted_meter_factor}</div>
+                    <div>Witness: {p.witness || ''}</div>
+                    {p.status !== 'approved' && (
+                      <button style={button} onClick={() => approveProving(p)}>Approve Proving</button>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </>
         )}
@@ -525,7 +642,8 @@ export default function App() {
                 <div>IV: {autofillPreview?.reading?.indicated_volume ?? 'None'}</div>
                 <div>Gravity: {autofillPreview?.reading?.api_gravity ?? 'None'}</div>
                 <div>Temp: {autofillPreview?.reading?.temperature ?? 'None'}</div>
-                <div>MF: {autofillPreview?.reading?.meter_factor ?? 'None'}</div>
+                <div>Latest Approved Proving MF: {autofillPreview?.proving?.accepted_meter_factor ?? 'None'}</div>
+                <div>Fallback Reading MF: {autofillPreview?.reading?.meter_factor ?? 'None'}</div>
               </div>
 
               <button style={button} onClick={createTicket}>Auto Build Draft Ticket</button>
@@ -538,6 +656,7 @@ export default function App() {
                   <strong>{t.ticket_number}</strong>
                   <div>Status: {t.status}</div>
                   <div>Type: {t.ticket_type}</div>
+                  <div>MF Source: {t.observed_inputs?.mf_source || 'None'}</div>
                   <div>GSV: {t.calculation_results?.gsv ?? 'None'}</div>
                   <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
                   <button style={button} onClick={() => setSelectedTicket(t)}>Open Ticket</button>
@@ -572,6 +691,7 @@ export default function App() {
                   <div>CPL: {selectedTicket.observed_inputs?.cpl}</div>
                   <div>CTLP: {selectedTicket.observed_inputs?.ctlp}</div>
                   <div>MF: {selectedTicket.observed_inputs?.mf}</div>
+                  <div>MF Source: {selectedTicket.observed_inputs?.mf_source}</div>
                   <div>CSW: {selectedTicket.observed_inputs?.csw}</div>
                 </div>
 

@@ -2,5 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-body { margin: 0; font-family: Arial, sans-serif; background: #0f172a; color: white; }
-input { outline: none; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #020617; color: #fff; font-family: Arial, sans-serif; }
+button, input, select { font: inherit; }

@@ -371,7 +371,7 @@ function CalculationSection({ ticket, refresh }: any) {
   const [mf, setMf] = useState(existingInputs.mf || '')
   const [csw, setCsw] = useState(existingInputs.csw || '')
 
-  const isApi12 = profile.standard === 'API 12' || profile.name?.toLowerCase().includes('plains')
+  const isApi12 = profile.standard === 'API 12' 
 
   const ccf = Number(ctl || 0) * Number(ctlp || 0) * Number(mf || 0)
 
@@ -391,7 +391,7 @@ function CalculationSection({ ticket, refresh }: any) {
       .from('tickets')
       .update({
         observed_inputs: { iv, ctl, cpl, ctlp, mf, csw },
-        calculation_results: { ccf, gsv, nsv, formula_profile: isApi12 ? 'API 12 / Plains Style' : 'API 11.1 Style' },
+        calculation_results: { ccf, gsv, nsv, formula_profile: isApi12 ? 'API 12 2021' : 'API 11.1 Style' },
       })
       .eq('id', ticket.id)
 

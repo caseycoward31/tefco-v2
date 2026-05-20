@@ -628,3 +628,42 @@ export default function App() {
     borderRadius: 6,
     cursor: 'pointer',
   }
+  if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
+  if (!session) return <Login />
+
+  return (
+    <div style={{ background: '#020617', color: 'white', minHeight: '100vh', display: 'flex' }}>
+      <aside style={{ width: 220, background: '#0f172a', padding: 20 }}>
+        <h2>TEFCO V2</h2>
+
+        {[
+          'dashboard',
+          'areas',
+          'segments',
+          'leases',
+          'producers',
+          'meters',
+          'readings',
+          'pot',
+          'provings',
+          'tickets',
+        ].map((p) => (
+          <button key={p} onClick={() => setPage(p)} style={button}>
+            {p.toUpperCase()}
+          </button>
+        ))}
+
+        <button onClick={logout} style={{ ...button, background: '#dc2626', marginTop: 30 }}>
+          Logout
+        </button>
+      </aside>
+
+      <main style={{ flex: 1, padding: 30 }}>
+        <h1>TEFCO Measurement V2</h1>
+        <div style={box}>
+          This build needs the final page render merged back in. Use the last known working app for now, then we’ll add POT clean.
+        </div>
+      </main>
+    </div>
+  )
+}

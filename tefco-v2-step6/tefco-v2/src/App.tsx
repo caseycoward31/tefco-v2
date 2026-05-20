@@ -128,9 +128,11 @@ export default function App() {
   const [readingClose, setReadingClose] = useState('')
   const [readingGravity, setReadingGravity] = useState('')
   const [readingTemp, setReadingTemp] = useState('')
+  
   const [readingBSW, setReadingBSW] = useState('')
   const [readingMF, setReadingMF] = useState('')
-
+  const [readingAvgTemp, setReadingAvgTemp] = useState('')
+  const [readingAvgPressure, setReadingAvgPressure] = useState('')
   const [provingMeter, setProvingMeter] = useState('')
   const [provingDate, setProvingDate] = useState('')
   const [proverVolume, setProverVolume] = useState('')
@@ -321,8 +323,9 @@ export default function App() {
 
   async function saveReading() {
     if (!companyId) return
-    const iv = Number(readingClose || 0) - Number(readingOpen || 0)
-
+    const iv =
+    Number(readingClose || 0) -
+    Number(readingOpen || 0)
     await supabase.from('operator_readings').insert({
       company_id: companyId,
       meter_id: selectedReadingMeter || null,
@@ -332,6 +335,8 @@ export default function App() {
       indicated_volume: iv,
       api_gravity: Number(readingGravity || 0),
       temperature: Number(readingTemp || 0),
+      average_temperature: Number(readingAvgTemp || 0),
+      average_pressure: Number(readingAvgPressure || 0),
       bsw: Number(readingBSW || 0),
       meter_factor: Number(readingMF || 0),
     })
@@ -340,6 +345,8 @@ export default function App() {
     setReadingClose('')
     setReadingGravity('')
     setReadingTemp('')
+    setReadingAvgTemp('')
+    setReadingAvgPressure('')
     setReadingBSW('')
     setReadingMF('')
     loadAll()
@@ -557,6 +564,8 @@ export default function App() {
         factor_type: latestApprovedProving?.factor_type || 'MF',
         api_gravity: latestPot?.api_gravity || null,
         temperature: latestPot?.sample_temperature || null,
+        average_temperature: latestReading?.average_temperature || null,
+        average_pressure: latestReading?.average_pressure || null,
         bsw_percent: latestPot?.bsw || null,
         csw,
         mf_source: latestApprovedProving ? 'latest_approved_proving' : 'reading_fallback',
@@ -790,6 +799,8 @@ export default function App() {
               <input style={input} placeholder="Closing Reading" value={readingClose} onChange={(e) => setReadingClose(e.target.value)} />
               <input style={input} placeholder="API Gravity" value={readingGravity} onChange={(e) => setReadingGravity(e.target.value)} />
               <input style={input} placeholder="Temperature" value={readingTemp} onChange={(e) => setReadingTemp(e.target.value)} />
+              <input style={input} placeholder="Average Temperature" value={readingAvgTemp} onChange={(e) => setReadingAvgTemp(e.target.value)}/>
+              <input style={input} placeholder="Average Pressure" value={readingAvgPressure} onChange={(e) => setReadingAvgPressure(e.target.value)}/>
               <input style={input} placeholder="BS&W %" value={readingBSW} onChange={(e) => setReadingBSW(e.target.value)} />
               <input style={input} placeholder="Fallback Meter Factor" value={readingMF} onChange={(e) => setReadingMF(e.target.value)} />
               <div style={{ marginTop: 15 }}>IV: {(Number(readingClose || 0) - Number(readingOpen || 0)).toFixed(2)}</div>

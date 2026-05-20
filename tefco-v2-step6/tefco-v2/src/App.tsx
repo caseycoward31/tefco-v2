@@ -17,16 +17,27 @@ type Meter = {
   meter_number: string
 }
 
+type Ticket = {
+  id: string
+  ticket_number: string
+  ticket_type: string
+  status: string
+}
+
 export default function App() {
   const [session, setSession] = useState<any>(null)
 
   const [segments, setSegments] = useState<Segment[]>([])
   const [tanks, setTanks] = useState<Tank[]>([])
   const [meters, setMeters] = useState<Meter[]>([])
+  const [tickets, setTickets] = useState<Ticket[]>([])
 
-  const [newSegment, setNewSegment] = useState('')
-  const [newTank, setNewTank] = useState('')
-  const [newMeter, setNewMeter] = useState('')
+  const [ticketNumber, setTicketNumber] = useState('')
+  const [ticketType, setTicketType] = useState('tank')
+
+  const [selectedSegment, setSelectedSegment] = useState('')
+  const [selectedTank, setSelectedTank] = useState('')
+  const [selectedMeter, setSelectedMeter] = useState('')
 
   const [loading, setLoading] = useState(true)
 
@@ -57,6 +68,7 @@ export default function App() {
     loadSegments()
     loadTanks()
     loadMeters()
+    loadTickets()
   }
 
   async function loadSegments() {
@@ -86,27 +98,17 @@ export default function App() {
     if (data) setMeters(data)
   }
 
-  async function addSegment() {
-    if (!newSegment) return
+  async function loadTickets() {
+    const { data } = await supabase
+      .from('tickets')
+      .select('*')
+      .order('created_at', { ascending: false })
 
-    const { data: companyUser } = await supabase
-      .from('company_users')
-      .select('company_id')
-      .single()
-
-    if (!companyUser) return
-
-    await supabase.from('segments').insert({
-      name: newSegment,
-      company_id: companyUser.company_id,
-    })
-
-    setNewSegment('')
-    loadSegments()
+    if (data) setTickets(data)
   }
 
-  async function addTank() {
-    if (!newTank) return
+  async function createTicket() {
+    if (!ticketNumber) return
 
     const { data: companyUser } = await supabase
       .from('company_users')
@@ -115,32 +117,18 @@ export default function App() {
 
     if (!companyUser) return
 
-    await supabase.from('tanks').insert({
-      tank_number: newTank,
+    await supabase.from('tickets').insert({
       company_id: companyUser.company_id,
+      ticket_number: ticketNumber,
+      ticket_type: ticketType,
+      status: 'draft',
+      segment_id: selectedSegment || null,
+      tank_id: selectedTank || null,
+      meter_id: selectedMeter || null,
     })
 
-    setNewTank('')
-    loadTanks()
-  }
-
-  async function addMeter() {
-    if (!newMeter) return
-
-    const { data: companyUser } = await supabase
-      .from('company_users')
-      .select('company_id')
-      .single()
-
-    if (!companyUser) return
-
-    await supabase.from('meters').insert({
-      meter_number: newMeter,
-      company_id: companyUser.company_id,
-    })
-
-    setNewMeter('')
-    loadMeters()
+    setTicketNumber('')
+    loadTickets()
   }
 
   async function logout() {
@@ -186,153 +174,136 @@ export default function App() {
       </div>
 
       <div style={{ flex: 1, padding: 30 }}>
-        <h1>Dashboard</h1>
+        <h1>Ticket Engine</h1>
 
         <div
           style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr 1fr',
-            gap: 20,
-            marginTop: 30,
+            background: '#1e293b',
+            padding: 20,
+            borderRadius: 10,
+            marginTop: 20,
           }}
         >
-          <div
+          <h2>Create Ticket</h2>
+
+          <input
+            value={ticketNumber}
+            onChange={(e) => setTicketNumber(e.target.value)}
+            placeholder="Ticket Number"
             style={{
-              background: '#1e293b',
-              padding: 20,
-              borderRadius: 10,
+              width: '100%',
+              padding: 10,
+              marginTop: 10,
+            }}
+          />
+
+          <select
+            value={ticketType}
+            onChange={(e) => setTicketType(e.target.value)}
+            style={{
+              width: '100%',
+              padding: 10,
+              marginTop: 10,
             }}
           >
-            <h3>Segments</h3>
+            <option value="tank">Tank Ticket</option>
+            <option value="meter">Meter Ticket</option>
+            <option value="truck">Truck Ticket</option>
+            <option value="plains_style">Plains Style</option>
+          </select>
 
-            <input
-              value={newSegment}
-              onChange={(e) => setNewSegment(e.target.value)}
-              placeholder="New Segment"
-              style={{
-                width: '100%',
-                padding: 10,
-                marginTop: 10,
-              }}
-            />
-
-            <button
-              onClick={addSegment}
-              style={{
-                width: '100%',
-                marginTop: 10,
-                padding: 10,
-              }}
-            >
-              Add Segment
-            </button>
+          <select
+            value={selectedSegment}
+            onChange={(e) => setSelectedSegment(e.target.value)}
+            style={{
+              width: '100%',
+              padding: 10,
+              marginTop: 10,
+            }}
+          >
+            <option value="">Select Segment</option>
 
             {segments.map((segment) => (
-              <div
-                key={segment.id}
-                style={{
-                  marginTop: 10,
-                  background: '#334155',
-                  padding: 10,
-                  borderRadius: 6,
-                }}
-              >
+              <option key={segment.id} value={segment.id}>
                 {segment.name}
-              </div>
+              </option>
             ))}
-          </div>
+          </select>
 
-          <div
+          <select
+            value={selectedTank}
+            onChange={(e) => setSelectedTank(e.target.value)}
             style={{
-              background: '#1e293b',
-              padding: 20,
-              borderRadius: 10,
+              width: '100%',
+              padding: 10,
+              marginTop: 10,
             }}
           >
-            <h3>Tanks</h3>
-
-            <input
-              value={newTank}
-              onChange={(e) => setNewTank(e.target.value)}
-              placeholder="Tank Number"
-              style={{
-                width: '100%',
-                padding: 10,
-                marginTop: 10,
-              }}
-            />
-
-            <button
-              onClick={addTank}
-              style={{
-                width: '100%',
-                marginTop: 10,
-                padding: 10,
-              }}
-            >
-              Add Tank
-            </button>
+            <option value="">Select Tank</option>
 
             {tanks.map((tank) => (
-              <div
-                key={tank.id}
-                style={{
-                  marginTop: 10,
-                  background: '#334155',
-                  padding: 10,
-                  borderRadius: 6,
-                }}
-              >
+              <option key={tank.id} value={tank.id}>
                 Tank {tank.tank_number}
-              </div>
+              </option>
             ))}
-          </div>
+          </select>
 
-          <div
+          <select
+            value={selectedMeter}
+            onChange={(e) => setSelectedMeter(e.target.value)}
             style={{
-              background: '#1e293b',
-              padding: 20,
-              borderRadius: 10,
+              width: '100%',
+              padding: 10,
+              marginTop: 10,
             }}
           >
-            <h3>Meters</h3>
-
-            <input
-              value={newMeter}
-              onChange={(e) => setNewMeter(e.target.value)}
-              placeholder="Meter Number"
-              style={{
-                width: '100%',
-                padding: 10,
-                marginTop: 10,
-              }}
-            />
-
-            <button
-              onClick={addMeter}
-              style={{
-                width: '100%',
-                marginTop: 10,
-                padding: 10,
-              }}
-            >
-              Add Meter
-            </button>
+            <option value="">Select Meter</option>
 
             {meters.map((meter) => (
-              <div
-                key={meter.id}
-                style={{
-                  marginTop: 10,
-                  background: '#334155',
-                  padding: 10,
-                  borderRadius: 6,
-                }}
-              >
+              <option key={meter.id} value={meter.id}>
                 Meter {meter.meter_number}
-              </div>
+              </option>
             ))}
-          </div>
+          </select>
+
+          <button
+            onClick={createTicket}
+            style={{
+              width: '100%',
+              padding: 12,
+              marginTop: 15,
+            }}
+          >
+            Save Draft Ticket
+          </button>
+        </div>
+
+        <div style={{ marginTop: 40 }}>
+          <h2>Draft Tickets</h2>
+
+          {tickets.map((ticket) => (
+            <div
+              key={ticket.id}
+              style={{
+                background: '#1e293b',
+                padding: 15,
+                borderRadius: 8,
+                marginTop: 10,
+              }}
+            >
+              <div>
+                <strong>{ticket.ticket_number}</strong>
+              </div>
+
+              <div>
+                Type: {ticket.ticket_type}
+              </div>
+
+              <div>
+                Status: {ticket.status}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

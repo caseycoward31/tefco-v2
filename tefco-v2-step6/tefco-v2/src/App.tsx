@@ -254,7 +254,7 @@ export default function App() {
   async function uploadProvingPdf(provingId: string) {
     if (!provingPdfFile || !companyId) return { pdfUrl: null, fileName: null }
 
-    const safeName = provingPdfFile.name.replaceAll(' ', '_')
+    const safeName = provingPdfFile.name.replace(/\s+/g, '_')
     const filePath = `${companyId}/${provingId}/${Date.now()}-${safeName}`
 
     const { error } = await supabase.storage

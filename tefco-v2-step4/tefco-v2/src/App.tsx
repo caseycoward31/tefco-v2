@@ -1,5 +1,8 @@
-import Login from './pages/Login'
-
 export default function App() {
-  return <Login />
+  return (
+    <div style={{ padding: 40, color: 'white', background: '#020617', minHeight: '100vh' }}>
+      <h1>TEFCO V2 STEP 5 IS LIVE</h1>
+      <p>If you see this, Netlify is building the right files.</p>
+    </div>
+  )
 }

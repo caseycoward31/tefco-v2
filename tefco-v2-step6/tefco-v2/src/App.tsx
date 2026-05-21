@@ -128,11 +128,11 @@ export default function App() {
   const [readingClose, setReadingClose] = useState('')
   const [readingGravity, setReadingGravity] = useState('')
   const [readingTemp, setReadingTemp] = useState('')
-  
-  const [readingBSW, setReadingBSW] = useState('')
-  const [readingMF, setReadingMF] = useState('')
   const [readingAvgTemp, setReadingAvgTemp] = useState('')
   const [readingAvgPressure, setReadingAvgPressure] = useState('')
+  const [readingBSW, setReadingBSW] = useState('')
+  const [readingMF, setReadingMF] = useState('')
+
   const [provingMeter, setProvingMeter] = useState('')
   const [provingDate, setProvingDate] = useState('')
   const [proverVolume, setProverVolume] = useState('')
@@ -175,7 +175,6 @@ export default function App() {
     )
     const producer = producers.find((p) => p.id === selectedProducer)
     const profile = profiles.find((p) => p.id === producer?.calculation_profile_id)
-
     const latestPot = potQuality.find(
       (p) =>
         (!selectedSegment || p.segment_id === selectedSegment) &&
@@ -237,6 +236,8 @@ export default function App() {
   const provingCompliance = activeMeters.length > 0 ? Math.round((provedThisMonthCount / activeMeters.length) * 100) : 0
   const pendingProvings = provings.filter((p) => p.status !== 'approved')
   const approvedProvings = provings.filter((p) => p.status === 'approved')
+  const activeTickets = tickets.filter((t) => t.status !== 'approved')
+  const approvedTickets = tickets.filter((t) => t.status === 'approved')
 
   const filteredProducers = selectedSegment
     ? producers.filter((p) => leases.some((l) => l.segment_id === selectedSegment && l.producer_id === p.id))
@@ -323,9 +324,9 @@ export default function App() {
 
   async function saveReading() {
     if (!companyId) return
-    const iv =
-    Number(readingClose || 0) -
-    Number(readingOpen || 0)
+
+    const iv = Number(readingClose || 0) - Number(readingOpen || 0)
+
     await supabase.from('operator_readings').insert({
       company_id: companyId,
       meter_id: selectedReadingMeter || null,
@@ -633,11 +634,15 @@ export default function App() {
             <div class="row"><strong>CTLP</strong><span>${ticket.observed_inputs?.ctlp ?? ''}</span></div>
             <div class="row"><strong>${ticket.observed_inputs?.factor_type || 'MF'}</strong><span>${ticket.observed_inputs?.mf ?? ''}</span></div>
             <div class="row"><strong>API Gravity</strong><span>${ticket.observed_inputs?.api_gravity ?? ''}</span></div>
+            <div class="row"><strong>Temp</strong><span>${ticket.observed_inputs?.temperature ?? ''}</span></div>
+            <div class="row"><strong>Avg Temp</strong><span>${ticket.observed_inputs?.average_temperature ?? ''}</span></div>
+            <div class="row"><strong>Avg Pressure</strong><span>${ticket.observed_inputs?.average_pressure ?? ''}</span></div>
             <div class="row"><strong>BS&W %</strong><span>${ticket.observed_inputs?.bsw_percent ?? ''}</span></div>
             <div class="row"><strong>CSW</strong><span>${ticket.observed_inputs?.csw ?? ''}</span></div>
           </div>
           <div class="box">
             <h3>Results</h3>
+            <div class="row"><strong>CCF</strong><span>${ticket.calculation_results?.ccf ?? ''}</span></div>
             <div class="row"><strong>GSV</strong><span>${ticket.calculation_results?.gsv ?? ''}</span></div>
             <div class="row"><strong>NSV</strong><span>${ticket.calculation_results?.nsv ?? ''}</span></div>
           </div>
@@ -694,6 +699,16 @@ export default function App() {
               <div style={box}>Readings<h2>{readings.length}</h2></div>
               <div style={box}>Provings<h2>{provings.length}</h2></div>
               <div style={box}>Tickets<h2>{tickets.length}</h2></div>
+            </div>
+
+            <div style={box}>
+              <h2>Monthly Proving KPI</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}>
+                <div style={card}>Active Meters<h2>{activeMeters.length}</h2></div>
+                <div style={card}>Proved This Month<h2>{provedThisMonthCount}</h2></div>
+                <div style={card}>Remaining<h2>{remainingProvingCount}</h2></div>
+                <div style={card}>Compliance<h2>{provingCompliance}%</h2></div>
+              </div>
             </div>
           </>
         )}
@@ -799,8 +814,8 @@ export default function App() {
               <input style={input} placeholder="Closing Reading" value={readingClose} onChange={(e) => setReadingClose(e.target.value)} />
               <input style={input} placeholder="API Gravity" value={readingGravity} onChange={(e) => setReadingGravity(e.target.value)} />
               <input style={input} placeholder="Temperature" value={readingTemp} onChange={(e) => setReadingTemp(e.target.value)} />
-              <input style={input} placeholder="Average Temperature" value={readingAvgTemp} onChange={(e) => setReadingAvgTemp(e.target.value)}/>
-              <input style={input} placeholder="Average Pressure" value={readingAvgPressure} onChange={(e) => setReadingAvgPressure(e.target.value)}/>
+              <input style={input} placeholder="Average Temperature" value={readingAvgTemp} onChange={(e) => setReadingAvgTemp(e.target.value)} />
+              <input style={input} placeholder="Average Pressure" value={readingAvgPressure} onChange={(e) => setReadingAvgPressure(e.target.value)} />
               <input style={input} placeholder="BS&W %" value={readingBSW} onChange={(e) => setReadingBSW(e.target.value)} />
               <input style={input} placeholder="Fallback Meter Factor" value={readingMF} onChange={(e) => setReadingMF(e.target.value)} />
               <div style={{ marginTop: 15 }}>IV: {(Number(readingClose || 0) - Number(readingOpen || 0)).toFixed(2)}</div>
@@ -966,6 +981,8 @@ export default function App() {
                 <h3>Autofill Preview</h3>
                 <div>Profile: {autofillPreview?.profile?.name || 'None'}</div>
                 <div>IV: {autofillPreview?.reading?.indicated_volume ?? 'None'}</div>
+                <div>Avg Temp: {autofillPreview?.reading?.average_temperature ?? 'None'}</div>
+                <div>Avg Pressure: {autofillPreview?.reading?.average_pressure ?? 'None'}</div>
                 <div>Latest Approved {autofillPreview?.proving?.factor_type || 'MF'}: {autofillPreview?.proving?.accepted_meter_factor ?? 'None'}</div>
                 <div>POT API Gravity: {autofillPreview?.pot?.api_gravity ?? 'None'}</div>
                 <div>POT BS&W: {autofillPreview?.pot?.bsw ?? 'None'}</div>
@@ -977,7 +994,7 @@ export default function App() {
 
             <div style={box}>
               <h3>Workflow Queue</h3>
-              {tickets.map((t) => (
+              {activeTickets.map((t) => (
                 <div key={t.id} style={card}>
                   <strong>{t.ticket_number}</strong>
                   <div>Status: {t.status}</div>
@@ -988,6 +1005,19 @@ export default function App() {
                   <div>GSV: {t.calculation_results?.gsv ?? 'None'}</div>
                   <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
                   <button style={button} onClick={() => setSelectedTicket(t)}>Open Ticket</button>
+                </div>
+              ))}
+            </div>
+
+            <div style={box}>
+              <h3>Approved Tickets</h3>
+              {approvedTickets.length === 0 && <div style={card}>No approved tickets yet.</div>}
+              {approvedTickets.map((t) => (
+                <div key={t.id} style={card}>
+                  <strong>{t.ticket_number}</strong>
+                  <div>Status: {t.status}</div>
+                  <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
+                  <button style={button} onClick={() => setSelectedTicket(t)}>Open Approved Ticket</button>
                 </div>
               ))}
             </div>
@@ -1020,12 +1050,16 @@ export default function App() {
                   <div>CTLP: {selectedTicket.observed_inputs?.ctlp}</div>
                   <div>{selectedTicket.observed_inputs?.factor_type || 'MF'}: {selectedTicket.observed_inputs?.mf}</div>
                   <div>API Gravity: {selectedTicket.observed_inputs?.api_gravity}</div>
+                  <div>Temp: {selectedTicket.observed_inputs?.temperature}</div>
+                  <div>Avg Temp: {selectedTicket.observed_inputs?.average_temperature}</div>
+                  <div>Avg Pressure: {selectedTicket.observed_inputs?.average_pressure}</div>
                   <div>BS&W %: {selectedTicket.observed_inputs?.bsw_percent}</div>
                   <div>CSW: {selectedTicket.observed_inputs?.csw}</div>
                 </div>
 
                 <div style={card}>
                   <h3>Results</h3>
+                  <div>CCF: {selectedTicket.calculation_results?.ccf}</div>
                   <div>GSV: {selectedTicket.calculation_results?.gsv}</div>
                   <div>NSV: {selectedTicket.calculation_results?.nsv}</div>
                 </div>

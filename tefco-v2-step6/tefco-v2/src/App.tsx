@@ -581,7 +581,6 @@ function App() {
   const [page, setPage] = useState('dashboard')
   const [companyId, setCompanyId] = useState('')
   const [loading, setLoading] = useState(true)
-
   const [areas, setAreas] = useState<Area[]>([])
   const [segments, setSegments] = useState<Segment[]>([])
   const [leases, setLeases] = useState<Lease[]>([])
@@ -590,7 +589,6 @@ function App() {
   const [ticketAuditLogs, setTicketAuditLogs] = useState<TicketAuditLog[]>([])
   const [userRoles, setUserRoles] = useState<UserRole[]>([])
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([])
-  
   const [newAdminUserId, setNewAdminUserId] = useState('')
   const [newAdminRole, setNewAdminRole] = useState('operator')
   const [companies, setCompanies] = useState<Company[]>([])
@@ -743,9 +741,7 @@ const activeRole =
 
 setCurrentUserRole(activeRole?.role || 'operator')
 setCompanyId(activeRole?.company_id || '')
-      console.log('AUTH USER:', authUser.id)
-      console.log('ROLE ROWS LOADED:', roleRows)
-    }
+     }
   }
 } 
  

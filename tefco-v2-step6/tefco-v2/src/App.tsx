@@ -583,6 +583,13 @@ function App() {
   const [companyId, setCompanyId] = useState('')
   const [loading, setLoading] = useState(true)
 
+  const [companySettings, setCompanySettings] = useState<any>(null)
+  const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null)
+
+  const [companyNameInput, setCompanyNameInput] = useState('')
+  const [companyAddress1Input, setCompanyAddress1Input] = useState('')
+  const [companyAddress2Input, setCompanyAddress2Input] = useState('')
+  const [companyPhoneInput, setCompanyPhoneInput] = useState('')
   const [areas, setAreas] = useState<Area[]>([])
   const [segments, setSegments] = useState<Segment[]>([])
   const [leases, setLeases] = useState<Lease[]>([])
@@ -678,6 +685,37 @@ function App() {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
       setLoading(false)
+      function getCompanyLogoUrl() {
+  if (companyLogoFile) {
+    return URL.createObjectURL(companyLogoFile)
+  }
+
+  return companySettings?.logo_url || ''
+}
+
+async function saveCompanySettings() {
+  const payload = {
+    company_id: companyId,
+    company_name: companyNameInput,
+    address_line1: companyAddress1Input,
+    address_line2: companyAddress2Input,
+    phone: companyPhoneInput,
+  }
+
+  const { data, error } = await supabase
+    .from('company_settings')
+    .upsert(payload, { onConflict: 'company_id' })
+    .select()
+    .maybeSingle()
+
+  if (error) {
+    alert(error.message)
+    return
+  }
+
+  setCompanySettings(data)
+  alert('Company settings saved')
+}
       if (data.session) loadAll()
     })
 

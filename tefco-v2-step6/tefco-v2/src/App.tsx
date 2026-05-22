@@ -719,24 +719,24 @@ function App() {
 
   
   async function reloadCurrentUserRole() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+   const { data: roleRows, error } = await supabase
+  .from('user_roles')
+  .select('*')
+  .eq('user_id', user.id)
+  .eq('active', true)
 
-    if (!user) return
+if (error) {
+  console.error('Role load error:', error)
+  return
+}
 
-    const { data: roleRows, error } = await supabase
-      .from('user_roles')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('active', true)
-if (roleData && roleData.length > 0) {
-  setUserRoles(roleData)
+if (roleRows && roleRows.length > 0) {
+  setUserRoles(roleRows)
 
   const activeRole =
-    roleData.find((r: any) => r.active && r.role === 'super_admin') ||
-    roleData.find((r: any) => r.active && r.role === 'admin') ||
-    roleData.find((r: any) => r.active)
+    roleRows.find((r: any) => r.active && r.role === 'super_admin') ||
+    roleRows.find((r: any) => r.active && r.role === 'admin') ||
+    roleRows.find((r: any) => r.active)
 
   if (activeRole) {
     setCurrentUserRole(activeRole.role)

@@ -1452,7 +1452,69 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   
   
   
-  async function createCompany() {
+  
+  function getCompanyLogoUrl() {
+    if (companyLogoFile) {
+      return URL.createObjectURL(companyLogoFile)
+    }
+
+    return companySettings?.logo_url || ''
+  }
+
+  async function saveCompanySettings() {
+    if (!companyId && currentUserRole !== 'super_admin') {
+      alert('Company not loaded.')
+      return
+    }
+
+    let logoUrl = companySettings?.logo_url || null
+
+    if (companyLogoFile && companyId) {
+      const ext = companyLogoFile.name.split('.').pop() || 'png'
+      const logoPath = `${companyId}/company-logo.${ext}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('company-logos')
+        .upload(logoPath, companyLogoFile, {
+          upsert: true,
+          contentType: companyLogoFile.type || 'image/png',
+        })
+
+      if (uploadError) {
+        alert('Could not upload logo: ' + uploadError.message)
+        return
+      }
+
+      const { data } = supabase.storage.from('company-logos').getPublicUrl(logoPath)
+      logoUrl = data?.publicUrl || null
+    }
+
+    const payload = {
+      company_id: companyId || null,
+      company_name: companyNameInput || null,
+      address_line1: companyAddress1Input || null,
+      address_line2: companyAddress2Input || null,
+      phone: companyPhoneInput || null,
+      logo_url: logoUrl,
+    }
+
+    const { data, error } = await supabase
+      .from('company_settings')
+      .upsert(payload, { onConflict: 'company_id' })
+      .select()
+      .maybeSingle()
+
+    if (error) {
+      alert('Could not save company branding: ' + error.message)
+      return
+    }
+
+    if (data) setCompanySettings(data)
+    setCompanyLogoFile(null)
+    alert('Company branding saved.')
+  }
+
+async function createCompany() {
     const name = newCompanyName.trim()
 
     if (!name) {
@@ -2154,7 +2216,7 @@ async function logout() {
                       <option value="Chapter 12.2.1 2021">Chapter 12.2.1 2021</option>
                     </select>
 
-                    <button style={button} onClick={createContractProfile}>
+                    <button style={button} onClick={saveContractProfile}>
                       Create Contract Profile
                     </button>
                   </div>

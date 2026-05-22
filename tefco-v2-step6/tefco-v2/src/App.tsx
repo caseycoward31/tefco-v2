@@ -729,7 +729,6 @@ if (error) {
   console.error('Role load error:', error)
   return
 }
-
 if (roleRows && roleRows.length > 0) {
   setUserRoles(roleRows)
 
@@ -744,8 +743,10 @@ if (roleRows && roleRows.length > 0) {
   }
 }
 
+}
+
 async function loadAll() {
-    const { data: companiesData, error: companiesError } = await supabase
+ const { data: companiesData, error: companiesError } = await supabase
       .from('companies')
       .select('*')
       .order('name')

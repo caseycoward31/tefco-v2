@@ -737,11 +737,10 @@ function App() {
   if (roleRows && roleRows.length > 0) {
     setUserRoles(roleRows)
 
-    const activeRole =
-      roleRows.find((r: any) => r.active && r.role === 'super_admin') ||
-      roleRows.find((r: any) => r.active && r.role === 'admin') ||
-      roleRows.find((r: any) => r.active)
-
+   const activeRole =
+  roleRows.find((r: any) => r.role === 'super_admin' && r.active !== false) ||
+  roleRows.find((r: any) => r.role === 'admin' && r.active !== false) ||
+  roleRows.find((r: any) => r.active !== false)
     if (activeRole) {
       setCurrentUserRole(activeRole.role)
       setCompanyId(activeRole.company_id || '')

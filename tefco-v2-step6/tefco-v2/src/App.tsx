@@ -773,10 +773,6 @@ function App() {
       }
     }
 
-}
-
-
-    await reloadCurrentUserRole()
     const { data: cu } = await supabase.from('company_users').select('company_id').single()
     if (cu) setCompanyId(cu.company_id)
 
@@ -813,9 +809,6 @@ function App() {
     if (auditData) setTicketAuditLogs(auditData)
     if (roleData) setUserRoles(roleData)
     if (permissionData) setRolePermissions(permissionData)
-
-    const myRole = roleData?.find((r: any) => r.user_id === session?.user?.id)
-    if (myRole?.role) setCurrentUserRole(myRole.role)
     if (profileData) setProfiles(profileData)
     if (producerData) setProducers(producerData)
     if (readingData) setReadings(readingData)

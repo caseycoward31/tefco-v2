@@ -2,6 +2,13 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
 
+type Company = {
+  id: string
+  name: string
+  active?: boolean | null
+  created_at?: string | null
+}
+
 type Area = { id: string; name: string }
 type Segment = { id: string; name: string }
 
@@ -552,7 +559,25 @@ function isThisMonth(dateValue?: string) {
   return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
 }
 
-export default function App() {
+function getHighestRole(roles: any[]) {
+  const rank: Record<string, number> = {
+    super_admin: 5,
+    admin: 4,
+    measurement_tech: 3,
+    operator: 2,
+    auditor: 1,
+  }
+
+  const activeRoles = (roles || []).filter((role) => role.active !== false)
+
+  if (activeRoles.length === 0) return 'operator'
+
+  return activeRoles
+    .slice()
+    .sort((a, b) => (rank[b.role] || 0) - (rank[a.role] || 0))[0].role
+}
+
+function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
   const [companyId, setCompanyId] = useState('')
@@ -569,6 +594,11 @@ export default function App() {
   const [currentUserRole, setCurrentUserRole] = useState<string>('operator')
   const [newAdminUserId, setNewAdminUserId] = useState('')
   const [newAdminRole, setNewAdminRole] = useState('operator')
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [newCompanyName, setNewCompanyName] = useState('')
+  const [selectedAdminCompanyId, setSelectedAdminCompanyId] = useState('')
+  const [newCompanyAdminEmail, setNewCompanyAdminEmail] = useState('')
+  const [newCompanyAdminPassword, setNewCompanyAdminPassword] = useState('')
   const [newContractName, setNewContractName] = useState('')
   const [newContractProducer, setNewContractProducer] = useState('')
   const [newContractStandard, setNewContractStandard] = useState('API 11.1 2021')
@@ -589,6 +619,8 @@ export default function App() {
   const [provings, setProvings] = useState<Proving[]>([])
   const [potQuality, setPotQuality] = useState<PotQuality[]>([])
   const [contractProfiles, setContractProfiles] = useState<ContractProfile[]>([])
+  const [newAdminEmail, setNewAdminEmail] = useState('')
+  const [newAdminPassword, setNewAdminPassword] = useState('')
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
 
   const [newArea, setNewArea] = useState('')
@@ -655,7 +687,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const latestReading = readings.find((r) => r.meter_id === selectedMeter)
+    const latestReading = readings.find((r: any) => r.meter_id === selectedMeter)
     const latestApprovedProving = provings.find(
       (p) => p.meter_id === selectedMeter && p.status === 'approved'
     )
@@ -685,8 +717,66 @@ export default function App() {
     profiles,
     potQuality,
   ])
+  async function reloadCurrentUserRole() {
+    const authResult = await supabase.auth.getUser()
+    const authUser = authResult.data.user
+
+    if (!authUser) {
+      setCurrentUserRole('operator')
+      setUserRoles([])
+      setCompanyId('')
+      return
+    }
+
+    const { data: roleRows, error } = await supabase
+      .from('user_roles')
+      .select('*')
+      .eq('user_id', authUser.id)
+      .eq('active', true)
+
+    if (error) {
+      console.error('Role load error:', error)
+      setCurrentUserRole('operator')
+      setUserRoles([])
+      return
+    }
+
+    const rows = roleRows || []
+    setUserRoles(rows)
+
+    const highestRole = getHighestRole(rows)
+    setCurrentUserRole(highestRole)
+
+    const companyRole =
+      rows.find((role: any) => role.active !== false && role.role !== 'super_admin' && role.company_id) ||
+      rows.find((role: any) => role.active !== false && role.company_id)
+
+    setCompanyId(companyRole?.company_id || '')
+  }
+
 
   async function loadAll() {
+    await reloadCurrentUserRole()
+    const { data: companiesData, error: companiesError } = await supabase
+      .from('companies')
+      .select('*')
+      .order('name')
+
+    if (companiesError) {
+      console.error('Companies load error:', companiesError)
+    }
+
+    if (companiesData) {
+      setCompanies(companiesData)
+      if (!selectedAdminCompanyId && companiesData.length > 0) {
+        setSelectedAdminCompanyId(companiesData[0].id)
+      }
+    }
+
+}
+
+
+    await reloadCurrentUserRole()
     const { data: cu } = await supabase.from('company_users').select('company_id').single()
     if (cu) setCompanyId(cu.company_id)
 
@@ -724,7 +814,7 @@ export default function App() {
     if (roleData) setUserRoles(roleData)
     if (permissionData) setRolePermissions(permissionData)
 
-    const myRole = roleData?.find((r) => r.user_id === session?.user?.id)
+    const myRole = roleData?.find((r: any) => r.user_id === session?.user?.id)
     if (myRole?.role) setCurrentUserRole(myRole.role)
     if (profileData) setProfiles(profileData)
     if (producerData) setProducers(producerData)
@@ -801,14 +891,17 @@ export default function App() {
   const isReadOnly =
     currentUserRole === 'auditor'
 
-  const canViewAdmin =
+    const isSuperAdmin = currentUserRole === 'super_admin'
+
+const canViewAdmin =
     currentUserRole === 'super_admin' ||
-    currentUserRole === 'admin' ||
-    userRoles.length === 0 ||
-    !currentUserRole
+    currentUserRole === 'admin'
 
   const canEditAdmin =
     currentUserRole === 'super_admin' ||
+    currentUserRole === 'admin'
+    currentUserRole === 'admin' ||
+    userRoles.some((role) => role.active !== false && ['super_admin', 'admin'].includes(role.role))
     currentUserRole === 'admin' ||
     userRoles.length === 0 ||
     !currentUserRole
@@ -848,14 +941,14 @@ const provingCompliancePercent =
 
   async function addArea() {
     if (!newArea || !companyId) return
-    await supabase.from('areas').insert({ company_id: companyId, name: newArea })
+    await supabase.from('areas').insert({ company_id: isSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId, name: newArea })
     setNewArea('')
     loadAll()
   }
 
   async function addSegment() {
     if (!newSegment || !companyId) return
-    await supabase.from('segments').insert({ company_id: companyId, name: newSegment })
+    await supabase.from('segments').insert({ company_id: currentUserRole === 'super_admin' && selectedAdminCompanyId ? selectedAdminCompanyId : companyId, name: newSegment })
     setNewSegment('')
     loadAll()
   }
@@ -911,8 +1004,7 @@ const provingCompliancePercent =
     }
 
     if (!companyId) return
-
-    const iv = Number(readingClose || 0) - Number(readingOpen || 0)
+const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     await supabase.from('operator_readings').insert({
       company_id: companyId,
@@ -1134,7 +1226,7 @@ const provingCompliancePercent =
 
     const producer = producers.find((p) => p.id === selectedProducer)
     const profile = profiles.find((p) => p.id === producer?.calculation_profile_id)
-    const latestReading = readings.find((r) => r.meter_id === selectedMeter)
+    const latestReading = readings.find((r: any) => r.meter_id === selectedMeter)
     const latestApprovedProving = provings.find((p) => p.meter_id === selectedMeter && p.status === 'approved')
     const latestPot = potQuality.find(
       (p) => p.segment_id === selectedSegment && p.producer_id === selectedProducer && p.lease_id === selectedLease
@@ -1360,7 +1452,108 @@ const provingCompliancePercent =
   }
 
   
-  async function saveUserRole() {
+  
+  
+  async function createCompany() {
+    const name = newCompanyName.trim()
+
+    if (!name) {
+      alert('Enter company name.')
+      return
+    }
+
+    const slug = name
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '')
+
+    const { data, error } = await supabase
+      .from('companies')
+      .insert({
+        name,
+        slug,
+        active: true,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      alert('Could not create company: ' + error.message)
+      return
+    }
+
+    if (data) {
+      setCompanies((prev) => {
+        const exists = prev.some((company) => company.id === data.id)
+        return exists ? prev : [data, ...prev]
+      })
+      setSelectedAdminCompanyId(data.id)
+    }
+
+    setNewCompanyName('')
+    alert('Company created.')
+  }
+
+  async function createCompanyAdminUser() {
+    if (!isSuperAdmin && userRoles.length > 0) {
+      alert('Only a Super Admin can create company admins.')
+      return
+    }
+
+    if (!selectedAdminCompanyId || !newCompanyAdminEmail || !newCompanyAdminPassword) {
+      alert('Select company and enter admin email/password.')
+      return
+    }
+
+    const { data, error } = await supabase.functions.invoke('create-user', {
+      body: {
+        email: newCompanyAdminEmail,
+        password: newCompanyAdminPassword,
+        role: 'admin',
+        company_id: selectedAdminCompanyId,
+      },
+    })
+
+    if (error || data?.error) {
+      alert(data?.error || error?.message || 'Could not create company admin.')
+      return
+    }
+
+    setNewCompanyAdminEmail('')
+    setNewCompanyAdminPassword('')
+    alert('Company admin created.')
+    loadAll()
+  }
+
+async function createAppUser() {
+    if (!newAdminEmail || !newAdminPassword) {
+      alert('Enter email and temporary password.')
+      return
+    }
+
+    const { data, error } = await supabase.functions.invoke('create-user', {
+      body: {
+        email: newAdminEmail,
+        password: newAdminPassword,
+        role: newAdminRole,
+        company_id: companyId,
+      },
+    })
+
+    if (error || data?.error) {
+      alert(data?.error || error?.message || 'Could not create user.')
+      return
+    }
+
+    setNewAdminEmail('')
+    setNewAdminPassword('')
+    setNewAdminUserId('')
+    setNewAdminRole('operator')
+
+    alert('User created successfully.')
+  }
+
+async function saveUserRole() {
     if (!canEditAdmin) {
       alert('You do not have permission to manage users.')
       return
@@ -1540,6 +1733,83 @@ async function logout() {
         {page === 'admin' && (
           <>
             <h1>Admin / Settings</h1>
+            <div style={card}><strong>Current Role:</strong> {currentUserRole} &nbsp; <strong>Company:</strong> {companyId || 'none'}</div>
+            <div style={card}>
+              <strong>Company isolation:</strong> Users login with email/password. The app finds their assigned company from user_roles and only loads that company’s data.
+            </div>
+
+            {(isSuperAdmin || userRoles.length === 0) && (
+              <div style={box}>
+                <h2>Super Admin: Companies</h2>
+                <p style={{ opacity: 0.8 }}>
+                  Create pipeline/customer companies here. Each user is assigned to a company automatically through their role.
+                </p>
+
+                <input
+                  style={input}
+                  placeholder="New Company Name"
+                  value={newCompanyName}
+                  onChange={(e) => setNewCompanyName(e.target.value)}
+                />
+
+                <button style={button} onClick={createCompany}>
+                  Create Company
+                </button>
+
+                <div style={{ marginTop: 20 }}>
+                  <h3>Create First Admin for Company</h3>
+
+                  <select
+                    style={input}
+                    value={selectedAdminCompanyId}
+                    onChange={(e) => setSelectedAdminCompanyId(e.target.value)}
+                  >
+                    <option value="">Select Company</option>
+                    {companies.map((company) => (
+                      <option key={company.id} value={company.id}>
+                        {company.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <input
+                    style={input}
+                    placeholder="Admin Email"
+                    value={newCompanyAdminEmail}
+                    onChange={(e) => setNewCompanyAdminEmail(e.target.value)}
+                  />
+
+                  <input
+                    style={input}
+                    type="password"
+                    placeholder="Temporary Password"
+                    value={newCompanyAdminPassword}
+                    onChange={(e) => setNewCompanyAdminPassword(e.target.value)}
+                  />
+
+                  <button style={button} onClick={createCompanyAdminUser}>
+                    Create Company Admin
+                  </button>
+                </div>
+
+                <div style={{ marginTop: 20 }}>
+                  <h3>Companies</h3>
+                  <button style={button} onClick={loadAll}>
+                    Refresh Companies
+                  </button>
+                  {companies.map((company) => (
+                    <div key={company.id} style={card}>
+                      <strong>{company.name}</strong>
+                      <div style={{ fontSize: 12, opacity: 0.8 }}>
+                        Company ID: {company.id}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+
 
             <div style={box}>
               <h2>Company Setup Hub</h2>
@@ -1559,6 +1829,61 @@ async function logout() {
 
             <div style={box}>
               <h2>User Roles</h2>
+
+              {isSuperAdmin && (
+                <>
+                  <div style={{ marginTop: 8, fontWeight: 'bold' }}>
+                    Assign User to Company
+                  </div>
+                  <select
+                    style={input}
+                    value={selectedAdminCompanyId}
+                    onChange={(e) => setSelectedAdminCompanyId(e.target.value)}
+                  >
+                    <option value="">Current Company</option>
+                    {companies.map((company) => (
+                      <option key={company.id} value={company.id}>
+                        {company.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+
+              <input
+                style={input}
+                placeholder="User Email"
+                value={newAdminEmail}
+                onChange={(e) => setNewAdminEmail(e.target.value)}
+              />
+
+              <input
+                style={input}
+                type="password"
+                placeholder="Temporary Password"
+                value={newAdminPassword}
+                onChange={(e) => setNewAdminPassword(e.target.value)}
+              />
+
+              <select
+                style={input}
+                value={newAdminRole}
+                onChange={(e) => setNewAdminRole(e.target.value)}
+              >
+                <option value="operator">Operator</option>
+                <option value="measurement_tech">Measurement Tech</option>
+                <option value="admin">Admin</option>
+                <option value="auditor">Auditor</option>
+                <option value="super_admin">Super Admin</option>
+              </select>
+
+              <button style={button} onClick={createAppUser}>
+                Create User
+              </button>
+
+              <div style={{ marginTop: 12, opacity: 0.7 }}>
+                Existing UUID fallback:
+              </div>
 
               <input
                 style={input}
@@ -1768,7 +2093,7 @@ async function logout() {
           </>
         )}
 
-        {page === 'admin' && !canViewAdmin && userRoles.length > 0 && (
+        {page === 'admin' && !canViewAdmin && userRoles.length > 0 && currentUserRole !== 'super_admin' && (
           <div style={box}>
             <h1>Admin / Settings</h1>
             <p>You do not currently have admin permissions. Ask an admin to assign your user role.</p>
@@ -2080,7 +2405,7 @@ async function logout() {
                   <div>POT Source: {t.observed_inputs?.pot_source || 'None'}</div>
                   <div>GSV: {t.calculation_results?.gsv ?? 'None'}</div>
                   <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
-                  <button style={button} onClick={() => setSelectedTicket(t)}>Open Ticket</button>
+                  <button style={button} onClick={() => { setSelectedTicket(t); setPage('tickets') }}>Open Ticket</button>
                 </div>
               ))}
             </div>
@@ -2093,7 +2418,7 @@ async function logout() {
                   <strong>{t.ticket_number}</strong>
                   <div>Status: {t.status}</div>
                   <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
-                  <button style={button} onClick={() => setSelectedTicket(t)}>Open Approved Ticket</button>
+                  <button style={button} onClick={() => { setSelectedTicket(t); setPage('tickets') }}>Open Approved Ticket</button>
                 </div>
               ))}
             </div>
@@ -2157,3 +2482,5 @@ async function logout() {
     </div>
   )
 }
+
+export default App

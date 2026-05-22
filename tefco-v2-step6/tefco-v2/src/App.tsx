@@ -717,34 +717,38 @@ function App() {
     potQuality,
   ])
 
-  
-  async function reloadCurrentUserRole() {
-   const { data: roleRows, error } = await supabase
-  .from('user_roles')
-  .select('*')
-  .eq('user_id', user.id)
-  .eq('active', true)
+ async function reloadCurrentUserRole() {
+  const authResult = await supabase.auth.getUser()
+  const authUser = authResult.data.user
 
-if (error) {
-  console.error('Role load error:', error)
-  return
-}
-if (roleRows && roleRows.length > 0) {
-  setUserRoles(roleRows)
+  if (!authUser) return
 
-  const activeRole =
-    roleRows.find((r: any) => r.active && r.role === 'super_admin') ||
-    roleRows.find((r: any) => r.active && r.role === 'admin') ||
-    roleRows.find((r: any) => r.active)
+  const { data: roleRows, error } = await supabase
+    .from('user_roles')
+    .select('*')
+    .eq('user_id', authUser.id)
+    .eq('active', true)
 
-  if (activeRole) {
-    setCurrentUserRole(activeRole.role)
-    setCompanyId(activeRole.company_id || '')
+  if (error) {
+    console.error('Role load error:', error)
+    return
   }
-}
 
-}
+  if (roleRows && roleRows.length > 0) {
+    setUserRoles(roleRows)
 
+    const activeRole =
+      roleRows.find((r: any) => r.active && r.role === 'super_admin') ||
+      roleRows.find((r: any) => r.active && r.role === 'admin') ||
+      roleRows.find((r: any) => r.active)
+
+    if (activeRole) {
+      setCurrentUserRole(activeRole.role)
+      setCompanyId(activeRole.company_id || '')
+    }
+  }
+} 
+ 
 async function loadAll() {
  const { data: companiesData, error: companiesError } = await supabase
       .from('companies')

@@ -747,6 +747,23 @@ function App() {
   }
 
 async function loadAll() {
+    const { data: companiesData, error: companiesError } = await supabase
+      .from('companies')
+      .select('*')
+      .order('name')
+
+    if (companiesError) {
+      console.error('Companies load error:', companiesError)
+    }
+
+    if (companiesData) {
+      setCompanies(companiesData)
+      if (!selectedAdminCompanyId && companiesData.length > 0) {
+        setSelectedAdminCompanyId(companiesData[0].id)
+      }
+    }
+
+
     await reloadCurrentUserRole()
     const { data: cu } = await supabase.from('company_users').select('company_id').single()
     if (cu) setCompanyId(cu.company_id)
@@ -975,15 +992,7 @@ const provingCompliancePercent =
     }
 
     if (!companyId) return
-
-
-    const { data: companiesData } = await supabase
-      .from('companies')
-      .select('*')
-      .order('name')
-
-    if (companiesData) setCompanies(companiesData)
-    const iv = Number(readingClose || 0) - Number(readingOpen || 0)
+const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     await supabase.from('operator_readings').insert({
       company_id: companyId,
@@ -1434,27 +1443,25 @@ const provingCompliancePercent =
   
   
   async function createCompany() {
-    if (!isSuperAdmin && userRoles.length > 0) {
-      alert('Only a Super Admin can create companies.')
-      return
-    }
+    const name = newCompanyName.trim()
 
-    if (!newCompanyName.trim()) {
+    if (!name) {
       alert('Enter company name.')
       return
     }
 
-    const { data, error } = await supabase
-      .from('companies')
-     .insert([
-  {
-    name: newCompanyName,
-    slug: newCompanyName
+    const slug = name
       .toLowerCase()
       .replace(/\s+/g, '-')
-      .replace(/[^a-z0-9-]/g, ''),
-  },
-])
+      .replace(/[^a-z0-9-]/g, '')
+
+    const { data, error } = await supabase
+      .from('companies')
+      .insert({
+        name,
+        slug,
+        active: true,
+      })
       .select()
       .single()
 
@@ -1463,11 +1470,16 @@ const provingCompliancePercent =
       return
     }
 
-    setNewCompanyName('')
-    if (data?.id) setSelectedAdminCompanyId(data.id)
+    if (data) {
+      setCompanies((prev) => {
+        const exists = prev.some((company) => company.id === data.id)
+        return exists ? prev : [data, ...prev]
+      })
+      setSelectedAdminCompanyId(data.id)
+    }
 
+    setNewCompanyName('')
     alert('Company created.')
-    loadAll()
   }
 
   async function createCompanyAdminUserUser() {
@@ -1770,6 +1782,9 @@ async function logout() {
 
                 <div style={{ marginTop: 20 }}>
                   <h3>Companies</h3>
+                  <button style={button} onClick={loadAll}>
+                    Refresh Companies
+                  </button>
                   {companies.map((company) => (
                     <div key={company.id} style={card}>
                       <strong>{company.name}</strong>

@@ -744,6 +744,8 @@ function App() {
     if (activeRole) {
       setCurrentUserRole(activeRole.role)
       setCompanyId(activeRole.company_id || '')
+      console.log('AUTH USER:', authUser.id)
+      console.log('ROLE ROWS LOADED:', roleRows)
     }
   }
 } 

@@ -1671,18 +1671,81 @@ async function logout() {
     await supabase.auth.signOut()
   }
 
-  const box: CSSProperties = { background: '#0f172a', padding: 20, borderRadius: 10, marginBottom: 20 }
-  const card: CSSProperties = { background: '#1e293b', padding: 15, borderRadius: 10, marginBottom: 10 }
-  const input: CSSProperties = { width: '100%', padding: 12, marginTop: 10, color: 'black', background: 'white', borderRadius: 6, border: 'none' }
-  const button: CSSProperties = { width: '100%', padding: 12, marginTop: 10, background: '#2563eb', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer' }
+  const box: CSSProperties = {
+    background: 'linear-gradient(145deg, rgba(28,32,35,0.98), rgba(10,15,18,0.98))',
+    border: '1px solid rgba(196,106,43,0.28)',
+    padding: 20,
+    borderRadius: 18,
+    marginBottom: 20,
+    color: '#f8fafc',
+    boxShadow: '0 18px 40px rgba(0,0,0,0.32)',
+  }
+  const card: CSSProperties = {
+    background: 'linear-gradient(145deg, rgba(20,25,28,1), rgba(9,13,16,1))',
+    border: '1px solid rgba(255,255,255,0.10)',
+    padding: 15,
+    borderRadius: 14,
+    marginBottom: 10,
+    color: '#f8fafc',
+    boxShadow: '0 10px 24px rgba(0,0,0,0.22)',
+  }
+  const input: CSSProperties = {
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: 12,
+    marginTop: 10,
+    color: '#f8fafc',
+    background: '#0b1117',
+    borderRadius: 12,
+    border: '1px solid rgba(255,255,255,0.16)',
+    outline: 'none',
+  }
+  const button: CSSProperties = {
+    width: '100%',
+    padding: 12,
+    marginTop: 10,
+    background: 'linear-gradient(135deg, #c46a2b, #7a3b18)',
+    color: 'white',
+    border: '1px solid #e08745',
+    borderRadius: 12,
+    cursor: 'pointer',
+    fontWeight: 700,
+    boxShadow: '0 0 18px rgba(196,106,43,0.24)',
+  }
 
   if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
   if (!session) return <Login />
 
   return (
-    <div style={{ background: '#020617', color: 'white', minHeight: '100vh', display: 'flex' }}>
-      <aside style={{ width: 220, background: '#0f172a', padding: 20 }}>
-        <h2>TEFCO V2</h2>
+    <>
+      <style>{`
+        input::placeholder { color: rgba(248,250,252,0.48); }
+        select option { background: #0b1117; color: #f8fafc; }
+        button:hover { filter: brightness(1.08); }
+        h1, h2, h3 { color: #f8fafc; }
+      `}</style>
+    <div style={{
+      background: 'radial-gradient(circle at top left, rgba(196,106,43,0.16), transparent 28%), #070a0d',
+      color: '#f8fafc',
+      minHeight: '100vh',
+      display: 'flex',
+      fontFamily: 'Inter, Segoe UI, Arial, sans-serif',
+    }}>
+      <aside style={{
+        width: 250,
+        background: 'linear-gradient(180deg, #111820 0%, #070a0d 100%)',
+        padding: 20,
+        borderRight: '1px solid rgba(196,106,43,0.28)',
+        boxShadow: '10px 0 30px rgba(0,0,0,0.35)',
+      }}>
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: 0.4 }}>
+            TEFCO <span style={{ color: '#c46a2b' }}>V2</span>
+          </div>
+          <div style={{ fontSize: 12, color: '#a8b3bd', marginTop: 4 }}>
+            Measurement Platform
+          </div>
+        </div>
 
         {['dashboard', 'admin', 'reports', 'readings', 'pot', 'provings', 'tickets'].map((p) => (
           <button key={p} onClick={() => setPage(p)} style={button}>
@@ -1695,7 +1758,11 @@ async function logout() {
         </button>
       </aside>
 
-      <main style={{ flex: 1, padding: 30 }}>
+      <main style={{
+        flex: 1,
+        padding: 30,
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)), #070a0d',
+      }}>
         {page === 'dashboard' && (
           <>
             <h1>Dashboard</h1>
@@ -2473,6 +2540,7 @@ async function logout() {
         )}
       </main>
     </div>
+    </>
   )
 }
 

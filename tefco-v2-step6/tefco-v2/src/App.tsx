@@ -594,6 +594,11 @@ function App() {
   const [currentUserRole, setCurrentUserRole] = useState<string>('operator')
   const [newAdminUserId, setNewAdminUserId] = useState('')
   const [newAdminRole, setNewAdminRole] = useState('operator')
+  const [showActiveUsers, setShowActiveUsers] = useState(false)
+  const [showCompanyBranding, setShowCompanyBranding] = useState(true)
+  const [showUserManagement, setShowUserManagement] = useState(true)
+  const [showContractProfiles, setShowContractProfiles] = useState(false)
+  const [showCompanySetupHub, setShowCompanySetupHub] = useState(false)
   const [companies, setCompanies] = useState<Company[]>([])
   const [newCompanyName, setNewCompanyName] = useState('')
   const [selectedAdminCompanyId, setSelectedAdminCompanyId] = useState('')
@@ -1713,6 +1718,42 @@ async function logout() {
     boxShadow: '0 0 18px rgba(196,106,43,0.24)',
   }
 
+  const adminHeaderCard: CSSProperties = {
+    ...box,
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 14,
+  }
+
+  const sectionToggle: CSSProperties = {
+    ...button,
+    width: '100%',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    background: 'linear-gradient(135deg, rgba(196,106,43,0.95), rgba(122,59,24,0.95))',
+  }
+
+  const adminGrid: CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+    gap: 12,
+  }
+
+  const rolePill: CSSProperties = {
+    display: 'inline-block',
+    padding: '4px 9px',
+    borderRadius: 999,
+    background: 'rgba(196,106,43,0.16)',
+    border: '1px solid rgba(196,106,43,0.36)',
+    color: '#f8fafc',
+    fontSize: 12,
+    fontWeight: 700,
+  }
+
+
   if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
   if (!session) return <Login />
 
@@ -1792,372 +1833,372 @@ async function logout() {
 
         {page === 'admin' && (
           <>
-            <h1>Admin / Settings</h1>
-            <div style={card}><strong>Current Role:</strong> {currentUserRole} &nbsp; <strong>Company:</strong> {companyId || 'none'}</div>
-            <div style={card}>
-              <strong>Company isolation:</strong> Users login with email/password. The app finds their assigned company from user_roles and only loads that company’s data.
+            <div style={adminHeaderCard}>
+              <div>
+                <h1 style={{ margin: 0 }}>
+                  Admin <span style={{ color: '#c46a2b' }}>/</span> Settings
+                </h1>
+                <div style={{ color: '#a8b3bd', marginTop: 6 }}>
+                  Company setup, users, roles, branding, and contract configuration.
+                </div>
+              </div>
+
+              <div style={{ textAlign: 'right' }}>
+                <div style={rolePill}>{currentUserRole}</div>
+                <div style={{ fontSize: 12, color: '#a8b3bd', marginTop: 6 }}>
+                  Company: {companyId || 'none'}
+                </div>
+              </div>
             </div>
 
-            {(isSuperAdmin || userRoles.length === 0) && (
+            {currentUserRole === 'super_admin' && (
               <div style={box}>
                 <h2>Super Admin: Companies</h2>
-                <p style={{ opacity: 0.8 }}>
-                  Create pipeline/customer companies here. Each user is assigned to a company automatically through their role.
+                <p style={{ color: '#a8b3bd' }}>
+                  Create customer companies and assign the first company admin.
+                  Company admins will only manage their own company setup.
                 </p>
 
-                <input
-                  style={input}
-                  placeholder="New Company Name"
-                  value={newCompanyName}
-                  onChange={(e) => setNewCompanyName(e.target.value)}
-                />
+                <div style={adminGrid}>
+                  <div style={card}>
+                    <h3>Create Company</h3>
+                    <input
+                      style={input}
+                      placeholder="Company Name"
+                      value={newCompanyName}
+                      onChange={(e) => setNewCompanyName(e.target.value)}
+                    />
+                    <button style={button} onClick={createCompany}>
+                      Create Company
+                    </button>
+                  </div>
 
-                <button style={button} onClick={createCompany}>
-                  Create Company
-                </button>
+                  <div style={card}>
+                    <h3>Create First Admin</h3>
 
-                <div style={{ marginTop: 20 }}>
-                  <h3>Create First Admin for Company</h3>
+                    <select
+                      style={input}
+                      value={selectedAdminCompanyId}
+                      onChange={(e) => setSelectedAdminCompanyId(e.target.value)}
+                    >
+                      <option value="">Select Company</option>
+                      {companies.map((company) => (
+                        <option key={company.id} value={company.id}>
+                          {company.name}
+                        </option>
+                      ))}
+                    </select>
 
-                  <select
-                    style={input}
-                    value={selectedAdminCompanyId}
-                    onChange={(e) => setSelectedAdminCompanyId(e.target.value)}
-                  >
-                    <option value="">Select Company</option>
-                    {companies.map((company) => (
-                      <option key={company.id} value={company.id}>
-                        {company.name}
-                      </option>
-                    ))}
-                  </select>
+                    <input
+                      style={input}
+                      placeholder="Admin Email"
+                      value={newCompanyAdminEmail}
+                      onChange={(e) => setNewCompanyAdminEmail(e.target.value)}
+                    />
 
-                  <input
-                    style={input}
-                    placeholder="Admin Email"
-                    value={newCompanyAdminEmail}
-                    onChange={(e) => setNewCompanyAdminEmail(e.target.value)}
-                  />
+                    <input
+                      style={input}
+                      type="password"
+                      placeholder="Temporary Password"
+                      value={newCompanyAdminPassword}
+                      onChange={(e) => setNewCompanyAdminPassword(e.target.value)}
+                    />
 
-                  <input
-                    style={input}
-                    type="password"
-                    placeholder="Temporary Password"
-                    value={newCompanyAdminPassword}
-                    onChange={(e) => setNewCompanyAdminPassword(e.target.value)}
-                  />
-
-                  <button style={button} onClick={createCompanyAdminUser}>
-                    Create Company Admin
-                  </button>
+                    <button style={button} onClick={createCompanyAdminUser}>
+                      Create Company Admin
+                    </button>
+                  </div>
                 </div>
 
-                <div style={{ marginTop: 20 }}>
-                  <h3>Companies</h3>
-                  <button style={button} onClick={loadAll}>
-                    Refresh Companies
-                  </button>
-                  {companies.map((company) => (
-                    <div key={company.id} style={card}>
-                      <strong>{company.name}</strong>
-                      <div style={{ fontSize: 12, opacity: 0.8 }}>
-                        Company ID: {company.id}
+                <button style={{ ...button, marginTop: 16 }} onClick={loadAll}>
+                  Refresh Companies
+                </button>
+
+                <div style={{ marginTop: 14 }}>
+                  <h3>Companies ({companies.length})</h3>
+                  <div style={adminGrid}>
+                    {companies.map((company) => (
+                      <div key={company.id} style={card}>
+                        <strong>{company.name}</strong>
+                        <div style={{ fontSize: 12, color: '#a8b3bd', marginTop: 6 }}>
+                          ID: {company.id}
+                        </div>
+                        <div style={{ color: '#16a34a', marginTop: 6 }}>
+                          {company.active === false ? 'Inactive' : 'Active'}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
 
-
-
             <div style={box}>
-              <h2>Company Setup Hub</h2>
-              <p style={{ opacity: 0.8 }}>
-                Manage your company setup here: areas, segments, leases, producers, meters, users, and contract profiles.
-              </p>
+              <button
+                style={sectionToggle}
+                onClick={() => setShowCompanyBranding(!showCompanyBranding)}
+              >
+                <span>{showCompanyBranding ? '▼' : '▶'} Company Branding</span>
+                <span>Logo / Theme</span>
+              </button>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 10 }}>
-                <button style={button} onClick={() => setPage('areas')}>Manage Areas</button>
-                <button style={button} onClick={() => setPage('segments')}>Manage Segments</button>
-                <button style={button} onClick={() => setPage('leases')}>Manage Leases</button>
-                <button style={button} onClick={() => setPage('producers')}>Manage Producers</button>
-                <button style={button} onClick={() => setPage('meters')}>Manage Meters</button>
-              </div>
+              {showCompanyBranding && (
+                <div style={adminGrid}>
+                  <div style={card}>
+                    <h3>Company Info</h3>
+
+                    <input
+                      style={input}
+                      placeholder="Company Name"
+                      value={companyNameInput}
+                      onChange={(e) => setCompanyNameInput(e.target.value)}
+                    />
+
+                    <input
+                      style={input}
+                      placeholder="Address Line 1"
+                      value={companyAddress1Input}
+                      onChange={(e) => setCompanyAddress1Input(e.target.value)}
+                    />
+
+                    <input
+                      style={input}
+                      placeholder="Address Line 2"
+                      value={companyAddress2Input}
+                      onChange={(e) => setCompanyAddress2Input(e.target.value)}
+                    />
+
+                    <input
+                      style={input}
+                      placeholder="Phone"
+                      value={companyPhoneInput}
+                      onChange={(e) => setCompanyPhoneInput(e.target.value)}
+                    />
+
+                    <button style={button} onClick={saveCompanySettings}>
+                      Save Company Branding
+                    </button>
+                  </div>
+
+                  <div style={card}>
+                    <h3>Logo</h3>
+                    {getCompanyLogoUrl() ? (
+                      <div style={{ background: '#fff', borderRadius: 12, padding: 14, marginBottom: 12 }}>
+                        <img
+                          src={getCompanyLogoUrl()}
+                          alt="Company Logo"
+                          style={{ maxWidth: '100%', maxHeight: 120, objectFit: 'contain' }}
+                        />
+                      </div>
+                    ) : (
+                      <div style={{ color: '#a8b3bd', marginBottom: 12 }}>
+                        No logo uploaded yet.
+                      </div>
+                    )}
+
+                    <input
+                      style={input}
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setCompanyLogoFile(e.target.files?.[0] || null)}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
-
             <div style={box}>
-              <h2>User Roles</h2>
+              <button
+                style={sectionToggle}
+                onClick={() => setShowUserManagement(!showUserManagement)}
+              >
+                <span>{showUserManagement ? '▼' : '▶'} User Management</span>
+                <span>Create / Manage</span>
+              </button>
 
-              {isSuperAdmin && (
+              {showUserManagement && (
                 <>
-                  <div style={{ marginTop: 8, fontWeight: 'bold' }}>
-                    Assign User to Company
+                  <p style={{ color: '#a8b3bd' }}>
+                    Create users by email/password. UUIDs are handled automatically in the background.
+                  </p>
+
+                  {currentUserRole === 'super_admin' && (
+                    <select
+                      style={input}
+                      value={selectedAdminCompanyId}
+                      onChange={(e) => setSelectedAdminCompanyId(e.target.value)}
+                    >
+                      <option value="">Select Company For New User</option>
+                      {companies.map((company) => (
+                        <option key={company.id} value={company.id}>
+                          {company.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  <div style={adminGrid}>
+                    <input
+                      style={input}
+                      placeholder="User Email"
+                      value={newAdminEmail}
+                      onChange={(e) => setNewAdminEmail(e.target.value)}
+                    />
+
+                    <input
+                      style={input}
+                      type="password"
+                      placeholder="Temporary Password"
+                      value={newAdminPassword}
+                      onChange={(e) => setNewAdminPassword(e.target.value)}
+                    />
+
+                    <select
+                      style={input}
+                      value={newAdminRole}
+                      onChange={(e) => setNewAdminRole(e.target.value)}
+                    >
+                      <option value="operator">Operator</option>
+                      <option value="measurement_tech">Measurement Tech</option>
+                      <option value="admin">Admin</option>
+                      {currentUserRole === 'super_admin' && (
+                        <option value="super_admin">Super Admin</option>
+                      )}
+                    </select>
+
+                    <button style={button} onClick={createAppUser}>
+                      Create User
+                    </button>
                   </div>
-                  <select
-                    style={input}
-                    value={selectedAdminCompanyId}
-                    onChange={(e) => setSelectedAdminCompanyId(e.target.value)}
+
+                  <button
+                    style={{ ...sectionToggle, marginTop: 14 }}
+                    onClick={() => setShowActiveUsers(!showActiveUsers)}
                   >
-                    <option value="">Current Company</option>
-                    {companies.map((company) => (
-                      <option key={company.id} value={company.id}>
-                        {company.name}
-                      </option>
-                    ))}
-                  </select>
+                    <span>{showActiveUsers ? '▼' : '▶'} Active Users ({userRoles.length})</span>
+                    <span>Manage</span>
+                  </button>
+
+                  {showActiveUsers && (
+                    <div style={{ display: 'grid', gap: 10 }}>
+                      {userRoles.map((role) => (
+                        <div
+                          key={role.id}
+                          style={{
+                            ...card,
+                            display: 'grid',
+                            gridTemplateColumns: '1fr auto',
+                            gap: 12,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <div>
+                            <strong>{role.role}</strong>
+                            <div style={{ fontSize: 12, color: '#a8b3bd' }}>
+                              User ID: {role.user_id}
+                            </div>
+                            <div style={{ fontSize: 12, color: '#a8b3bd' }}>
+                              Company: {role.company_id || 'global'}
+                            </div>
+                          </div>
+
+                          {role.active !== false && (
+                            <button
+                              style={{ ...button, background: '#991b1b', borderColor: '#ef4444' }}
+                              onClick={() => deactivateUserRole(role.id)}
+                            >
+                              Deactivate
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
-
-              <input
-                style={input}
-                placeholder="User Email"
-                value={newAdminEmail}
-                onChange={(e) => setNewAdminEmail(e.target.value)}
-              />
-
-              <input
-                style={input}
-                type="password"
-                placeholder="Temporary Password"
-                value={newAdminPassword}
-                onChange={(e) => setNewAdminPassword(e.target.value)}
-              />
-
-              <select
-                style={input}
-                value={newAdminRole}
-                onChange={(e) => setNewAdminRole(e.target.value)}
-              >
-                <option value="operator">Operator</option>
-                <option value="measurement_tech">Measurement Tech</option>
-                <option value="admin">Admin</option>
-                <option value="auditor">Auditor</option>
-                <option value="super_admin">Super Admin</option>
-              </select>
-
-              <button style={button} onClick={createAppUser}>
-                Create User
-              </button>
-
-              <div style={{ marginTop: 12, opacity: 0.7 }}>
-                Existing UUID fallback:
-              </div>
-
-              <input
-                style={input}
-                placeholder="User UUID from Supabase Auth"
-                value={newAdminUserId}
-                onChange={(e) => setNewAdminUserId(e.target.value)}
-              />
-
-              <select
-                style={input}
-                value={newAdminRole}
-                onChange={(e) => setNewAdminRole(e.target.value)}
-              >
-                <option value="operator">Operator</option>
-                <option value="measurement_tech">Measurement Tech</option>
-                <option value="admin">Admin</option>
-                <option value="auditor">Auditor</option>
-                <option value="super_admin">Super Admin</option>
-              </select>
-
-              <button style={button} onClick={saveUserRole}>
-                Add User Role
-              </button>
-
-              <div style={{ marginTop: 20 }}>
-                {userRoles.map((role) => (
-                  <div key={role.id} style={card}>
-                    <strong>{role.role}</strong>
-                    <div>User ID: {role.user_id}</div>
-                    <div>Active: {role.active === false ? 'No' : 'Yes'}</div>
-
-                    {role.active !== false && (
-                      <button
-                        style={{ ...button, background: '#dc2626' }}
-                        onClick={() => deactivateUserRole(role.id)}
-                      >
-                        Deactivate Role
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
             </div>
 
             <div style={box}>
-              <h2>Contract Profiles</h2>
-
-              <input
-                style={input}
-                placeholder="Profile Name"
-                value={newContractName}
-                onChange={(e) => setNewContractName(e.target.value)}
-              />
-
-              <select
-                style={input}
-                value={newContractProducer}
-                onChange={(e) => setNewContractProducer(e.target.value)}
+              <button
+                style={sectionToggle}
+                onClick={() => setShowContractProfiles(!showContractProfiles)}
               >
-                <option value="">Default / All Producers</option>
-                {producers.map((producer) => (
-                  <option key={producer.id} value={producer.id}>
-                    {producer.name}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                style={input}
-                value={newContractStandard}
-                onChange={(e) => setNewContractStandard(e.target.value)}
-              >
-                <option value="API 11.1 2021">API 11.1 2021</option>
-                <option value="API 11.1 2004">API 11.1 2004</option>
-                <option value="API 12 2021">API 12 2021 / Plains Style</option>
-              </select>
-
-              <select
-                style={input}
-                value={newContractMethod}
-                onChange={(e) => setNewContractMethod(e.target.value)}
-              >
-                <option value="CTPL">CTPL</option>
-                <option value="SEPARATE_CTL_CPL">Separate CTL × CPL</option>
-              </select>
-
-              <select
-                style={input}
-                value={newContractFactorType}
-                onChange={(e) => setNewContractFactorType(e.target.value)}
-              >
-                <option value="MF">MF</option>
-                <option value="CMF">CMF</option>
-              </select>
-
-              <select
-                style={input}
-                value={newContractProductGroup}
-                onChange={(e) => setNewContractProductGroup(e.target.value)}
-              >
-                <option value="crude">Crude</option>
-                <option value="refined">Refined Product</option>
-                <option value="lube">Lubricating Oil</option>
-              </select>
-
-              <input
-                style={input}
-                type="number"
-                placeholder="API @60 Rounding"
-                value={newContractApiRounding}
-                onChange={(e) => setNewContractApiRounding(e.target.value)}
-              />
-
-              <input
-                style={input}
-                type="number"
-                placeholder="CTL Rounding"
-                value={newContractCtlRounding}
-                onChange={(e) => setNewContractCtlRounding(e.target.value)}
-              />
-
-              <input
-                style={input}
-                type="number"
-                placeholder="CPL Rounding"
-                value={newContractCplRounding}
-                onChange={(e) => setNewContractCplRounding(e.target.value)}
-              />
-
-              <input
-                style={input}
-                type="number"
-                placeholder="CTPL/CCF Rounding"
-                value={newContractCtlpRounding}
-                onChange={(e) => setNewContractCtlpRounding(e.target.value)}
-              />
-
-              <input
-                style={input}
-                type="number"
-                placeholder="Volume Rounding"
-                value={newContractVolumeRounding}
-                onChange={(e) => setNewContractVolumeRounding(e.target.value)}
-              />
-
-              <label style={{ display: 'block', marginTop: 15 }}>
-                <input
-                  type="checkbox"
-                  checked={newContractUsePressure}
-                  onChange={(e) => setNewContractUsePressure(e.target.checked)}
-                />{' '}
-                Use Pressure Correction
-              </label>
-
-              <label style={{ display: 'block', marginTop: 15 }}>
-                <input
-                  type="checkbox"
-                  checked={newContractUseShrink}
-                  onChange={(e) => setNewContractUseShrink(e.target.checked)}
-                />{' '}
-                Use Shrink Factor
-              </label>
-
-              <input
-                style={input}
-                type="number"
-                step="0.000001"
-                placeholder="Shrink Factor"
-                value={newContractShrinkFactor}
-                onChange={(e) => setNewContractShrinkFactor(e.target.value)}
-              />
-
-              <button style={button} onClick={saveContractProfile}>
-                Save Contract Profile
+                <span>{showContractProfiles ? '▼' : '▶'} Contract Profiles</span>
+                <span>Profiles / Standards</span>
               </button>
 
-              <div style={{ marginTop: 20 }}>
-                {contractProfiles.map((profile) => {
-                  const producer = producers.find(
-                    (p) => p.id === profile.producer_id
-                  )
+              {showContractProfiles && (
+                <div>
+                  <p style={{ color: '#a8b3bd' }}>
+                    Contract profiles control API chapter, rounding, factor type, and product calculation method.
+                  </p>
 
-                  return (
-                    <div key={profile.id} style={card}>
-                      <strong>{profile.name}</strong>
-                      <div>Producer: {producer?.name || 'Default / All'}</div>
-                      <div>Standard: {profile.standard}</div>
-                      <div>Method: {profile.calculation_method}</div>
-                      <div>Factor: {profile.factor_type}</div>
-                      <div>Product: {profile.product_group}</div>
-                      <div>API rounding: {profile.api_rounding}</div>
-                      <div>Volume rounding: {profile.volume_rounding}</div>
+                  <div style={adminGrid}>
+                    <input
+                      style={input}
+                      placeholder="Contract Name"
+                      value={newContractName}
+                      onChange={(e) => setNewContractName(e.target.value)}
+                    />
 
-                      {profile.active !== false && (
-                        <button
-                          style={{ ...button, background: '#dc2626' }}
-                          onClick={() => deactivateContractProfile(profile.id)}
-                        >
-                          Deactivate Profile
-                        </button>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+                    <select style={input} value={newContractProducer} onChange={(e) => setNewContractProducer(e.target.value)}>
+                      <option value="">Default / All Producers</option>
+                      {producers.map((producer) => (
+                        <option key={producer.id} value={producer.id}>{producer.name}</option>
+                      ))}
+                    </select>
+
+                    <select style={input} value={newContractStandard} onChange={(e) => setNewContractStandard(e.target.value)}>
+                      <option value="API 11.1 2021">API 11.1 2021</option>
+                      <option value="API 11.1 2004">API 11.1 2004</option>
+                      <option value="Chapter 12.2.1 2021">Chapter 12.2.1 2021</option>
+                    </select>
+
+                    <button style={button} onClick={createContractProfile}>
+                      Create Contract Profile
+                    </button>
+                  </div>
+
+                  <div style={{ marginTop: 14 }}>
+                    {contractProfiles.map((profile) => (
+                      <div key={profile.id} style={card}>
+                        <strong>{profile.name}</strong>
+                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                          {profile.standard} / {profile.calculation_method}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div style={box}>
+              <button
+                style={sectionToggle}
+                onClick={() => setShowCompanySetupHub(!showCompanySetupHub)}
+              >
+                <span>{showCompanySetupHub ? '▼' : '▶'} Company Setup Hub</span>
+                <span>Areas / Leases / Meters</span>
+              </button>
+
+              {showCompanySetupHub && (
+                <div>
+                  <p style={{ color: '#a8b3bd' }}>
+                    Manage operational setup for this company.
+                  </p>
+
+                  <div style={adminGrid}>
+                    <button style={button} onClick={() => setPage('areas')}>Manage Areas</button>
+                    <button style={button} onClick={() => setPage('segments')}>Manage Segments</button>
+                    <button style={button} onClick={() => setPage('leases')}>Manage Leases</button>
+                    <button style={button} onClick={() => setPage('producers')}>Manage Producers</button>
+                    <button style={button} onClick={() => setPage('meters')}>Manage Meters</button>
+                  </div>
+                </div>
+              )}
             </div>
           </>
-        )}
-
-        {page === 'admin' && !canViewAdmin && userRoles.length > 0 && currentUserRole !== 'super_admin' && (
-          <div style={box}>
-            <h1>Admin / Settings</h1>
-            <p>You do not currently have admin permissions. Ask an admin to assign your user role.</p>
-          </div>
         )}
 
         {page === 'areas' && (

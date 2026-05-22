@@ -559,12 +559,86 @@ function isThisMonth(dateValue?: string) {
   return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
 }
 
+const adminPanel: CSSProperties = {
+  background: 'linear-gradient(145deg, rgba(28,32,35,0.98), rgba(10,15,18,0.98))',
+  border: '1px solid rgba(196,106,43,0.28)',
+  borderRadius: 16,
+  padding: 20,
+  marginBottom: 18,
+  boxShadow: '0 18px 40px rgba(0,0,0,0.32)',
+}
+
+const adminInput: CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: '12px 14px',
+  marginTop: 10,
+  background: '#0b1117',
+  color: '#f8fafc',
+  border: '1px solid rgba(255,255,255,0.18)',
+  borderRadius: 10,
+  outline: 'none',
+}
+
+const adminButton: CSSProperties = {
+  background: 'linear-gradient(135deg, #c46a2b, #7a3b18)',
+  border: '1px solid #e08745',
+  color: '#fff',
+  borderRadius: 10,
+  boxShadow: '0 0 18px rgba(196,106,43,0.25)',
+}
+
+const adminTile: CSSProperties = {
+  ...adminButton,
+  minHeight: 70,
+  background: 'linear-gradient(145deg, rgba(20,25,28,1), rgba(9,13,16,1))',
+}
+
+const sectionTitle: CSSProperties = {
+  marginTop: 0,
+  marginBottom: 14,
+  color: '#f8fafc',
+  fontSize: 20,
+}
+
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
   const [companyId, setCompanyId] = useState('')
   const [loading, setLoading] = useState(true)
 
+  const [companyAccentColor, setCompanyAccentColor] = useState('#c46a2b')
+const [companyThemeMode, setCompanyThemeMode] = useState('dark')
+
+const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null)
+
+const [companyNameInput, setCompanyNameInput] = useState('')
+const [companyAddress1Input, setCompanyAddress1Input] = useState('')
+const [companyAddress2Input, setCompanyAddress2Input] = useState('')
+const [companyPhoneInput, setCompanyPhoneInput] = useState('')
+
+const [newProfileName, setNewProfileName] = useState('')
+const [newProfileProducerId, setNewProfileProducerId] = useState('')
+
+const getCompanyLogoUrl = () => {
+  if (companyLogoFile) {
+    return URL.createObjectURL(companyLogoFile)
+  }
+
+  return companySettings?.logo_url || ''
+}
+
+const getCompanyDisplayName = () => {
+  return companyNameInput || companySettings?.company_name || 'TEFCO V2'
+}
+
+const saveCompanySettings = async () => {
+  alert('Company settings save coming next step')
+}
+
+const createContractProfile = async () => {
+  alert('Contract profile creation coming next step')
+}
   const [areas, setAreas] = useState<Area[]>([])
   const [segments, setSegments] = useState<Segment[]>([])
   const [leases, setLeases] = useState<Lease[]>([])
@@ -2525,48 +2599,8 @@ async function logout() {
   )
 }
 
-const adminPanel: CSSProperties = {
-  background: 'linear-gradient(145deg, rgba(28,32,35,0.98), rgba(10,15,18,0.98))',
-  border: '1px solid rgba(196,106,43,0.28)',
-  borderRadius: 16,
-  padding: 20,
-  marginBottom: 18,
-  boxShadow: '0 18px 40px rgba(0,0,0,0.32)',
-}
 
-const adminInput: CSSProperties = {
-  width: '100%',
-  boxSizing: 'border-box',
-  padding: '12px 14px',
-  marginTop: 10,
-  background: '#0b1117',
-  color: '#f8fafc',
-  border: '1px solid rgba(255,255,255,0.18)',
-  borderRadius: 10,
-  outline: 'none',
-}
 
-const adminButton: CSSProperties = {
-  ...button,
-  background: 'linear-gradient(135deg, #c46a2b, #7a3b18)',
-  border: '1px solid #e08745',
-  color: '#fff',
-  borderRadius: 10,
-  boxShadow: '0 0 18px rgba(196,106,43,0.25)',
-}
-
-const adminTile: CSSProperties = {
-  ...adminButton,
-  minHeight: 70,
-  background: 'linear-gradient(145deg, rgba(20,25,28,1), rgba(9,13,16,1))',
-}
-
-const sectionTitle: CSSProperties = {
-  marginTop: 0,
-  marginBottom: 14,
-  color: '#f8fafc',
-  fontSize: 20,
-}
 
 
 

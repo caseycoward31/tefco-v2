@@ -786,13 +786,13 @@ async function loadAll() {
       .from('user_roles')
       .select('*')
       .eq('active', true)
-  if (rolesRows && rolesRows.length > 0) {
-  setUserRoles(rolesRows)
+  if (roleRows && roleRows.length > 0) {
+  setUserRoles(roleRows)
 
   const activeRole =
-    rolesRows.find((r) => r.active && r.role === 'super_admin') ||
-    rolesRows.find((r) => r.active && r.role === 'admin') ||
-    rolesRows.find((r) => r.active)
+    roleRows.find((r) => r.active && r.role === 'super_admin') ||
+    roleRows.find((r) => r.active && r.role === 'admin') ||
+    roleRows.find((r) => r.active)
 
   if (activeRole) {
     setCurrentUserRole(activeRole.role)

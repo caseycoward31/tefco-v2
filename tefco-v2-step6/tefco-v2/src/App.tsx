@@ -980,7 +980,6 @@ const provingCompliancePercent =
     const { data: companiesData } = await supabase
       .from('companies')
       .select('*')
-      .eq('active', true)
       .order('name')
 
     if (companiesData) setCompanies(companiesData)

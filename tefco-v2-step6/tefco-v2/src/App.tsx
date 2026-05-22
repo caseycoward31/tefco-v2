@@ -1732,6 +1732,65 @@ async function logout() {
 
 
             <div style={box}>
+           <div className="card">
+  <h2>Super Admin: Companies</h2>
+
+  <input
+    value={newCompanyName}
+    onChange={(e) => setNewCompanyName(e.target.value)}
+    placeholder="Company Name"
+  />
+
+  <button onClick={createCompany}>
+    Create Company
+  </button>
+
+  <br /><br />
+
+  <h3>Create First Admin for Company</h3>
+
+  <select
+    value={selectedAdminCompanyId}
+    onChange={(e) => setSelectedAdminCompanyId(e.target.value)}
+  >
+    <option value="">Select Company</option>
+
+    {companies.map((company) => (
+      <option key={company.id} value={company.id}>
+        {company.name}
+      </option>
+    ))}
+  </select>
+
+  <input
+    value={newCompanyAdminEmail}
+    onChange={(e) => setNewCompanyAdminEmail(e.target.value)}
+    placeholder="Admin Email"
+  />
+
+  <input
+    type="password"
+    value={newCompanyAdminPassword}
+    onChange={(e) => setNewCompanyAdminPassword(e.target.value)}
+    placeholder="Temporary Password"
+  />
+
+  <button onClick={createCompanyAdminUser}>
+    Create Company Admin
+  </button>
+
+  <br /><br />
+
+  <h3>Companies</h3>
+
+  {companies.map((company) => (
+    <div key={company.id} className="card">
+      <strong>{company.name}</strong>
+      <div>ID: {company.id}</div>
+      <div>Active: {company.active ? 'Yes' : 'No'}</div>
+    </div>
+  ))}
+</div>
               <h2>Company Setup Hub</h2>
               <p style={{ opacity: 0.8 }}>
                 Manage your company setup here: areas, segments, leases, producers, meters, users, and contract profiles.

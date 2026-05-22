@@ -1447,10 +1447,15 @@ const provingCompliancePercent =
 
     const { data, error } = await supabase
       .from('companies')
-      .insert({
-        name: newCompanyName.trim(),
-        active: true,
-      })
+     .insert([
+  {
+    name: newCompanyName,
+    slug: newCompanyName
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, ''),
+  },
+])
       .select()
       .single()
 

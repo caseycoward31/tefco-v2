@@ -730,21 +730,19 @@ function App() {
       .select('*')
       .eq('user_id', user.id)
       .eq('active', true)
+if (roleData && roleData.length > 0) {
+  setUserRoles(roleData)
 
-    if (error) {
-      console.error('Role load error:', error)
-      return
-    }
+  const activeRole =
+    roleData.find((r: any) => r.active && r.role === 'super_admin') ||
+    roleData.find((r: any) => r.active && r.role === 'admin') ||
+    roleData.find((r: any) => r.active)
 
-    const highestRole = getHighestRole(roleRows || [])
-    setUserRoles(roleRows || [])
-    setCurrentUserRole(highestRole)
-
-    const firstCompanyRole = (roleRows || []).find((role: any) => role.company_id)
-    if (firstCompanyRole?.company_id) {
-      setCompanyId(firstCompanyRole.company_id)
-    }
+  if (activeRole) {
+    setCurrentUserRole(activeRole.role)
+    setCompanyId(activeRole.company_id || '')
   }
+}
 
 async function loadAll() {
     const { data: companiesData, error: companiesError } = await supabase

@@ -605,6 +605,7 @@ function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
   const [companyId, setCompanyId] = useState('')
+  const [companySettings, setCompanySettings] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   const [companyAccentColor, setCompanyAccentColor] = useState('#c46a2b')
@@ -619,6 +620,7 @@ const [companyPhoneInput, setCompanyPhoneInput] = useState('')
 
 const [newProfileName, setNewProfileName] = useState('')
 const [newProfileProducerId, setNewProfileProducerId] = useState('')
+
 
 const getCompanyLogoUrl = () => {
   if (companyLogoFile) {

@@ -590,7 +590,7 @@ function App() {
   const [ticketAuditLogs, setTicketAuditLogs] = useState<TicketAuditLog[]>([])
   const [userRoles, setUserRoles] = useState<UserRole[]>([])
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([])
-  const [currentUserRole, setCurrentUserRole] = useState<string>('operator')
+  
   const [newAdminUserId, setNewAdminUserId] = useState('')
   const [newAdminRole, setNewAdminRole] = useState('operator')
   const [companies, setCompanies] = useState<Company[]>([])
@@ -723,27 +723,26 @@ function App() {
 
   if (!authUser) return
 
-  const { data: roleRows, error } = await supabase
-    .from('user_roles')
-    .select('*')
-    .eq('user_id', authUser.id)
-    .eq('active', true)
+ const { data: roleRows, error } = await supabase
+  .from('user_roles')
+  .select('*')
+  .eq('user_id', authUser.id)
+  .eq('active', true)
 
-  if (error) {
-    console.error('Role load error:', error)
-    return
-  }
+if (error) {
+  console.error(error)
+  return
+}
 
-  if (roleRows && roleRows.length > 0) {
-    setUserRoles(roleRows)
+setUserRoles(roleRows || [])
 
-   const activeRole =
-  roleRows.find((r: any) => r.role === 'super_admin' && r.active !== false) ||
-  roleRows.find((r: any) => r.role === 'admin' && r.active !== false) ||
-  roleRows.find((r: any) => r.active !== false)
-    if (activeRole) {
-      setCurrentUserRole(activeRole.role)
-      setCompanyId(activeRole.company_id || '')
+const activeRole =
+  roleRows?.find((r: any) => r.role === 'super_admin') ||
+  roleRows?.find((r: any) => r.role === 'admin') ||
+  roleRows?.find((r: any) => r.active !== false)
+
+setCurrentUserRole(activeRole?.role || 'operator')
+setCompanyId(activeRole?.company_id || '')
       console.log('AUTH USER:', authUser.id)
       console.log('ROLE ROWS LOADED:', roleRows)
     }
@@ -799,7 +798,7 @@ if (roleRows.length > 0) {
     roleRows.find((r: any) => r.active)
 
   if (activeRole) {
-    setCurrentUserRole(activeRole.role)
+    
     setCompanyId(activeRole.company_id || '')
   }
 }
@@ -822,7 +821,7 @@ if (roleRows.length > 0) {
     if (permissionData) setRolePermissions(permissionData)
 
     const myRole = roleData?.find((r) => r.user_id === session?.user?.id)
-    if (myRole?.role) setCurrentUserRole(myRole.role)
+    
     if (profileData) setProfiles(profileData)
     if (producerData) setProducers(producerData)
     if (readingData) setReadings(readingData)

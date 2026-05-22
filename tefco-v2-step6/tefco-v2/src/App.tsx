@@ -786,20 +786,22 @@ async function loadAll() {
       .from('user_roles')
       .select('*')
       .eq('active', true)
-  if (roleRows && roleRows.length > 0) {
+
+  const roleRows = roleData || []
+
+if (roleRows.length > 0) {
   setUserRoles(roleRows)
 
   const activeRole =
-    roleRows.find((r) => r.active && r.role === 'super_admin') ||
-    roleRows.find((r) => r.active && r.role === 'admin') ||
-    roleRows.find((r) => r.active)
+    roleRows.find((r: any) => r.active && r.role === 'super_admin') ||
+    roleRows.find((r: any) => r.active && r.role === 'admin') ||
+    roleRows.find((r: any) => r.active)
 
   if (activeRole) {
     setCurrentUserRole(activeRole.role)
     setCompanyId(activeRole.company_id || '')
   }
 }
-
     const { data: permissionData } = await supabase
       .from('role_permissions')
       .select('*')

@@ -559,39 +559,7 @@ function isThisMonth(dateValue?: string) {
   return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
 }
 
-
-function getHighestRole(roles: any[]) {
-  const rank: Record<string, number> = {
-    super_admin: 5,
-    admin: 4,
-    measurement_tech: 3,
-    operator: 2,
-    auditor: 1,
-  }
-
-  const activeRoles = (roles || []).filter((role) => role.active !== false)
-
-  if (activeRoles.length === 0) return 'operator'
-
-  return activeRoles
-    .slice()
-    .sort((a, b) => (rank[b.role] || 0) - (rank[a.role] || 0))[0].role
-}
-
-
-const graphiteTheme = {
-  bg: '#070a0d',
-  sidebar: 'linear-gradient(180deg, #111820, #070a0d)',
-  panel: 'linear-gradient(145deg, rgba(28,32,35,0.98), rgba(10,15,18,0.98))',
-  panel2: 'linear-gradient(145deg, rgba(20,25,28,1), rgba(9,13,16,1))',
-  border: 'rgba(196,106,43,0.28)',
-  copper: '#c46a2b',
-  copperDark: '#7a3b18',
-  text: '#f8fafc',
-  muted: '#a8b3bd',
-}
-
-function App() {
+export default function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
   const [companyId, setCompanyId] = useState('')
@@ -608,10 +576,6 @@ function App() {
   const [currentUserRole, setCurrentUserRole] = useState<string>('operator')
   const [newAdminUserId, setNewAdminUserId] = useState('')
   const [newAdminRole, setNewAdminRole] = useState('operator')
-  const [showActiveUsers, setShowActiveUsers] = useState(false)
-  const [showCompanyBranding, setShowCompanyBranding] = useState(true)
-  const [showUserManagement, setShowUserManagement] = useState(true)
-  const [showContractProfiles, setShowContractProfiles] = useState(false)
   const [companies, setCompanies] = useState<Company[]>([])
   const [newCompanyName, setNewCompanyName] = useState('')
   const [selectedAdminCompanyId, setSelectedAdminCompanyId] = useState('')
@@ -1638,17 +1602,17 @@ async function logout() {
     await supabase.auth.signOut()
   }
 
-  const box: CSSProperties = { background: '#111820', padding: 20, borderRadius: 10, marginBottom: 20 }
-  const card: CSSProperties = { background: '#161f26', padding: 15, borderRadius: 10, marginBottom: 10 }
-  const input: CSSProperties = { width: '100%', padding: 12, marginTop: 10, color: '#f8fafc', background: '#0b1117', borderRadius: 6, border: 'none' }
-  const button: CSSProperties = { width: '100%', padding: 12, marginTop: 10, background: '#0b1117', color: '#f8fafc', border: 'none', borderRadius: 6, cursor: 'pointer' }
+  const box: CSSProperties = { background: '#0f172a', padding: 20, borderRadius: 10, marginBottom: 20 }
+  const card: CSSProperties = { background: '#1e293b', padding: 15, borderRadius: 10, marginBottom: 10 }
+  const input: CSSProperties = { width: '100%', padding: 12, marginTop: 10, color: 'black', background: 'white', borderRadius: 6, border: 'none' }
+  const button: CSSProperties = { width: '100%', padding: 12, marginTop: 10, background: '#2563eb', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer' }
 
-  if (loading) return <div style={{ padding: 40, color: '#f8fafc' }}>Loading...</div>
+  if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
   if (!session) return <Login />
 
   return (
-    <div style={{ background: '#0b1117', color: '#f8fafc', minHeight: '100vh', display: 'flex' }}>
-      <aside style={{ width: 220, background: '#0b1117', padding: 20 }}>
+    <div style={{ background: '#020617', color: 'white', minHeight: '100vh', display: 'flex' }}>
+      <aside style={{ width: 220, background: '#0f172a', padding: 20 }}>
         <h2>TEFCO V2</h2>
 
         {['dashboard', 'admin', 'reports', 'readings', 'pot', 'provings', 'tickets'].map((p) => (
@@ -1657,7 +1621,7 @@ async function logout() {
           </button>
         ))}
 
-        <button onClick={logout} style={{ ...button, background: '#0b1117', marginTop: 30 }}>
+        <button onClick={logout} style={{ ...button, background: '#dc2626', marginTop: 30 }}>
           Logout
         </button>
       </aside>
@@ -1784,10 +1748,7 @@ async function logout() {
 
 
             <div style={box}>
-              <h2>User Management</h2>
-              <p style={{ opacity: 0.75 }}>
-                Create users by email/password. UUIDs are handled automatically in the background.
-              </p>
+              <h2>User Roles</h2>
 
               {isSuperAdmin && (
                 <>
@@ -1840,72 +1801,55 @@ async function logout() {
                 Create User
               </button>
 
+              <div style={{ marginTop: 12, opacity: 0.7 }}>
+                Existing UUID fallback:
+              </div>
+
+              <input
+                style={input}
+                placeholder="User UUID from Supabase Auth"
+                value={newAdminUserId}
+                onChange={(e) => setNewAdminUserId(e.target.value)}
+              />
+
+              <select
+                style={input}
+                value={newAdminRole}
+                onChange={(e) => setNewAdminRole(e.target.value)}
+              >
+                <option value="operator">Operator</option>
+                <option value="measurement_tech">Measurement Tech</option>
+                <option value="admin">Admin</option>
+                <option value="auditor">Auditor</option>
+                <option value="super_admin">Super Admin</option>
+              </select>
+
+              <button style={button} onClick={saveUserRole}>
+                Add User Role
+              </button>
+
               <div style={{ marginTop: 20 }}>
-                <button
-                  style={{
-                    ...button,
-                    background: '#0b1117',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                  onClick={() => setShowActiveUsers(!showActiveUsers)}
-                >
-                  <span>{showActiveUsers ? '▼' : '▶'} Active Users ({userRoles.length})</span>
-                  <span>Manage</span>
-                </button>
+                {userRoles.map((role) => (
+                  <div key={role.id} style={card}>
+                    <strong>{role.role}</strong>
+                    <div>User ID: {role.user_id}</div>
+                    <div>Active: {role.active === false ? 'No' : 'Yes'}</div>
 
-                {showActiveUsers && (
-                  <div style={{ marginTop: 12 }}>
-                    {userRoles.map((role) => (
-                      <div
-                        key={role.id}
-                        style={{
-                          ...card,
-                          display: 'grid',
-                          gridTemplateColumns: '1fr 1fr auto',
-                          gap: 12,
-                          alignItems: 'center',
-                        }}
+                    {role.active !== false && (
+                      <button
+                        style={{ ...button, background: '#dc2626' }}
+                        onClick={() => deactivateUserRole(role.id)}
                       >
-                        <div>
-                          <strong>{role.role}</strong>
-                          <div style={{ fontSize: 12, opacity: 0.75 }}>
-                            User ID: {role.user_id}
-                          </div>
-                        </div>
-
-                        <div>
-                          Active: {role.active === false ? 'No' : 'Yes'}
-                        </div>
-
-                        {role.active !== false && (
-                          <button
-                            style={{
-                              ...button,
-                              background: '#0b1117',
-                              padding: '8px 12px',
-                            }}
-                            onClick={() => deactivateUserRole(role.id)}
-                          >
-                            Deactivate
-                          </button>
-                        )}
-                      </div>
-                    ))}
+                        Deactivate Role
+                      </button>
+                    )}
                   </div>
-                )}
+                ))}
               </div>
             </div>
 
             <div style={box}>
-              <button
-              style={{ ...button, marginBottom: 12 }}
-              onClick={() => setShowContractProfiles(!showContractProfiles)}
-            >
-              {showContractProfiles ? '▼' : '▶'} Contract Profiles
-            </button>
-<h2>Contract Profiles</h2>
+              <h2>Contract Profiles</h2>
 
               <input
                 style={input}
@@ -2055,7 +1999,7 @@ async function logout() {
 
                       {profile.active !== false && (
                         <button
-                          style={{ ...button, background: '#0b1117' }}
+                          style={{ ...button, background: '#dc2626' }}
                           onClick={() => deactivateContractProfile(profile.id)}
                         >
                           Deactivate Profile
@@ -2069,7 +2013,7 @@ async function logout() {
           </>
         )}
 
-        {page === 'admin' && !canViewAdmin && userRoles.length > 0 && currentUserRole !== 'super_admin' && (
+        {page === 'admin' && !canViewAdmin && userRoles.length > 0 && (
           <div style={box}>
             <h1>Admin / Settings</h1>
             <p>You do not currently have admin permissions. Ask an admin to assign your user role.</p>
@@ -2412,13 +2356,13 @@ async function logout() {
                 <div><strong>Calculation Method:</strong> {selectedTicket.observed_inputs?.calculation_method || selectedTicket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL'}</div>
 
                 {selectedTicket.approved_at && (
-                  <div style={{ color: '#f8fafc', marginTop: 10 }}>
+                  <div style={{ color: '#86efac', marginTop: 10 }}>
                     Approved At: {new Date(selectedTicket.approved_at).toLocaleString()}
                   </div>
                 )}
 
                 {selectedTicket.status === 'approved' && (
-                  <div style={{ background: '#0b1117', padding: 12, borderRadius: 8, marginTop: 12 }}>
+                  <div style={{ background: '#14532d', padding: 12, borderRadius: 8, marginTop: 12 }}>
                     Approved ticket is locked for custody transfer.
                   </div>
                 )}
@@ -2448,8 +2392,8 @@ async function logout() {
                 <button style={button} onClick={() => updateTicketStatus(selectedTicket, 'submitted')}>Submit Ticket</button>
                 <button style={button} onClick={() => updateTicketStatus(selectedTicket, 'approved')}>Approve Ticket</button>
                 <button style={button} onClick={() => updateTicketStatus(selectedTicket, 'draft')}>Reject to Draft</button>
-                <button style={{ ...button, background: '#0b1117' }} onClick={() => updateTicketStatus(selectedTicket, 'voided')}>Void Ticket</button>
-                <button style={{ ...button, background: '#0b1117' }} onClick={() => generatePdfPreview(selectedTicket)}>Generate PDF Preview</button>
+                <button style={{ ...button, background: '#dc2626' }} onClick={() => updateTicketStatus(selectedTicket, 'voided')}>Void Ticket</button>
+                <button style={{ ...button, background: '#16a34a' }} onClick={() => generatePdfPreview(selectedTicket)}>Generate PDF Preview</button>
               </div>
             )}
           </>
@@ -2457,7 +2401,4 @@ async function logout() {
       </main>
     </div>
   )
-
 }
-
-export default App

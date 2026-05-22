@@ -559,7 +559,25 @@ function isThisMonth(dateValue?: string) {
   return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
 }
 
-export default function App() {
+export default 
+function getHighestRole(roles: any[]) {
+  const rank: Record<string, number> = {
+    super_admin: 5,
+    admin: 4,
+    measurement_tech: 3,
+    operator: 2,
+    auditor: 1,
+  }
+
+  const activeRoles = (roles || []).filter((role) => role.active !== false)
+  if (activeRoles.length === 0) return 'operator'
+
+  return activeRoles
+    .slice()
+    .sort((a, b) => (rank[b.role] || 0) - (rank[a.role] || 0))[0].role
+}
+
+function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
   const [companyId, setCompanyId] = useState('')
@@ -700,7 +718,37 @@ export default function App() {
     potQuality,
   ])
 
-  async function loadAll() {
+  
+  async function reloadCurrentUserRole() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) return
+
+    const { data: roleRows, error } = await supabase
+      .from('user_roles')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('active', true)
+
+    if (error) {
+      console.error('Role load error:', error)
+      return
+    }
+
+    const highestRole = getHighestRole(roleRows || [])
+    setUserRoles(roleRows || [])
+    setCurrentUserRole(highestRole)
+
+    const firstCompanyRole = (roleRows || []).find((role: any) => role.company_id)
+    if (firstCompanyRole?.company_id) {
+      setCompanyId(firstCompanyRole.company_id)
+    }
+  }
+
+async function loadAll() {
+    await reloadCurrentUserRole()
     const { data: cu } = await supabase.from('company_users').select('company_id').single()
     if (cu) setCompanyId(cu.company_id)
 
@@ -820,11 +868,12 @@ export default function App() {
 const canViewAdmin =
     currentUserRole === 'super_admin' ||
     currentUserRole === 'admin' ||
-    userRoles.length === 0 ||
-    !currentUserRole
+    userRoles.some((role) => role.active !== false && ['super_admin', 'admin'].includes(role.role))
 
   const canEditAdmin =
     currentUserRole === 'super_admin' ||
+    currentUserRole === 'admin' ||
+    userRoles.some((role) => role.active !== false && ['super_admin', 'admin'].includes(role.role))
     currentUserRole === 'admin' ||
     userRoles.length === 0 ||
     !currentUserRole
@@ -1657,6 +1706,7 @@ async function logout() {
         {page === 'admin' && (
           <>
             <h1>Admin / Settings</h1>
+            <div style={card}><strong>Current Role:</strong> {currentUserRole} &nbsp; <strong>Company:</strong> {companyId || 'none'}</div>
             <div style={card}>
               <strong>Company isolation:</strong> Users login with email/password. The app finds their assigned company from user_roles and only loads that company’s data.
             </div>
@@ -2013,7 +2063,7 @@ async function logout() {
           </>
         )}
 
-        {page === 'admin' && !canViewAdmin && userRoles.length > 0 && (
+        {page === 'admin' && !canViewAdmin && userRoles.length > 0 && currentUserRole !== 'super_admin' && (
           <div style={box}>
             <h1>Admin / Settings</h1>
             <p>You do not currently have admin permissions. Ask an admin to assign your user role.</p>
@@ -2325,7 +2375,7 @@ async function logout() {
                   <div>POT Source: {t.observed_inputs?.pot_source || 'None'}</div>
                   <div>GSV: {t.calculation_results?.gsv ?? 'None'}</div>
                   <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
-                  <button style={button} onClick={() => setSelectedTicket(t)}>Open Ticket</button>
+                  <button style={button} onClick={() => { setSelectedTicket(t); setPage('tickets') }}>Open Ticket</button>
                 </div>
               ))}
             </div>
@@ -2338,7 +2388,7 @@ async function logout() {
                   <strong>{t.ticket_number}</strong>
                   <div>Status: {t.status}</div>
                   <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
-                  <button style={button} onClick={() => setSelectedTicket(t)}>Open Approved Ticket</button>
+                  <button style={button} onClick={() => { setSelectedTicket(t); setPage('tickets') }}>Open Approved Ticket</button>
                 </div>
               ))}
             </div>
@@ -2402,3 +2452,5 @@ async function logout() {
     </div>
   )
 }
+
+export default App

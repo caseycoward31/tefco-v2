@@ -1775,7 +1775,7 @@ async function logout() {
     placeholder="Temporary Password"
   />
 
-  <button onClick={createCompanyAdminUser}>
+  <button onClick={createCompanyAdminUserUser}>
     Create Company Admin
   </button>
 

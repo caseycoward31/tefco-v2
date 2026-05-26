@@ -1431,7 +1431,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     const iv = tankCalculation
       ? Number(tankCalculation.movementBbl || 0)
-      : Number(closingReading || latestReading?.indicated_volume || 0)
+      : Number((ticket as any).closing_reading || latestReading?.indicated_volume || 0)
     const contractProfile = getProducerProfile(
       contractProfiles,
       selectedProducer || null
@@ -2208,12 +2208,14 @@ async function createCompany() {
       })
       .filter(Boolean)
 
-    if (insertRows.length === 0) {
+    if ((insertRows.filter(Boolean) as any[]).length === 0) {
       alert('No valid strapping rows found.')
       return
     }
 
-    const { error } = await supabase.from('tank_strapping_rows').insert(insertRows)
+    const validInsertRows = insertRows.filter(Boolean) as any[]
+
+    const { error } = await supabase.from('tank_strapping_rows').insert(validInsertRows)
 
     if (error) {
       alert('Could not import strapping chart: ' + error.message)
@@ -2222,7 +2224,7 @@ async function createCompany() {
 
     setStrappingCsvFile(null)
     setSelectedStrappingTankId('')
-    alert(`Imported ${insertRows.length} strapping rows.`)
+    alert(`Imported ${(insertRows.filter(Boolean) as any[]).length} strapping rows.`)
     await loadAll()
   }
 
@@ -2266,6 +2268,19 @@ async function createCompany() {
 
         if (!meterNumber) continue
 
+        const area = await findOrCreateByName('areas', 'name', areaName)
+        const segment = await findOrCreateByName('segments', 'name', segmentName, {
+          area_id: area?.id || null,
+        })
+        const producer = await findOrCreateByName('producers', 'name', producerName)
+        const lease = await findOrCreateByName('leases', 'lease_name', leaseName, {
+          area_id: area?.id || null,
+          segment_id: segment?.id || null,
+          producer_id: producer?.id || null,
+        })
+
+
+
         const sourceTank = sourceTankNumber
           ? tanks.find((tank: any) => tank.tank_number === sourceTankNumber) || await findOrCreateByName('tanks', 'tank_number', sourceTankNumber, { segment_id: segment?.id || null })
           : null
@@ -2277,17 +2292,6 @@ async function createCompany() {
         const lineFill = lineFillName
           ? lineFills.find((line: any) => line.line_name === lineFillName) || await findOrCreateByName('line_fills', 'line_name', lineFillName, { segment_id: segment?.id || null })
           : null
-
-        const area = await findOrCreateByName('areas', 'name', areaName)
-        const segment = await findOrCreateByName('segments', 'name', segmentName, {
-          area_id: area?.id || null,
-        })
-        const producer = await findOrCreateByName('producers', 'name', producerName)
-        const lease = await findOrCreateByName('leases', 'lease_name', leaseName, {
-          area_id: area?.id || null,
-          segment_id: segment?.id || null,
-          producer_id: producer?.id || null,
-        })
 
         const { data: existingMeter } = await supabase
           .from('meters')

@@ -1622,7 +1622,6 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       linked_reading_id: latestReading?.id || null,
       linked_proving_id: latestApprovedProving?.id || null,
       calculation_profile_id: profile?.id || null,
-      contract_profile_id: contractProfile?.id || null,
       calculation_profile_snapshot: {
         ...(profile || {}),
         contract_profile: contractProfile || null,
@@ -1713,6 +1712,10 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     if (ticketInsertResult.error) {
       console.error('Full ticket insert failed:', ticketInsertResult.error)
 
+      if (String(ticketInsertResult.error.message || '').includes('contract_profile_id')) {
+        delete ticketInsertPayload.contract_profile_id
+      }
+
       const fallbackTicketPayload: any = {
         company_id: companyId,
         ticket_number: generatedNumber,
@@ -1724,7 +1727,6 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
         linked_reading_id: latestReading?.id || null,
         linked_proving_id: latestApprovedProving?.id || null,
         calculation_profile_id: profile?.id || null,
-        contract_profile_id: contractProfile?.id || null,
         calculation_profile_snapshot: {
           ...(profile || {}),
           contract_profile: contractProfile || null,

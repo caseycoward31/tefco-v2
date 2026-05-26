@@ -923,18 +923,18 @@ function App() {
   const isReadOnly =
     currentUserRole === 'auditor'
 
-    const isSuperAdmin = currentUserRole === 'super_admin'
+    const isSuperAdmin = isSuperAdmin
 
 const canViewAdmin =
-    currentUserRole === 'super_admin' ||
-    currentUserRole === 'admin'
+    isSuperAdmin ||
+    isCompanyAdmin
 
   const canEditAdmin =
-    currentUserRole === 'super_admin' ||
-    currentUserRole === 'admin'
-    currentUserRole === 'admin' ||
+    isSuperAdmin ||
+    isCompanyAdmin
+    isCompanyAdmin ||
     userRoles.some((role) => role.active !== false && ['super_admin', 'admin'].includes(role.role))
-    currentUserRole === 'admin' ||
+    isCompanyAdmin ||
     userRoles.length === 0 ||
     !currentUserRole
 
@@ -980,7 +980,7 @@ const provingCompliancePercent =
 
   async function addSegment() {
     if (!newSegment || !companyId) return
-    await supabase.from('segments').insert({ company_id: currentUserRole === 'super_admin' && selectedAdminCompanyId ? selectedAdminCompanyId : companyId, name: newSegment })
+    await supabase.from('segments').insert({ company_id: isSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId, name: newSegment })
     setNewSegment('')
     loadAll()
   }
@@ -1546,7 +1546,7 @@ function getCompanyDisplayName() {
   }
 
   async function saveCompanySettings() {
-    if (!companyId && currentUserRole !== 'super_admin') {
+    if (!companyId && !isSuperAdmin) {
       alert('Company not loaded.')
       return
     }
@@ -1600,6 +1600,12 @@ function getCompanyDisplayName() {
   }
 
 async function createCompany() {
+    if (!isSuperAdmin) {
+      alert('Only super admins can create companies.')
+      return
+    }
+
+
     const name = newCompanyName.trim()
 
     if (!name) {
@@ -1640,6 +1646,12 @@ async function createCompany() {
   }
 
   async function createCompanyAdminUser() {
+    if (!isSuperAdmin) {
+      alert('Only super admins can create company admins.')
+      return
+    }
+
+
     if (!isSuperAdmin && userRoles.length > 0) {
       alert('Only a Super Admin can create company admins.')
       return
@@ -1671,6 +1683,17 @@ async function createCompany() {
   }
 
 async function createAppUser() {
+    if (isCompanyAdmin && (newAdminRole === 'admin' || newAdminRole === 'super_admin')) {
+      alert('Company admins cannot create admin or super admin users.')
+      return
+    }
+
+    if (isCompanyAdmin && !companyId) {
+      alert('Your company is not loaded yet.')
+      return
+    }
+
+
     if (!newAdminEmail || !newAdminPassword) {
       alert('Enter email and temporary password.')
       return
@@ -2458,7 +2481,7 @@ async function logout() {
               </div>
             </div>
 
-            {currentUserRole === 'super_admin' && (
+            {isSuperAdmin && (
               <div style={box}>
                 <h2>Super Admin: Companies</h2>
                 <p style={{ color: '#a8b3bd' }}>
@@ -2642,9 +2665,11 @@ async function logout() {
                 <>
                   <p style={{ color: '#a8b3bd' }}>
                     Create users by email/password. UUIDs are handled automatically in the background.
+                    {isCompanyAdmin && ' Company admins can create operators and measurement techs for their own company only.'}
+                    {isSuperAdmin && ' Super admins can create companies, company admins, and global super admins.'}
                   </p>
 
-                  {currentUserRole === 'super_admin' && (
+                  {isSuperAdmin && (
                     <select
                       style={input}
                       value={selectedAdminCompanyId}
@@ -2682,9 +2707,11 @@ async function logout() {
                     >
                       <option value="operator">Operator</option>
                       <option value="measurement_tech">Measurement Tech</option>
-                      <option value="admin">Admin</option>
-                      {currentUserRole === 'super_admin' && (
-                        <option value="super_admin">Super Admin</option>
+                      {isSuperAdmin && (
+                        <>
+                          <option value="admin">Company Admin</option>
+                          <option value="super_admin">Super Admin</option>
+                        </>
                       )}
                     </select>
 
@@ -2703,7 +2730,7 @@ async function logout() {
 
                   {showActiveUsers && (
                     <div style={{ display: 'grid', gap: 10 }}>
-                      {userRoles.map((role) => (
+                      {userRoles.filter((role: any) => isSuperAdmin || !role.company_id || role.company_id === companyId).map((role) => (
                         <div
                           key={role.id}
                           style={{

@@ -581,6 +581,12 @@ function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
   const [companyId, setCompanyId] = useState('')
+  const [companySettings, setCompanySettings] = useState<any>(null)
+  const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null)
+  const [companyNameInput, setCompanyNameInput] = useState('')
+  const [companyAddress1Input, setCompanyAddress1Input] = useState('')
+  const [companyAddress2Input, setCompanyAddress2Input] = useState('')
+  const [companyPhoneInput, setCompanyPhoneInput] = useState('')
   const [loading, setLoading] = useState(true)
 
   const [areas, setAreas] = useState<Area[]>([])

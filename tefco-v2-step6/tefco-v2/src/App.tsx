@@ -2105,8 +2105,8 @@ async function logout() {
   const meterIntelligence = meters.map((meter: any) => {
     const latestProving = getLatestProvingForMeter(meter.id)
     const latestReading = getLatestReadingForMeter(meter.id)
-    const provingDate = latestProving?.proving_date || latestProving?.created_at || null
-    const readingDate = latestReading?.reading_date || latestReading?.created_at || null
+    const provingDate = latestProving?.proving_date || (latestProving as any)?.created_at || null
+    const readingDate = latestReading?.reading_date || (latestReading as any)?.created_at || null
     const provingAgeDays = daysSince(provingDate)
     const readingAgeDays = daysSince(readingDate)
     const provingFrequencyDays = Number(meter.proving_frequency_days || meter.provingFrequencyDays || 30)
@@ -2129,12 +2129,12 @@ async function logout() {
     }
   })
 
-  const overdueMeters = meterIntelligence.filter((item) => item.isOverdue)
-  const dueSoonMeters = meterIntelligence.filter((item) => item.isDueSoon)
+  const opsOverdueMeters = meterIntelligence.filter((item) => item.isOverdue)
+  const opsDueSoonMeters = meterIntelligence.filter((item) => item.isDueSoon)
   const staleReadingMeters = meterIntelligence.filter((item) => item.readingStale)
-  const compliantMeters = meterIntelligence.filter((item) => !item.isOverdue)
-  const provingCompliancePercent =
-    meters.length > 0 ? Math.round((compliantMeters.length / meters.length) * 100) : 100
+  const opsCompliantMeters = meterIntelligence.filter((item) => !item.isOverdue)
+  const opsProvingCompliancePercent =
+    meters.length > 0 ? Math.round((opsCompliantMeters.length / meters.length) * 100) : 100
 
   if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
   if (!session) return <Login />
@@ -2922,19 +2922,19 @@ async function logout() {
             <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
               <div style={kpiCard}>
                 <div style={{ color: '#a8b3bd', fontSize: 13 }}>Proving Compliance</div>
-                <div style={{ fontSize: 34, fontWeight: 900 }}>{provingCompliancePercent}%</div>
-                <div style={{ color: '#a8b3bd', fontSize: 12 }}>{compliantMeters.length} of {meters.length} meters</div>
+                <div style={{ fontSize: 34, fontWeight: 900 }}>{opsProvingCompliancePercent}%</div>
+                <div style={{ color: '#a8b3bd', fontSize: 12 }}>{opsCompliantMeters.length} of {meters.length} meters</div>
               </div>
 
               <div style={kpiCard}>
                 <div style={{ color: '#a8b3bd', fontSize: 13 }}>Overdue Proving</div>
-                <div style={{ fontSize: 34, fontWeight: 900, color: overdueMeters.length ? '#fecaca' : '#bbf7d0' }}>{overdueMeters.length}</div>
+                <div style={{ fontSize: 34, fontWeight: 900, color: opsOverdueMeters.length ? '#fecaca' : '#bbf7d0' }}>{opsOverdueMeters.length}</div>
                 <div style={{ color: '#a8b3bd', fontSize: 12 }}>Needs attention</div>
               </div>
 
               <div style={kpiCard}>
                 <div style={{ color: '#a8b3bd', fontSize: 13 }}>Due Soon</div>
-                <div style={{ fontSize: 34, fontWeight: 900 }}>{dueSoonMeters.length}</div>
+                <div style={{ fontSize: 34, fontWeight: 900 }}>{opsDueSoonMeters.length}</div>
                 <div style={{ color: '#a8b3bd', fontSize: 12 }}>Within 7 days</div>
               </div>
 
@@ -2951,14 +2951,14 @@ async function logout() {
                 Meters are flagged overdue when no proving exists or the latest proving age exceeds the meter proving frequency.
               </p>
 
-              {overdueMeters.length === 0 && (
+              {opsOverdueMeters.length === 0 && (
                 <div style={card}>No overdue provings found.</div>
               )}
 
               <div style={{ display: 'grid', gap: 10 }}>
-                {overdueMeters.slice(0, 20).map((item) => (
+                {(opsOverdueMeters as any[]).slice(0, 20).map((item: any) => (
                   <div
-                    key={item.meter.id}
+                    key={(item as any).meter.id}
                     style={{
                       ...card,
                       display: 'grid',
@@ -2968,20 +2968,20 @@ async function logout() {
                     }}
                   >
                     <div>
-                      <strong>{item.meter.meter_number || item.meter.name || item.meter.id}</strong>
+                      <strong>{(item as any).meter.meter_number || (item as any).meter.name || (item as any).meter.id}</strong>
                       <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                        Last proving: {item.provingDate || 'None'}
+                        Last proving: {(item as any).provingDate || 'None'}
                       </div>
                     </div>
 
                     <div>
                       <div style={{ color: '#a8b3bd', fontSize: 12 }}>Age</div>
-                      <strong>{item.provingAgeDays === null ? 'None' : `${item.provingAgeDays} days`}</strong>
+                      <strong>{(item as any).provingAgeDays === null ? 'None' : `${(item as any).provingAgeDays} days`}</strong>
                     </div>
 
                     <div>
                       <div style={{ color: '#a8b3bd', fontSize: 12 }}>Frequency</div>
-                      <strong>{item.provingFrequencyDays} days</strong>
+                      <strong>{(item as any).provingFrequencyDays} days</strong>
                     </div>
 
                     <button style={button} onClick={() => setPage('provings')}>
@@ -2995,12 +2995,12 @@ async function logout() {
             <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div style={box}>
                 <h2>Due Soon</h2>
-                {dueSoonMeters.length === 0 && <div style={card}>Nothing due soon.</div>}
-                {dueSoonMeters.slice(0, 10).map((item) => (
-                  <div key={item.meter.id} style={card}>
-                    <strong>{item.meter.meter_number || item.meter.name || item.meter.id}</strong>
+                {opsDueSoonMeters.length === 0 && <div style={card}>Nothing due soon.</div>}
+                {(opsDueSoonMeters as any[]).slice(0, 10).map((item: any) => (
+                  <div key={(item as any).meter.id} style={card}>
+                    <strong>{(item as any).meter.meter_number || (item as any).meter.name || (item as any).meter.id}</strong>
                     <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                      Last proving: {item.provingDate || 'None'}
+                      Last proving: {(item as any).provingDate || 'None'}
                     </div>
                   </div>
                 ))}
@@ -3009,11 +3009,11 @@ async function logout() {
               <div style={box}>
                 <h2>Reading Freshness</h2>
                 {staleReadingMeters.length === 0 && <div style={card}>All meters have recent readings.</div>}
-                {staleReadingMeters.slice(0, 10).map((item) => (
-                  <div key={item.meter.id} style={card}>
-                    <strong>{item.meter.meter_number || item.meter.name || item.meter.id}</strong>
+                {(staleReadingMeters as any[]).slice(0, 10).map((item: any) => (
+                  <div key={(item as any).meter.id} style={card}>
+                    <strong>{(item as any).meter.meter_number || (item as any).meter.name || (item as any).meter.id}</strong>
                     <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                      Last reading: {item.readingDate || 'None'}
+                      Last reading: {(item as any).readingDate || 'None'}
                     </div>
                   </div>
                 ))}

@@ -581,6 +581,8 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
+  const [hasLocalTicketDraft, setHasLocalTicketDraft] = useState(false)
+  const [draftRestoredMessage, setDraftRestoredMessage] = useState('')
   const [isActionRunning, setIsActionRunning] = useState(false)
   const [actionMessage, setActionMessage] = useState('')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -2157,6 +2159,81 @@ async function logout() {
   const opsProvingCompliancePercent =
     meters.length > 0 ? Math.round((opsCompliantMeters.length / meters.length) * 100) : 100
 
+
+  const ticketDraftStorageKey = `measurement-ticket-draft-${companyId || 'global'}`
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(ticketDraftStorageKey)
+      setHasLocalTicketDraft(Boolean(saved))
+    } catch {
+      setHasLocalTicketDraft(false)
+    }
+  }, [ticketDraftStorageKey])
+
+  useEffect(() => {
+    try {
+      const draftPayload = {
+        selectedSegment,
+        selectedProducer,
+        selectedLease,
+        selectedMeter,
+        ticketType,
+        savedAt: new Date().toISOString(),
+      }
+
+      const hasDraftWork =
+        selectedSegment ||
+        selectedProducer ||
+        selectedLease ||
+        selectedMeter ||
+        ticketType !== 'meter'
+
+      if (hasDraftWork) {
+        localStorage.setItem(ticketDraftStorageKey, JSON.stringify(draftPayload))
+        setHasLocalTicketDraft(true)
+      }
+    } catch (error) {
+      console.error('Autosave failed:', error)
+    }
+  }, [
+    ticketDraftStorageKey,
+    selectedSegment,
+    selectedProducer,
+    selectedLease,
+    selectedMeter,
+    ticketType,
+  ])
+
+  function restoreLocalTicketDraft() {
+    try {
+      const saved = localStorage.getItem(ticketDraftStorageKey)
+      if (!saved) return
+
+      const draft = JSON.parse(saved)
+      setSelectedSegment(draft.selectedSegment || '')
+      setSelectedProducer(draft.selectedProducer || '')
+      setSelectedLease(draft.selectedLease || '')
+      setSelectedMeter(draft.selectedMeter || '')
+      setTicketType(draft.ticketType || 'meter')
+      setDraftRestoredMessage(`Restored draft saved ${draft.savedAt ? new Date(draft.savedAt).toLocaleString() : 'earlier'}.`)
+      setPage('tickets')
+    } catch (error) {
+      console.error('Restore draft failed:', error)
+      alert('Could not restore local draft.')
+    }
+  }
+
+  function clearLocalTicketDraft() {
+    try {
+      localStorage.removeItem(ticketDraftStorageKey)
+      setHasLocalTicketDraft(false)
+      setDraftRestoredMessage('')
+    } catch (error) {
+      console.error('Clear draft failed:', error)
+    }
+  }
+
   if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
   if (!session) return <Login />
 
@@ -2284,6 +2361,36 @@ async function logout() {
             <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 4 }}>
               Please wait. This prevents duplicate saves or duplicate submissions.
             </div>
+          </div>
+        )}
+
+        {/* Autosave Draft Restore Banner */}
+        {hasLocalTicketDraft && page !== 'tickets' && (
+          <div
+            style={{
+              ...card,
+              border: '1px solid rgba(196,106,43,0.45)',
+              marginBottom: 14,
+            }}
+          >
+            <strong>Unsaved ticket draft found</strong>
+            <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 4 }}>
+              A ticket draft was saved on this device.
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+              <button style={{ ...button, width: 'auto' }} onClick={restoreLocalTicketDraft}>
+                Restore Draft
+              </button>
+              <button style={{ ...button, width: 'auto', background: '#374151', borderColor: '#4b5563' }} onClick={clearLocalTicketDraft}>
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
+        {draftRestoredMessage && (
+          <div style={{ ...card, border: '1px solid rgba(22,163,74,0.45)', marginBottom: 14 }}>
+            {draftRestoredMessage}
           </div>
         )}
 
@@ -3259,6 +3366,17 @@ async function logout() {
         {page === 'tickets' && (
           <>
             <h1>Ticket Workflow</h1>
+            {hasLocalTicketDraft && (
+              <div style={card}>
+                <strong>Autosave is active</strong>
+                <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 4 }}>
+                  Draft selections are being saved on this device.
+                </div>
+                <button style={{ ...button, width: 'auto' }} onClick={clearLocalTicketDraft}>
+                  Clear Autosaved Draft
+                </button>
+              </div>
+            )}
             <div style={box}>
               <h3>Create Draft Ticket</h3>
               <select style={input} value={selectedSegment} onChange={(e) => { setSelectedSegment(e.target.value); setSelectedProducer(''); setSelectedLease(''); setSelectedMeter('') }}>
@@ -3297,7 +3415,7 @@ async function logout() {
                 <div>POT CSW: {autofillPreview?.pot?.csw ?? 'None'}</div>
               </div>
 
-              <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating ticket', createTicket)}>Auto Build Draft Ticket</button>
+              <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating ticket', async () => { await createTicket(); clearLocalTicketDraft() })}>Auto Build Draft Ticket</button>
             </div>
 
             <div style={box}>

@@ -1040,14 +1040,6 @@ const provingCompliancePercent =
       company_id: companyId,
       area_id: selectedArea || null,
       segment_id: selectedSegment || null,
-      lease_id: selectedLease || null,
-      tank_id: selectedTank || null,
-      line_fill_id: selectedLineFill || null,
-      opening_reading: openingReading || null,
-      closing_reading: closingReading || null,
-      opening_gauge: openingGauge ? Number(openingGauge) : null,
-      closing_gauge: closingGauge ? Number(closingGauge) : null,
-      movement_direction: ticketType === 'tank' ? tankMovementDirection : null,
       producer_id: selectedProducer || null,
       lease_name: newLeaseName,
       lease_number: newLeaseNumber,
@@ -1388,7 +1380,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       .sort((a: any, b: any) => new Date(b.approved_at || b.created_at || 0).getTime() - new Date(a.approved_at || a.created_at || 0).getTime())[0]
 
     return (
-      previous?.closing_reading ||
+      (previous as any)?.closing_reading ||
       previous?.observed_inputs?.closing_reading ||
       previous?.observed_inputs?.closing_meter_reading ||
       previous?.observed_inputs?.ending_reading ||
@@ -1431,7 +1423,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     const iv = tankCalculation
       ? Number(tankCalculation.movementBbl || 0)
-      : Number((ticket as any).closing_reading || latestReading?.indicated_volume || 0)
+      : Number(closingReading || latestReading?.indicated_volume || 0)
     const contractProfile = getProducerProfile(
       contractProfiles,
       selectedProducer || null
@@ -1502,6 +1494,14 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       status: 'draft',
       producer_id: selectedProducer || null,
       segment_id: selectedSegment || null,
+      lease_id: selectedLease || null,
+      tank_id: selectedTank || null,
+      line_fill_id: selectedLineFill || null,
+      opening_reading: openingReading || null,
+      closing_reading: closingReading || null,
+      opening_gauge: openingGauge ? Number(openingGauge) : null,
+      closing_gauge: closingGauge ? Number(closingGauge) : null,
+      movement_direction: ticketType === 'tank' ? tankMovementDirection : null,
       meter_id: selectedMeter || null,
       linked_reading_id: latestReading?.id || null,
       linked_proving_id: latestApprovedProving?.id || null,

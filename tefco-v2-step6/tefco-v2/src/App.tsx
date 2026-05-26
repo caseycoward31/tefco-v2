@@ -1417,7 +1417,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     const previous = getPreviousTankTicket(tankId)
 
     return (
-      previous?.closing_gauge ||
+      (previous as any)?.closing_gauge ||
       previous?.observed_inputs?.closing_gauge ||
       previous?.observed_inputs?.closing_gauge_decimal ||
       ''

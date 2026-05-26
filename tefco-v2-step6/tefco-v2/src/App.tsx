@@ -927,9 +927,6 @@ function App() {
 
   const isReadOnly =
     currentUserRole === 'auditor'
-
-    const userIsSuperAdmin = userIsSuperAdmin
-
 const canViewAdmin = userCanManageCompanySetup
 
   const canEditAdmin = userCanManageCompanySetup

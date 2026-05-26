@@ -591,6 +591,9 @@ function App() {
   const [pdfBundleStartDate, setPdfBundleStartDate] = useState('')
   const [pdfBundleEndDate, setPdfBundleEndDate] = useState('')
   const [pdfBundleProducerId, setPdfBundleProducerId] = useState('')
+  const [potCsvStartDate, setPotCsvStartDate] = useState('')
+  const [potCsvEndDate, setPotCsvEndDate] = useState('')
+  const [potCsvProducerId, setPotCsvProducerId] = useState('')
   const [companyId, setCompanyId] = useState('')
   const [companySettings, setCompanySettings] = useState<any>(null)
   const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null)
@@ -2215,6 +2218,107 @@ async function saveUserRole() {
     marginTop: 5,
   }
 
+
+  const gqLiquidImportHeaders = ["Number", "Column Type", "EffectiveDate", "", "Sample Date", "Sample Type", "BTU Base", "Heating Value (measured)", "Relative Density (specific gravity)", "Viscosity", "Specific Heat Ratio", "Heating Value Pressure Base", "Carbon Dioxide (co2)", "Nitrogen (n2)", "Methane (c1)", "Ethane (c2)", "Propane (c3)", "Iso Butane (iso_c4)", "N Butane (n_c4)", "Iso Pentane (iso_c5)", "N Pentane (n_c5)", "Neo Pentane (neo_c5)", "Hexane (c6)", "Heptane (c7)", "Octane (c8)", "Nonane (c9)", "Decane (c10)", "Argon (ar)", "Carbon Monoxide (co)", "Hydrogen (h2)", "Oxygen (o2)", "Water Vapor (h2o)", "Hydrogen Sulfide (h2s)", "Helium (he)", "Hydrogen Sulfide (H2S)", "Carbon Sulfoxide (COS)", "Methyl Mercaptan (MeSH)", "Methyl Ethyl Sulfide (MES)", "Ethyl Mercaptan (EtSH)", "Dimethyl Sulfide (DMS)", "Total Sulfur", "H2O Per Volume", "Measured GPM Content", "Sample Count", "Heating Value Dry", "Condensate GPM", "Hexane Plus Heating Value (c6_plus_hv)", "Field Remarks", "Office Remarks", "Sample Technician", "Analysis Technician", "Instrument Number", "Sample Pressure", "Temp", "User defined number 1", "User defined number 2", "User defined number 3", "User defined number 4", "User defined number 5", "User defined string 1", "User defined string 2", "User defined string 3", "User defined string 4", "User defined string 5", "Full Well Stream Factor", "Ethane GPM (c2_gpm)", "Propane GPM (c3_gpm)", "Iso Butane GPM (iso_c4_gpm)", "N Butane GPM(n_c4_gpm)", "Iso Pentane GPM (iso_c5_gpm)", "N Pentane GPM(n_c5_gpm)", "Hexane GPM (c6_gpm)", "Heptane GPM (c7_gpm)", "Heating Value Wet", "Heating Value As Delivered", "Analysis Date", "Cylinder Number", "", "", "", "Octane GPM (c8_gpm)", "Nonane GPM (c9_gpm)", "Decane GPM (c10_gpm)", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "BSW", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "Grav"]
+
+  function csvEscape(value: any) {
+    if (value === null || value === undefined) return ''
+
+    const textValue = String(value)
+
+    if (/[",\n\r]/.test(textValue)) {
+      return `"${textValue.replace(/"/g, '""')}"`
+    }
+
+    return textValue
+  }
+
+  function formatCsvDate(value: any) {
+    if (!value) return ''
+
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return String(value)
+
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const year = date.getFullYear()
+
+    return `${month}/${day}/${year}`
+  }
+
+  function downloadCsv(filename: string, rows: any[][]) {
+    const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  function getPotExportNumber(pot: any, index: number) {
+    return (
+      pot.number ||
+      pot.import_number ||
+      pot.grindout_number ||
+      pot.sample_number ||
+      pot.ticket_number ||
+      pot.id ||
+      index + 1
+    )
+  }
+
+  async function exportPotWorkingsCsv() {
+    if (!potCsvStartDate || !potCsvEndDate) {
+      alert('Select a POT export start date and end date.')
+      return
+    }
+
+    const start = new Date(`${potCsvStartDate}T00:00:00`)
+    const end = new Date(`${potCsvEndDate}T23:59:59`)
+
+    const rowsToExport = potQuality.filter((pot: any) => {
+      const sampleDate = pot.sample_date || pot.sampleDate || pot.effective_date || pot.created_at || ''
+      const dateOk = sampleDate ? new Date(sampleDate) >= start && new Date(sampleDate) <= end : false
+      const producerOk = potCsvProducerId ? pot.producer_id === potCsvProducerId || pot.producerId === potCsvProducerId : true
+      return dateOk && producerOk
+    })
+
+    if (rowsToExport.length === 0) {
+      alert('No POT workings found for that date range.')
+      return
+    }
+
+    const dataRows = rowsToExport.map((pot: any, index: number) => {
+      const row = Array(gqLiquidImportHeaders.length).fill('')
+      const sampleDate = pot.sample_date || pot.sampleDate || pot.effective_date || pot.created_at || ''
+      const bsw = pot.bsw ?? pot.bsw_percent ?? pot.bs_w ?? ''
+      const grav = pot.observed_api_gravity ?? pot.api_gravity ?? pot.gravity ?? ''
+      const temp = pot.observed_temperature ?? pot.sample_temperature ?? pot.temp ?? ''
+
+      // Match uploaded GQ liquid import header structure exactly by column position.
+      row[0] = getPotExportNumber(pot, index)           // Number
+      row[1] = pot.column_type || 'A'                   // Column Type
+      row[2] = formatCsvDate(sampleDate)                // EffectiveDate
+      row[4] = formatCsvDate(sampleDate)                // Sample Date
+      row[53] = temp                                    // Temp
+      row[59] = pot.user_defined_string_1 || 'L'        // User defined string 1, template sample uses L
+      row[183] = bsw                                    // BSW
+      row[201] = grav                                   // Grav
+
+      return row
+    })
+
+    const producer = producers.find((p) => p.id === potCsvProducerId)
+    const producerName = producer?.name || 'all-producers'
+    const filename = `pot-workings-${producerName.replace(/[^a-zA-Z0-9-_]/g, '_')}-${potCsvStartDate}-to-${potCsvEndDate}.csv`
+
+    downloadCsv(filename, [gqLiquidImportHeaders, ...dataRows])
+  }
+
   async function exportProducerPdfBundle() {
     if (!pdfBundleStartDate || !pdfBundleEndDate) {
       alert('Select a start date and end date.')
@@ -3460,6 +3564,23 @@ async function saveUserRole() {
           <>
             <h1>POT Quality</h1>
             <div style={box}>
+              <h3>POT Workings CSV Export</h3>
+              <p style={{ color: '#a8b3bd' }}>
+                Export POT workings into the GQ liquid import header CSV layout.
+              </p>
+              <select style={input} value={potCsvProducerId} onChange={(e) => setPotCsvProducerId(e.target.value)}>
+                <option value="">All Producers</option>
+                {producers.map((producer) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
+              </select>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <input style={input} type="date" value={potCsvStartDate} onChange={(e) => setPotCsvStartDate(e.target.value)} />
+                <input style={input} type="date" value={potCsvEndDate} onChange={(e) => setPotCsvEndDate(e.target.value)} />
+              </div>
+              <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Exporting POT workings CSV', exportPotWorkingsCsv)}>
+                Export POT Workings CSV
+              </button>
+            </div>
+            <div style={box}>
               <h3>New POT Quality</h3>
               <select style={input} value={potSegment} onChange={(e) => { setPotSegment(e.target.value); setPotProducer(''); setPotLease('') }}>
                 <option value="">Select Segment</option>
@@ -3810,6 +3931,46 @@ async function saveUserRole() {
 
                 <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Exporting producer PDF bundle', exportProducerPdfBundle)}>
                   Export Producer PDFs Bundle
+                </button>
+              </div>
+
+              <div style={card}>
+                <h3>Export POT Workings CSV</h3>
+                <p style={{ color: '#a8b3bd' }}>
+                  Exports POT workings into the exact GQ liquid import header layout.
+                </p>
+
+                <select
+                  style={input}
+                  value={potCsvProducerId}
+                  onChange={(e) => setPotCsvProducerId(e.target.value)}
+                >
+                  <option value="">All Producers</option>
+                  {producers.map((producer) => (
+                    <option key={producer.id} value={producer.id}>
+                      {producer.name}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <input
+                    style={input}
+                    type="date"
+                    value={potCsvStartDate}
+                    onChange={(e) => setPotCsvStartDate(e.target.value)}
+                  />
+
+                  <input
+                    style={input}
+                    type="date"
+                    value={potCsvEndDate}
+                    onChange={(e) => setPotCsvEndDate(e.target.value)}
+                  />
+                </div>
+
+                <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Exporting POT workings CSV', exportPotWorkingsCsv)}>
+                  Export POT Workings CSV
                 </button>
               </div>
             </div>

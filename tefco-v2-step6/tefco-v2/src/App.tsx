@@ -1798,6 +1798,49 @@ async function saveUserRole() {
   }
 
 
+
+  function getTicketAuditRows(ticketId?: string | null) {
+    if (!ticketId) return []
+
+    return ticketAuditLogs
+      .filter((log: any) => log.ticket_id === ticketId || log.ticketId === ticketId)
+      .sort((a: any, b: any) => {
+        const aTime = new Date(a.created_at || a.createdAt || 0).getTime()
+        const bTime = new Date(b.created_at || b.createdAt || 0).getTime()
+        return bTime - aTime
+      })
+  }
+
+  function formatAuditDate(value?: string | null) {
+    if (!value) return 'No timestamp'
+
+    try {
+      return new Date(value).toLocaleString()
+    } catch {
+      return String(value)
+    }
+  }
+
+  function getAuditLabel(log: any) {
+    return (
+      log.action ||
+      log.event ||
+      log.status ||
+      log.new_status ||
+      log.newStatus ||
+      'Activity'
+    )
+  }
+
+  const timelineDot: CSSProperties = {
+    width: 12,
+    height: 12,
+    borderRadius: 999,
+    background: 'linear-gradient(135deg, #c46a2b, #e08745)',
+    boxShadow: '0 0 12px rgba(196,106,43,0.55)',
+    marginTop: 5,
+  }
+
   async function exportProducerPdfBundle() {
     if (!pdfBundleStartDate || !pdfBundleEndDate) {
       alert('Select a start date and end date.')
@@ -3070,9 +3113,12 @@ async function logout() {
 
             {selectedTicket && canViewAudit && (
               <div style={box}>
-                <h2>Ticket Detail</h2>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <h2 style={{ margin: 0 }}>Ticket Detail</h2>
+                  <span style={getTicketStatusStyle(selectedTicket.status)}>{selectedTicket.status || 'draft'}</span>
+                </div>
                 <div><strong>Ticket:</strong> {selectedTicket.ticket_number}</div>
-                <div><strong>Locked:</strong> {selectedTicket.is_locked ? 'Yes' : 'No'}</div>
+                <div><strong>Locked:</strong> {(selectedTicket as any).is_locked ? 'Yes' : 'No'}</div>
                 <div><strong>Locked At:</strong> {selectedTicket.locked_at || 'N/A'}</div>
                 <div><strong>Status:</strong> {selectedTicket.status}</div>
                 <div><strong>Type:</strong> {selectedTicket.ticket_type}</div>
@@ -3112,6 +3158,80 @@ async function logout() {
                   <div>CCF: {selectedTicket.calculation_results?.ccf}</div>
                   <div>GSV: {selectedTicket.calculation_results?.gsv}</div>
                   <div>NSV: {selectedTicket.calculation_results?.nsv}</div>
+                </div>
+
+                {(selectedTicket as any).is_locked && (
+                  <div
+                    style={{
+                      ...card,
+                      border: '1px solid rgba(234,179,8,0.45)',
+                      background: 'rgba(234,179,8,0.10)',
+                    }}
+                  >
+                    <strong>Locked Ticket</strong>
+                    <div style={{ color: '#fde68a', marginTop: 6 }}>
+                      This ticket is locked. Create a revision if changes are needed.
+                    </div>
+                  </div>
+                )}
+
+                {((selectedTicket as any).revision_number || (selectedTicket as any).is_superseded || (selectedTicket as any).original_ticket_id) && (
+                  <div style={card}>
+                    <h3>Revision Status</h3>
+                    <div>Revision #: {(selectedTicket as any).revision_number ?? 'Original'}</div>
+                    <div>Original Ticket: {(selectedTicket as any).original_ticket_id || 'None'}</div>
+                    <div>Superseded: {(selectedTicket as any).is_superseded ? 'Yes' : 'No'}</div>
+                    {(selectedTicket as any).revision_reason && (
+                      <div>Reason: {(selectedTicket as any).revision_reason}</div>
+                    )}
+                  </div>
+                )}
+
+                <div style={card}>
+                  <h3>Ticket Audit Timeline</h3>
+
+                  {getTicketAuditRows(selectedTicket.id).length === 0 && (
+                    <div style={{ color: '#a8b3bd' }}>
+                      No audit events recorded yet.
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    {getTicketAuditRows(selectedTicket.id).map((log: any) => (
+                      <div
+                        key={log.id}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '20px 1fr',
+                          gap: 10,
+                          alignItems: 'flex-start',
+                        }}
+                      >
+                        <div style={timelineDot} />
+                        <div
+                          style={{
+                            paddingBottom: 10,
+                            borderBottom: '1px solid rgba(255,255,255,0.08)',
+                          }}
+                        >
+                          <strong>{getAuditLabel(log)}</strong>
+                          <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                            {formatAuditDate(log.created_at || log.createdAt)}
+                          </div>
+                          {(log.user_email || log.user_id || log.userId) && (
+                            <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                              By: {log.user_email || log.user_id || log.userId}
+                            </div>
+                          )}
+                          {(log.notes || log.note || log.message) && (
+                            <div style={{ marginTop: 6 }}>
+                              {log.notes || log.note || log.message}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <button style={button} onClick={() => updateTicketStatus(selectedTicket, 'submitted')}>Submit Ticket</button>

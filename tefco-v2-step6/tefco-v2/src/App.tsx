@@ -2326,8 +2326,8 @@ async function createCompany() {
       const row = rows[r] || []
 
       for (let c = 0; c < row.length - 1; c += 1) {
-        const leftHeader = String(row[c] || '').trim().toLowerCase()
-        const rightHeader = String(row[c + 1] || '').trim().toLowerCase()
+        const leftHeader = String((row || [])[c] ?? '').trim().toLowerCase()
+        const rightHeader = String((row || [])[c + 1] ?? '').trim().toLowerCase()
 
         if (leftHeader === 'ft-in' && rightHeader.includes('barrel')) {
           const firstDataRow = rows[r + 1] || []
@@ -2364,17 +2364,21 @@ async function createCompany() {
   function extractIncrementFactorSheetRows(rows: any[][]) {
     const output: any[] = []
 
-    const headerRowIndex = rows.findIndex((row) =>
-      (row || []).some((value) => String(value || '').toLowerCase().includes('gauge from')) &&
-      (row || []).some((value) => String(value || '').toLowerCase().includes('total volume'))
-    )
+    const headerRowIndex = rows.findIndex((row) => {
+      const safeRow = Array.isArray(row) ? row : []
+
+      return (
+        safeRow.some((value) => String(value ?? '').toLowerCase().includes('gauge from')) &&
+        safeRow.some((value) => String(value ?? '').toLowerCase().includes('total volume'))
+      )
+    })
 
     if (headerRowIndex < 0) return output
 
     const headers = (rows[headerRowIndex] || []).map((value) => String(value || '').trim().toLowerCase())
-    const gaugeFromIndex = headers.findIndex((header) => header.includes('gauge from'))
-    const totalVolumeIndex = headers.findIndex((header) => header.includes('total volume'))
-    const incrementalVolumeIndex = headers.findIndex((header) => header.includes('incremental volume'))
+    const gaugeFromIndex = headers.findIndex((header) => String(header ?? '').includes('gauge from'))
+    const totalVolumeIndex = headers.findIndex((header) => String(header ?? '').includes('total volume'))
+    const incrementalVolumeIndex = headers.findIndex((header) => String(header ?? '').includes('incremental volume'))
 
     for (let r = headerRowIndex + 1; r < rows.length; r += 1) {
       const row = rows[r] || []

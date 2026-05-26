@@ -3621,13 +3621,14 @@ async function saveUserRole() {
 
   const workflowTickets = tickets
     .filter((ticket: any) => {
-      const status = String(ticket.status || '').toLowerCase()
-      return status !== 'approved' && status !== 'voided' && !ticket.is_superseded
+      const status = String(ticket.status || 'draft').toLowerCase()
+      return !['approved', 'voided'].includes(status) && !ticket.is_superseded
     })
     .sort((a: any, b: any) =>
       new Date(b.created_at || b.updated_at || 0).getTime() -
       new Date(a.created_at || a.updated_at || 0).getTime()
     )
+
 
   if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
   if (!session) return <Login />
@@ -5000,6 +5001,58 @@ async function saveUserRole() {
         {page === 'tickets' && (
           <>
             <h1>Ticket Workflow</h1>
+
+            {/* Ticket Debug Counts */}
+            <div style={{ ...card, marginBottom: 12 }}>
+              Total tickets loaded: {tickets.length} • Pending workflow tickets: {workflowTickets.length}
+            </div>
+
+            {/* All Pending Ticket Approval Queue */}
+            <div style={box}>
+              <h2>Workflow Queue ({workflowTickets.length})</h2>
+              {workflowTickets.length === 0 && (
+                <div style={card}>
+                  No draft or submitted tickets are waiting for approval.
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gap: 10 }}>
+                {workflowTickets.map((ticket: any) => (
+                  <div
+                    key={ticket.id}
+                    style={{
+                      ...card,
+                      display: 'grid',
+                      gridTemplateColumns: '1fr auto auto',
+                      gap: 12,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div>
+                      <strong>{ticket.ticket_number || ticket.id}</strong>
+                      <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                        Type: {ticket.ticket_type || 'meter'} • Status: {ticket.status || 'draft'}
+                      </div>
+                      {ticket.ticket_type === 'tank' && (
+                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                          Tank: {tanks.find((tank: any) => tank.id === ticket.tank_id)?.tank_number || ticket.tank_id || 'None'}
+                        </div>
+                      )}
+                    </div>
+
+                    <span style={getTicketStatusStyle(ticket.status)}>{ticket.status || 'draft'}</span>
+
+                    <button
+                      disabled={isActionRunning}
+                      style={button}
+                      onClick={() => { setSelectedTicket(ticket); setPage('tickets') }}
+                    >
+                      Open Ticket
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
             {/* Selected Ticket Quick View */}
             {selectedTicket && (
               <div style={box}>
@@ -5043,7 +5096,7 @@ async function saveUserRole() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginTop: 12 }}>
                   <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Submitting ticket', () => updateTicketStatus(selectedTicket, 'submitted'))}>Submit</button>
-                  <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Approving ticket', () => updateTicketStatus(selectedTicket, 'approved'))}>Approve</button>
+                  <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Approving ticket', () => updateTicketStatus(selectedTicket, 'approved'))}>Approve Tank/Draft Ticket</button>
                   <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Generating PDF preview', () => generatePdfPreview(selectedTicket))}>PDF Preview</button>
                   <button style={{ ...button, background: '#374151', borderColor: '#4b5563' }} onClick={() => setSelectedTicket(null)}>Close</button>
                 </div>

@@ -581,6 +581,8 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
+  const [isActionRunning, setIsActionRunning] = useState(false)
+  const [actionMessage, setActionMessage] = useState('')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [pdfBundleStartDate, setPdfBundleStartDate] = useState('')
   const [pdfBundleEndDate, setPdfBundleEndDate] = useState('')
@@ -734,6 +736,24 @@ function App() {
     profiles,
     potQuality,
   ])
+
+  async function runSafeAction(label: string, action: () => Promise<void> | void) {
+    if (isActionRunning) return
+
+    setIsActionRunning(true)
+    setActionMessage(label)
+
+    try {
+      await action()
+    } catch (error: any) {
+      console.error(`${label} failed:`, error)
+      alert(error?.message || `${label} failed.`)
+    } finally {
+      setIsActionRunning(false)
+      setActionMessage('')
+    }
+  }
+
   async function reloadCurrentUserRole() {
     const authResult = await supabase.auth.getUser()
     const authUser = authResult.data.user
@@ -1955,6 +1975,7 @@ async function logout() {
     border: '1px solid #e08745',
     borderRadius: 12,
     cursor: 'pointer',
+    opacity: isActionRunning ? 0.65 : 1,
     fontWeight: 700,
     boxShadow: '0 0 18px rgba(196,106,43,0.24)',
     minHeight: 44,
@@ -2237,6 +2258,35 @@ async function logout() {
         padding: 30,
         background: 'linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)), #070a0d',
       }}>
+        {/* Offline Warning */}
+        {typeof navigator !== 'undefined' && !navigator.onLine && (
+          <div style={{ ...card, border: '1px solid rgba(220,38,38,0.45)', marginBottom: 14 }}>
+            <strong>Offline</strong>
+            <div style={{ color: '#fecaca', fontSize: 12, marginTop: 4 }}>
+              You appear to be offline. Saves may fail until connection is restored.
+            </div>
+          </div>
+        )}
+
+        {/* Production Hardening Saving Banner */}
+        {isActionRunning && (
+          <div
+            style={{
+              ...card,
+              position: 'sticky',
+              top: 10,
+              zIndex: 60,
+              border: '1px solid rgba(196,106,43,0.45)',
+              marginBottom: 14,
+            }}
+          >
+            <strong>{actionMessage || 'Working...'}</strong>
+            <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 4 }}>
+              Please wait. This prevents duplicate saves or duplicate submissions.
+            </div>
+          </div>
+        )}
+
         {/* Company Accent Header */}
         <div
           style={{
@@ -2318,7 +2368,7 @@ async function logout() {
                       value={newCompanyName}
                       onChange={(e) => setNewCompanyName(e.target.value)}
                     />
-                    <button style={button} onClick={createCompany}>
+                    <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating company', createCompany)}>
                       Create Company
                     </button>
                   </div>
@@ -2354,7 +2404,7 @@ async function logout() {
                       onChange={(e) => setNewCompanyAdminPassword(e.target.value)}
                     />
 
-                    <button style={button} onClick={createCompanyAdminUser}>
+                    <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating company admin', createCompanyAdminUser)}>
                       Create Company Admin
                     </button>
                   </div>
@@ -2440,7 +2490,7 @@ async function logout() {
                       />
                     </div>
 
-                    <button style={button} onClick={saveCompanySettings}>
+                    <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Saving company branding', saveCompanySettings)}>
                       Save Company Branding
                     </button>
                   </div>
@@ -2531,7 +2581,7 @@ async function logout() {
                       )}
                     </select>
 
-                    <button style={button} onClick={createAppUser}>
+                    <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating user', createAppUser)}>
                       Create User
                     </button>
                   </div>
@@ -3129,7 +3179,7 @@ async function logout() {
                   />
                 </div>
 
-                <button style={button} onClick={exportProducerPdfBundle}>
+                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Exporting producer PDF bundle', exportProducerPdfBundle)}>
                   Export Producer PDFs Bundle
                 </button>
               </div>
@@ -3247,7 +3297,7 @@ async function logout() {
                 <div>POT CSW: {autofillPreview?.pot?.csw ?? 'None'}</div>
               </div>
 
-              <button style={button} onClick={createTicket}>Auto Build Draft Ticket</button>
+              <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating ticket', createTicket)}>Auto Build Draft Ticket</button>
             </div>
 
             <div style={box}>
@@ -3403,11 +3453,11 @@ async function logout() {
                   </div>
                 </div>
 
-                <button style={button} onClick={() => updateTicketStatus(selectedTicket, 'submitted')}>Submit Ticket</button>
-                <button style={button} onClick={() => updateTicketStatus(selectedTicket, 'approved')}>Approve Ticket</button>
-                <button style={button} onClick={() => updateTicketStatus(selectedTicket, 'draft')}>Reject to Draft</button>
-                <button style={{ ...button, background: '#dc2626' }} onClick={() => updateTicketStatus(selectedTicket, 'voided')}>Void Ticket</button>
-                <button style={{ ...button, background: '#16a34a' }} onClick={() => generatePdfPreview(selectedTicket)}>Generate PDF Preview</button>
+                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Submitting ticket', () => updateTicketStatus(selectedTicket, 'submitted'))}>Submit Ticket</button>
+                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Approving ticket', () => updateTicketStatus(selectedTicket, 'approved'))}>Approve Ticket</button>
+                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Returning ticket to draft', () => updateTicketStatus(selectedTicket, 'draft'))}>Reject to Draft</button>
+                <button style={{ ...button, background: '#dc2626' }} disabled={isActionRunning} onClick={() => runSafeAction('Voiding ticket', () => updateTicketStatus(selectedTicket, 'voided'))}>Void Ticket</button>
+                <button style={{ ...button, background: '#16a34a' }} disabled={isActionRunning} onClick={() => runSafeAction('Generating PDF preview', () => generatePdfPreview(selectedTicket))}>Generate PDF Preview</button>
               </div>
             )}
           </>

@@ -581,6 +581,7 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [pdfBundleStartDate, setPdfBundleStartDate] = useState('')
   const [pdfBundleEndDate, setPdfBundleEndDate] = useState('')
   const [pdfBundleProducerId, setPdfBundleProducerId] = useState('')
@@ -1848,6 +1849,7 @@ async function logout() {
     borderRadius: 12,
     border: '1px solid rgba(255,255,255,0.16)',
     outline: 'none',
+    minHeight: 44,
   }
   const button: CSSProperties = {
     width: '100%',
@@ -1860,6 +1862,7 @@ async function logout() {
     cursor: 'pointer',
     fontWeight: 700,
     boxShadow: '0 0 18px rgba(196,106,43,0.24)',
+    minHeight: 44,
   }
 
   const kpiCard: CSSProperties = {
@@ -1963,15 +1966,40 @@ async function logout() {
         select option { background: #0b1117; color: #f8fafc; }
         button:hover { filter: brightness(1.08); }
         h1, h2, h3 { color: #f8fafc; }
+
+        @media (max-width: 900px) {
+          .app-shell { flex-direction: column !important; }
+          .app-sidebar {
+            width: 100% !important;
+            position: sticky !important;
+            top: 0 !important;
+            z-index: 50 !important;
+            padding: 12px !important;
+          }
+          .app-main { padding: 14px !important; }
+          .desktop-nav { display: none !important; }
+          .mobile-nav-toggle { display: block !important; }
+          .mobile-nav { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+          .responsive-grid { grid-template-columns: 1fr !important; }
+          button, input, select { min-height: 44px; font-size: 16px; }
+          h1 { font-size: 26px !important; }
+          h2 { font-size: 21px !important; }
+        }
+
+        @media (min-width: 901px) {
+          .mobile-nav-toggle { display: none !important; }
+          .mobile-nav { display: none !important; }
+        }
+
       `}</style>
-    <div style={{
+    <div className="app-shell" style={{
       background: 'radial-gradient(circle at top left, rgba(196,106,43,0.16), transparent 28%), #070a0d',
       color: '#f8fafc',
       minHeight: '100vh',
       display: 'flex',
       fontFamily: 'Inter, Segoe UI, Arial, sans-serif',
     }}>
-      <aside style={{
+      <aside className="app-sidebar" style={{
         width: 250,
         background: 'linear-gradient(180deg, #111820 0%, #070a0d 100%)',
         padding: 20,
@@ -1988,7 +2016,7 @@ async function logout() {
         </div>
 
         {['dashboard', 'admin', 'reports', 'readings', 'pot', 'provings', 'tickets'].map((p) => (
-          <button key={p} onClick={() => setPage(p)} style={button}>
+          <button key={p} onClick={() => { setPage(p); setMobileNavOpen(false) }} style={button}>
             {p.toUpperCase()}
           </button>
         ))}
@@ -1998,7 +2026,7 @@ async function logout() {
         </button>
       </aside>
 
-      <main style={{
+      <main className="app-main" style={{
         flex: 1,
         padding: 30,
         background: 'linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)), #070a0d',
@@ -2007,13 +2035,13 @@ async function logout() {
           <>
             <h1>Dashboard</h1>
             {/* Phase 3 Dashboard KPIs */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
+            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
               <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Total Tickets</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.length}</div></div>
               <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Approved</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.filter((t) => t.status === 'approved').length}</div></div>
               <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Draft / Working</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.filter((t) => !t.status || t.status === 'draft').length}</div></div>
               <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Meters</div><div style={{ fontSize: 30, fontWeight: 900 }}>{meters.length}</div></div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 20 }}>
+            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 20 }}>
               <div style={box}>Areas<h2>{areas.length}</h2></div>
               <div style={box}>Segments<h2>{segments.length}</h2></div>
               <div style={box}>Leases<h2>{leases.length}</h2></div>
@@ -2026,7 +2054,7 @@ async function logout() {
 
             <div style={box}>
               <h2>Monthly Proving KPI</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}>
                 <div style={card}>Active Meters<h2>{activeMeters.length}</h2></div>
                 <div style={card}>Proved This Month<h2>{provedThisMonthCount}</h2></div>
                 <div style={card}>Remaining<h2>{remainingProvingCount}</h2></div>
@@ -2584,7 +2612,7 @@ async function logout() {
             <h1>Meter Provings</h1>
             <div style={box}>
               <h2>Monthly Proving KPI</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginTop: 20 }}>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginTop: 20 }}>
                 <div style={card}>Active Meters<h2>{activeMeters.length}</h2></div>
                 <div style={card}>Proved This Month<h2>{provedThisMonthCount}</h2></div>
                 <div style={card}>Remaining<h2>{remainingProvingCount}</h2></div>
@@ -2747,7 +2775,7 @@ async function logout() {
                   ))}
                 </select>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <input
                     style={input}
                     type="date"

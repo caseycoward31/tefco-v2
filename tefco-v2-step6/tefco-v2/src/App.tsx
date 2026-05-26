@@ -1399,7 +1399,13 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     loadAll()
   }
 
-  function generatePdfPreview(ticket: Ticket) {
+  async function generatePdfPreview(ticket: Ticket) {
+    const companyName = getCompanyDisplayName()
+    const companyLogoUrl = getCompanyLogoUrl()
+    const companyAccent = getCompanyAccentColor()
+    const companyLogoDataUrl = companyLogoUrl ? await getImageDataUrl(companyLogoUrl) : ''
+
+
     const producer = producers.find((p) => p.id === ticket.producer_id)
     const meter = meters.find((m) => m.id === ticket.meter_id)
     const segment = segments.find((s) => s.id === ticket.segment_id)
@@ -1410,15 +1416,25 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
           <title>${ticket.ticket_number}</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
+            .brand-header { border-bottom: 5px solid ${companyAccent}; padding-bottom: 14px; margin-bottom: 22px; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+            .brand-name { font-size: 28px; font-weight: 900; color: ${companyAccent}; }
+            .brand-subtitle { font-size: 12px; color: #555; margin-top: 4px; }
+            .brand-logo { max-height: 70px; max-width: 160px; object-fit: contain; }
             .box { border: 1px solid #333; padding: 12px; margin: 12px 0; }
             .row { display: flex; justify-content: space-between; border-bottom: 1px solid #ddd; padding: 6px 0; }
           </style>
         </head>
         <body>
-          <h1>TEFCO Measurement Ticket</h1>
-          <h2>${ticket.ticket_number}</h2>
+          <div class="brand-header">
+            <div>
+              <div class="brand-name">${companyName}</div>
+              <div class="brand-subtitle">Measurement Ticket</div>
+            </div>
+            ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}
+          </div>
+          <h1>${ticket.ticket_number}</h1>
           <div class="box">
-            <div class="row"><strong>Status</strong><span>${ticket.status}{ticket.is_locked ? ' • LOCKED' : ''}</span></div>
+            <div class="row"><strong>Status</strong><span>${ticket.status}${ticket.is_locked ? ' • LOCKED' : ''}</span></div>
             <div class="row"><strong>Type</strong><span>${ticket.ticket_type}</span></div>
             <div class="row"><strong>Producer</strong><span>${producer?.name || ''}</span></div>
             <div class="row"><strong>Meter</strong><span>${meter?.meter_number || ''}</span></div>
@@ -1466,12 +1482,32 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   
   
 
-  function getCompanyDisplayName() {
+  
+  async function getImageDataUrl(url: string) {
+    if (!url) return ''
+
+    try {
+      const response = await fetch(url)
+      const blob = await response.blob()
+
+      return await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(String(reader.result || ''))
+        reader.onerror = () => resolve('')
+        reader.readAsDataURL(blob)
+      })
+    } catch (error) {
+      console.error('Logo load failed:', error)
+      return ''
+    }
+  }
+
+function getCompanyDisplayName() {
     return (
       companyNameInput ||
       companySettings?.company_name ||
       companySettings?.name ||
-      'TEFCO V2'
+      '${companyName}'
     )
   }
 

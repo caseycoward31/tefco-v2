@@ -689,6 +689,14 @@ function App() {
   const [openingGauge, setOpeningGauge] = useState('')
   const [closingGauge, setClosingGauge] = useState('')
   const [tankMovementDirection, setTankMovementDirection] = useState('delivery')
+  const [tankClosingFeet, setTankClosingFeet] = useState('')
+  const [tankClosingInches, setTankClosingInches] = useState('')
+  const [tankClosingEighths, setTankClosingEighths] = useState('')
+  const [tankAverageTemp, setTankAverageTemp] = useState('')
+  const [tankAmbientTemp, setTankAmbientTemp] = useState('')
+  const [tankObservedGravity, setTankObservedGravity] = useState('')
+  const [tankObservedTemp, setTankObservedTemp] = useState('')
+  const [tankSwPercent, setTankSwPercent] = useState('')
   const [manualClosingReading, setManualClosingReading] = useState('')
   const [autofillPreview, setAutofillPreview] = useState<any>(null)
 
@@ -1376,6 +1384,102 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     }
   }
 
+
+  function gaugePartsToDecimal(feet: any, inches: any, eighths: any) {
+    return Number(feet || 0) + (Number(inches || 0) / 12) + ((Number(eighths || 0) / 8) / 12)
+  }
+
+  function decimalGaugeToParts(decimalGauge: any) {
+    const decimal = Number(decimalGauge || 0)
+    const feet = Math.floor(decimal)
+    const totalInches = (decimal - feet) * 12
+    const inches = Math.floor(totalInches)
+    const eighths = Math.round((totalInches - inches) * 8)
+
+    return { feet, inches, eighths }
+  }
+
+  function getPreviousTankTicket(tankId: string) {
+    if (!tankId) return null
+
+    return tickets
+      .filter((ticket: any) =>
+        ticket.status === 'approved' &&
+        (ticket.tank_id === tankId || ticket.observed_inputs?.tank_id === tankId)
+      )
+      .sort((a: any, b: any) =>
+        new Date(b.approved_at || b.created_at || 0).getTime() -
+        new Date(a.approved_at || a.created_at || 0).getTime()
+      )[0] || null
+  }
+
+  function getPreviousTankClosingGauge(tankId: string) {
+    const previous = getPreviousTankTicket(tankId)
+
+    return (
+      previous?.closing_gauge ||
+      previous?.observed_inputs?.closing_gauge ||
+      previous?.observed_inputs?.closing_gauge_decimal ||
+      ''
+    )
+  }
+
+  function calculateTankTicketSnapshot(tankId: string) {
+    const openingGaugeDecimal = Number(getPreviousTankClosingGauge(tankId) || openingGauge || 0)
+    const closingGaugeDecimal = gaugePartsToDecimal(tankClosingFeet, tankClosingInches, tankClosingEighths)
+
+    const movement = tankId
+      ? calculateTankMovement(tankId, openingGaugeDecimal, closingGaugeDecimal, tankMovementDirection)
+      : {
+          openingGross: 0,
+          closingGross: 0,
+          openingCorrected: 0,
+          closingCorrected: 0,
+          movementBbl: 0,
+          signedMovementBbl: 0,
+        }
+
+    const corrections = calculateApi11Corrections({
+      productGroup: 'crude',
+      observedApiGravity: Number(tankObservedGravity || 0),
+      observedTemperature: Number(tankObservedTemp || tankAverageTemp || 60),
+      observedPressure: 0,
+      averageTemperature: Number(tankAverageTemp || tankObservedTemp || 60),
+      averagePressure: 0,
+      apiRounding: 1,
+    })
+
+    const ctl = roundTo(corrections.ctl, 5)
+    const cpl = roundTo(corrections.cpl, 5)
+    const ctlp = roundTo(corrections.ctlp, 5)
+    const ccf = corrections.ccf
+    const swDecimal = Number(tankSwPercent || 0) / 100
+    const gov = Number(movement.movementBbl || 0)
+    const gsv = gov * ccf
+    const nsv = gsv * (1 - swDecimal)
+
+    return {
+      openingGaugeDecimal,
+      closingGaugeDecimal,
+      closingGaugeParts: decimalGaugeToParts(closingGaugeDecimal),
+      movement,
+      corrections,
+      ctl,
+      cpl,
+      ctlp,
+      ccf,
+      gov,
+      gsv,
+      nsv,
+      swDecimal,
+      swPercent: Number(tankSwPercent || 0),
+      averageTemp: Number(tankAverageTemp || 0),
+      ambientTemp: Number(tankAmbientTemp || 0),
+      observedGravity: Number(tankObservedGravity || 0),
+      observedTemp: Number(tankObservedTemp || 0),
+    }
+  }
+
   function getPreviousClosingForLease(leaseId: string, meterId?: string) {
     const previous = tickets
       .filter((ticket: any) =>
@@ -1414,21 +1518,18 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       (p) => p.segment_id === selectedSegment && p.producer_id === selectedProducer && p.lease_id === selectedLease
     )
 
+    const tankTicketSnapshot = ticketType === 'tank' && selectedTank
+      ? calculateTankTicketSnapshot(selectedTank)
+      : null
+
     const previousClosingReading = getPreviousClosingForLease(selectedLease, selectedMeter)
     const openingReading = Number(previousClosingReading || 0)
     const closingReading = Number(manualClosingReading || latestReading?.indicated_volume || 0)
 
-    const tankCalculation = ticketType === 'tank' && selectedTank
-      ? calculateTankMovement(
-          selectedTank,
-          Number(openingGauge || 0),
-          Number(closingGauge || 0),
-          tankMovementDirection
-        )
-      : null
+    const tankCalculation = tankTicketSnapshot?.movement || null
 
-    const iv = tankCalculation
-      ? Number(tankCalculation.movementBbl || 0)
+    const iv = tankTicketSnapshot
+      ? Number(tankTicketSnapshot.gov || 0)
       : Number(closingReading || latestReading?.indicated_volume || 0)
     const contractProfile = getProducerProfile(
       contractProfiles,
@@ -1486,12 +1587,21 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     const ctlp = roundTo(corrections.ctlp, ctlpRounding)
     const ccf = corrections.ccf
 
+    const finalCtl = tankTicketSnapshot ? tankTicketSnapshot.ctl : ctl
+    const finalCpl = tankTicketSnapshot ? tankTicketSnapshot.cpl : cpl
+    const finalCtlp = tankTicketSnapshot ? tankTicketSnapshot.ctlp : ctlp
+    const finalCcf = tankTicketSnapshot ? tankTicketSnapshot.ccf : ccf
+
     const factorToUse = Number(latestApprovedProving?.accepted_meter_factor || latestReading?.meter_factor || 1)
     const mf = roundTo(factorToUse, 4)
     const csw = Number(latestPot?.csw || 1)
     const isApi12 = selectedContractStandard.includes('API 12')
-    const gsv = isApi12 ? iv * ctl * cpl * mf : iv * ccf * mf
-    const nsv = gsv * csw
+    const gsv = tankTicketSnapshot
+      ? tankTicketSnapshot.gsv
+      : isApi12 ? iv * ctl * cpl * mf : iv * ccf * mf
+    const nsv = tankTicketSnapshot
+      ? tankTicketSnapshot.nsv
+      : gsv * csw
 
     await supabase.from('tickets').insert({
       company_id: companyId,
@@ -1505,8 +1615,8 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       line_fill_id: selectedLineFill || null,
       opening_reading: openingReading || null,
       closing_reading: closingReading || null,
-      opening_gauge: openingGauge ? Number(openingGauge) : null,
-      closing_gauge: closingGauge ? Number(closingGauge) : null,
+      opening_gauge: tankTicketSnapshot?.openingGaugeDecimal ?? (openingGauge ? Number(openingGauge) : null),
+      closing_gauge: tankTicketSnapshot?.closingGaugeDecimal ?? (closingGauge ? Number(closingGauge) : null),
       movement_direction: ticketType === 'tank' ? tankMovementDirection : null,
       meter_id: selectedMeter || null,
       linked_reading_id: latestReading?.id || null,
@@ -1545,6 +1655,17 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
         tank_movement_direction: ticketType === 'tank' ? tankMovementDirection : null,
         tank_opening_bbl: tankCalculation?.openingCorrected ?? null,
         tank_closing_bbl: tankCalculation?.closingCorrected ?? null,
+        tank_gov: tankTicketSnapshot?.gov ?? null,
+        tank_gsv: tankTicketSnapshot?.gsv ?? null,
+        tank_nsv: tankTicketSnapshot?.nsv ?? null,
+        tank_closing_feet: tankClosingFeet || null,
+        tank_closing_inches: tankClosingInches || null,
+        tank_closing_eighths: tankClosingEighths || null,
+        tank_average_temp: tankAverageTemp || null,
+        tank_ambient_temp: tankAmbientTemp || null,
+        tank_observed_gravity: tankObservedGravity || null,
+        tank_observed_temp: tankObservedTemp || null,
+        tank_sw_percent: tankSwPercent || null,
         ctl,
         cpl,
         ctlp,
@@ -1589,6 +1710,14 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     })
 
     alert(`Draft ticket created: ${generatedNumber}`)
+    setTankClosingFeet('')
+    setTankClosingInches('')
+    setTankClosingEighths('')
+    setTankAverageTemp('')
+    setTankAmbientTemp('')
+    setTankObservedGravity('')
+    setTankObservedTemp('')
+    setTankSwPercent('')
     loadAll()
   }
 
@@ -4957,14 +5086,52 @@ async function saveUserRole() {
                     <option value="receipt">Receipt / Fill</option>
                   </select>
 
-                  <input style={input} placeholder="Opening Gauge (decimal feet)" value={openingGauge} onChange={(e) => setOpeningGauge(e.target.value)} />
-                  <input style={input} placeholder="Closing Gauge (decimal feet)" value={closingGauge} onChange={(e) => setClosingGauge(e.target.value)} />
+                  <div style={card}>
+                    <strong>Opening Gauge Auto-Fill</strong>
+                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                      Opening comes from the last approved tank ticket closing gauge when available.
+                    </div>
+                    <div>
+                      Opening Decimal: {selectedTank ? getPreviousTankClosingGauge(selectedTank) || openingGauge || 'None' : 'Select tank'}
+                    </div>
+                    <input
+                      style={input}
+                      placeholder="Manual Opening Gauge Override (decimal feet)"
+                      value={openingGauge}
+                      onChange={(e) => setOpeningGauge(e.target.value)}
+                    />
+                  </div>
 
-                  {selectedTank && openingGauge && closingGauge && (
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                    <input style={input} placeholder="Closing Feet" value={tankClosingFeet} onChange={(e) => setTankClosingFeet(e.target.value)} />
+                    <input style={input} placeholder="Closing Inches" value={tankClosingInches} onChange={(e) => setTankClosingInches(e.target.value)} />
+                    <input style={input} placeholder="Closing 8ths" value={tankClosingEighths} onChange={(e) => setTankClosingEighths(e.target.value)} />
+                  </div>
+
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <input style={input} placeholder="Average Temp" value={tankAverageTemp} onChange={(e) => setTankAverageTemp(e.target.value)} />
+                    <input style={input} placeholder="Ambient Temp" value={tankAmbientTemp} onChange={(e) => setTankAmbientTemp(e.target.value)} />
+                    <input style={input} placeholder="Observed Gravity" value={tankObservedGravity} onChange={(e) => setTankObservedGravity(e.target.value)} />
+                    <input style={input} placeholder="Observed Temp" value={tankObservedTemp} onChange={(e) => setTankObservedTemp(e.target.value)} />
+                    <input style={input} placeholder="S&W %" value={tankSwPercent} onChange={(e) => setTankSwPercent(e.target.value)} />
+                  </div>
+
+                  {selectedTank && tankClosingFeet !== '' && (
                     <div style={card}>
-                      Tank Movement: {calculateTankMovement(selectedTank, Number(openingGauge), Number(closingGauge), tankMovementDirection).movementBbl.toFixed(2)} bbl
-                      <div>Deadwood Opening Adj: {getDeadwoodAdjustment(selectedTank, Number(openingGauge)).toFixed(2)} bbl</div>
-                      <div>Deadwood Closing Adj: {getDeadwoodAdjustment(selectedTank, Number(closingGauge)).toFixed(2)} bbl</div>
+                      <h4>Tank Calculation Preview</h4>
+                      <div>Opening Gauge: {calculateTankTicketSnapshot(selectedTank).openingGaugeDecimal.toFixed(4)}</div>
+                      <div>Closing Gauge: {calculateTankTicketSnapshot(selectedTank).closingGaugeDecimal.toFixed(4)}</div>
+                      <div>Opening BBLS: {calculateTankTicketSnapshot(selectedTank).movement.openingCorrected.toFixed(2)}</div>
+                      <div>Closing BBLS: {calculateTankTicketSnapshot(selectedTank).movement.closingCorrected.toFixed(2)}</div>
+                      <div>GOV: {calculateTankTicketSnapshot(selectedTank).gov.toFixed(2)}</div>
+                      <div>API @60: {calculateTankTicketSnapshot(selectedTank).corrections.api_gravity_60.toFixed(1)}</div>
+                      <div>CTL: {calculateTankTicketSnapshot(selectedTank).ctl.toFixed(5)}</div>
+                      <div>CPL: {calculateTankTicketSnapshot(selectedTank).cpl.toFixed(5)}</div>
+                      <div>CCF: {calculateTankTicketSnapshot(selectedTank).ccf.toFixed(5)}</div>
+                      <div>GSV: {calculateTankTicketSnapshot(selectedTank).gsv.toFixed(2)}</div>
+                      <div>NSV: {calculateTankTicketSnapshot(selectedTank).nsv.toFixed(2)}</div>
+                      <div>Deadwood Opening Adj: {getDeadwoodAdjustment(selectedTank, calculateTankTicketSnapshot(selectedTank).openingGaugeDecimal).toFixed(2)} bbl</div>
+                      <div>Deadwood Closing Adj: {getDeadwoodAdjustment(selectedTank, calculateTankTicketSnapshot(selectedTank).closingGaugeDecimal).toFixed(2)} bbl</div>
                     </div>
                   )}
                 </div>

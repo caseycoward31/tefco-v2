@@ -592,6 +592,7 @@ function App() {
   const [companyAddress1Input, setCompanyAddress1Input] = useState('')
   const [companyAddress2Input, setCompanyAddress2Input] = useState('')
   const [companyPhoneInput, setCompanyPhoneInput] = useState('')
+  const [companyAccentInput, setCompanyAccentInput] = useState('#c46a2b')
   const [loading, setLoading] = useState(true)
 
   const [areas, setAreas] = useState<Area[]>([])
@@ -1464,6 +1465,20 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   
   
   
+
+  function getCompanyDisplayName() {
+    return (
+      companyNameInput ||
+      companySettings?.company_name ||
+      companySettings?.name ||
+      'TEFCO V2'
+    )
+  }
+
+  function getCompanyAccentColor() {
+    return companySettings?.accent_color || '#c46a2b'
+  }
+
   function getCompanyLogoUrl() {
     if (companyLogoFile) {
       return URL.createObjectURL(companyLogoFile)
@@ -1506,6 +1521,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       address_line1: companyAddress1Input || null,
       address_line2: companyAddress2Input || null,
       phone: companyPhoneInput || null,
+      accent_color: companyAccentInput || '#c46a2b',
       logo_url: logoUrl,
     }
 
@@ -1865,6 +1881,29 @@ async function logout() {
     minHeight: 44,
   }
 
+  const sidebarBrandCard: CSSProperties = {
+    background: 'linear-gradient(145deg, rgba(20,25,28,1), rgba(9,13,16,1))',
+    border: '1px solid rgba(196,106,43,0.28)',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+    boxShadow: '0 12px 28px rgba(0,0,0,0.28)',
+  }
+
+  const sidebarLogoBox: CSSProperties = {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    background: '#ffffff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    marginBottom: 10,
+  }
+
+
+
   const kpiCard: CSSProperties = {
     ...card,
     minHeight: 92,
@@ -2006,9 +2045,35 @@ async function logout() {
         borderRight: '1px solid rgba(196,106,43,0.28)',
         boxShadow: '10px 0 30px rgba(0,0,0,0.35)',
       }}>
-        <div style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: 0.4 }}>
-            TEFCO <span style={{ color: '#c46a2b' }}>V2</span>
+        <div style={sidebarBrandCard}>
+          <div style={sidebarLogoBox}>
+            {getCompanyLogoUrl() ? (
+              <img
+                src={getCompanyLogoUrl()}
+                alt="Company Logo"
+                style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  background: `linear-gradient(135deg, ${getCompanyAccentColor()}, #7a3b18)`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  fontWeight: 900,
+                  fontSize: 18,
+                }}
+              >
+                {getCompanyDisplayName().slice(0, 2).toUpperCase()}
+              </div>
+            )}
+          </div>
+
+          <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 0.3 }}>
+            {getCompanyDisplayName()}
           </div>
           <div style={{ fontSize: 12, color: '#a8b3bd', marginTop: 4 }}>
             Measurement Platform
@@ -2031,6 +2096,16 @@ async function logout() {
         padding: 30,
         background: 'linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)), #070a0d',
       }}>
+        {/* Company Accent Header */}
+        <div
+          style={{
+            height: 4,
+            borderRadius: 999,
+            background: `linear-gradient(90deg, ${getCompanyAccentColor()}, rgba(196,106,43,0))`,
+            marginBottom: 18,
+          }}
+        />
+
         {page === 'dashboard' && (
           <>
             <h1>Dashboard</h1>
@@ -2208,6 +2283,21 @@ async function logout() {
                       value={companyPhoneInput}
                       onChange={(e) => setCompanyPhoneInput(e.target.value)}
                     />
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
+                      <input
+                        style={input}
+                        placeholder="Accent Color"
+                        value={companyAccentInput}
+                        onChange={(e) => setCompanyAccentInput(e.target.value)}
+                      />
+                      <input
+                        style={{ ...input, padding: 4, width: 58 }}
+                        type="color"
+                        value={companyAccentInput}
+                        onChange={(e) => setCompanyAccentInput(e.target.value)}
+                      />
+                    </div>
 
                     <button style={button} onClick={saveCompanySettings}>
                       Save Company Branding

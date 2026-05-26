@@ -581,6 +581,8 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
+  const [meterCsvFile, setMeterCsvFile] = useState<File | null>(null)
+  const [meterCsvImporting, setMeterCsvImporting] = useState(false)
   const [hasLocalTicketDraft, setHasLocalTicketDraft] = useState(false)
   const [draftRestoredMessage, setDraftRestoredMessage] = useState('')
   const [isActionRunning, setIsActionRunning] = useState(false)
@@ -1644,6 +1646,147 @@ async function createCompany() {
     alert('Company created.')
   }
 
+
+  function parseMeterCsv(text: string) {
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    if (lines.length < 2) return []
+
+    const headers = lines[0].split(',').map((header) => header.trim().toLowerCase())
+
+    return lines.slice(1).map((line) => {
+      const values = line.split(',').map((value) => value.trim())
+      const row: Record<string, string> = {}
+
+      headers.forEach((header, index) => {
+        row[header] = values[index] || ''
+      })
+
+      return row
+    })
+  }
+
+  async function findOrCreateByName(tableName: string, nameColumn: string, name: string, extra: Record<string, any> = {}) {
+    if (!name) return null
+
+    const { data: existing } = await supabase
+      .from(tableName)
+      .select('*')
+      .eq(nameColumn, name)
+      .maybeSingle()
+
+    if (existing) return existing
+
+    const { data, error } = await supabase
+      .from(tableName)
+      .insert({
+        company_id: userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId,
+        [nameColumn]: name,
+        ...extra,
+      })
+      .select()
+      .single()
+
+    if (error) throw error
+
+    return data
+  }
+
+  async function importMetersCsv() {
+    if (!meterCsvFile) {
+      alert('Choose a CSV file first.')
+      return
+    }
+
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    if (!targetCompanyId) {
+      alert('Select or load a company before importing.')
+      return
+    }
+
+    setMeterCsvImporting(true)
+
+    try {
+      const csvText = await meterCsvFile.text()
+      const rows = parseMeterCsv(csvText)
+
+      if (rows.length === 0) {
+        alert('CSV has no rows.')
+        return
+      }
+
+      let imported = 0
+
+      for (const row of rows) {
+        const areaName = row.area || row.area_name || ''
+        const segmentName = row.segment || row.segment_name || ''
+        const producerName = row.producer || row.producer_name || ''
+        const leaseName = row.lease || row.lease_name || ''
+        const meterNumber = row.meter_number || row.meter || row.meter_name || ''
+
+        if (!meterNumber) continue
+
+        const area = await findOrCreateByName('areas', 'name', areaName)
+        const segment = await findOrCreateByName('segments', 'name', segmentName, {
+          area_id: area?.id || null,
+        })
+        const producer = await findOrCreateByName('producers', 'name', producerName)
+        const lease = await findOrCreateByName('leases', 'lease_name', leaseName, {
+          area_id: area?.id || null,
+          segment_id: segment?.id || null,
+          producer_id: producer?.id || null,
+        })
+
+        const { data: existingMeter } = await supabase
+          .from('meters')
+          .select('*')
+          .eq('meter_number', meterNumber)
+          .maybeSingle()
+
+        if (existingMeter) {
+          await supabase
+            .from('meters')
+            .update({
+              company_id: targetCompanyId,
+              area_id: area?.id || existingMeter.area_id || null,
+              segment_id: segment?.id || existingMeter.segment_id || null,
+              producer_id: producer?.id || existingMeter.producer_id || null,
+              lease_id: lease?.id || existingMeter.lease_id || null,
+              active: true,
+            })
+            .eq('id', existingMeter.id)
+        } else {
+          const { error } = await supabase.from('meters').insert({
+            company_id: targetCompanyId,
+            meter_number: meterNumber,
+            area_id: area?.id || null,
+            segment_id: segment?.id || null,
+            producer_id: producer?.id || null,
+            lease_id: lease?.id || null,
+            active: true,
+          })
+
+          if (error) throw error
+        }
+
+        imported += 1
+      }
+
+      setMeterCsvFile(null)
+      alert(`Imported ${imported} meters.`)
+      await loadAll()
+    } catch (error: any) {
+      console.error('Meter CSV import failed:', error)
+      alert(error?.message || 'Meter CSV import failed.')
+    } finally {
+      setMeterCsvImporting(false)
+    }
+  }
+
   async function createCompanyAdminUser() {
     if (!userIsSuperAdmin) {
       alert('Only super admins can create company admins.')
@@ -2341,7 +2484,7 @@ async function logout() {
           </div>
         </div>
 
-        {['dashboard', 'admin', 'reports', 'readings', 'pot', 'provings', 'tickets'].map((p) => (
+        {['dashboard', 'admin', 'reports', 'readings', 'pot', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
           <button key={p} onClick={() => { setPage(p); setMobileNavOpen(false) }} style={button}>
             {p.toUpperCase()}
           </button>
@@ -2460,7 +2603,17 @@ async function logout() {
         )}
 
 
-        {page === 'admin' && (
+        {page === 'admin' && !canViewAdmin && (
+          <div style={box}>
+            <h1>Admin</h1>
+            <p>You do not have permission to view Admin.</p>
+            <button style={button} onClick={() => setPage('dashboard')}>
+              Back to Dashboard
+            </button>
+          </div>
+        )}
+
+        {page === 'admin' && canViewAdmin && (
           <>
             <div style={adminHeaderCard}>
               <div>
@@ -2842,6 +2995,25 @@ async function logout() {
                     <button style={button} onClick={() => setPage('leases')}>Manage Leases</button>
                     <button style={button} onClick={() => setPage('producers')}>Manage Producers</button>
                     <button style={button} onClick={() => setPage('meters')}>Manage Meters</button>
+                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                      <h3>Import Meters CSV</h3>
+                      <p style={{ color: '#a8b3bd' }}>
+                        CSV headers supported: area, segment, producer, lease, meter_number.
+                      </p>
+                      <input
+                        style={input}
+                        type="file"
+                        accept=".csv,text/csv"
+                        onChange={(e) => setMeterCsvFile(e.target.files?.[0] || null)}
+                      />
+                      <button
+                        disabled={isActionRunning || meterCsvImporting}
+                        style={button}
+                        onClick={() => runSafeAction('Importing meters CSV', importMetersCsv)}
+                      >
+                        {meterCsvImporting ? 'Importing...' : 'Import Meters CSV'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -3392,6 +3564,47 @@ async function logout() {
         {page === 'tickets' && (
           <>
             <h1>Ticket Workflow</h1>
+            {/* Selected Ticket Quick View */}
+            {selectedTicket && (
+              <div style={box}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <h2 style={{ margin: 0 }}>Open Ticket: {selectedTicket.ticket_number || selectedTicket.id}</h2>
+                  <span style={getTicketStatusStyle(selectedTicket.status)}>{selectedTicket.status || 'draft'}</span>
+                </div>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginTop: 12 }}>
+                  <div style={card}>
+                    <h3>Ticket Info</h3>
+                    <div>Type: {selectedTicket.ticket_type}</div>
+                    <div>Producer ID: {selectedTicket.producer_id || 'None'}</div>
+                    <div>Meter ID: {selectedTicket.meter_id || 'None'}</div>
+                    <div>Segment ID: {selectedTicket.segment_id || 'None'}</div>
+                  </div>
+
+                  <div style={card}>
+                    <h3>Volumes</h3>
+                    <div>GSV: {selectedTicket.calculation_results?.gsv ?? 'None'}</div>
+                    <div>NSV: {selectedTicket.calculation_results?.nsv ?? 'None'}</div>
+                    <div>CCF: {selectedTicket.calculation_results?.ccf ?? 'None'}</div>
+                  </div>
+
+                  <div style={card}>
+                    <h3>Inputs</h3>
+                    <div>IV: {selectedTicket.observed_inputs?.iv ?? 'None'}</div>
+                    <div>CTL: {selectedTicket.observed_inputs?.ctl ?? 'None'}</div>
+                    <div>CPL: {selectedTicket.observed_inputs?.cpl ?? 'None'}</div>
+                    <div>API @ 60: {selectedTicket.observed_inputs?.api_gravity_60 ?? selectedTicket.observed_inputs?.corrected_api ?? 'None'}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginTop: 12 }}>
+                  <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Submitting ticket', () => updateTicketStatus(selectedTicket, 'submitted'))}>Submit</button>
+                  <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Approving ticket', () => updateTicketStatus(selectedTicket, 'approved'))}>Approve</button>
+                  <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Generating PDF preview', () => generatePdfPreview(selectedTicket))}>PDF Preview</button>
+                  <button style={{ ...button, background: '#374151', borderColor: '#4b5563' }} onClick={() => setSelectedTicket(null)}>Close</button>
+                </div>
+              </div>
+            )}
             {hasLocalTicketDraft && (
               <div style={card}>
                 <strong>Autosave is active</strong>

@@ -2511,9 +2511,10 @@ async function createCompany() {
   function extractRefineryStrappingRowsFromSheet(rows: any[][]) {
     const output: any[] = []
 
-    // Detect multi-pair format like:
-    // row header: FT-IN | Barrels | FT-IN | Barrels
-    // first data row in each pair gives base feet; following rows give inches.
+    // Detect multi-pair refinery format:
+    // FT-IN | Barrels | FT-IN | Barrels
+    // Yellow rows are whole feet, but the cell value is the foot number, not inch 12/13/14/etc.
+    // Following rows 1-11 are inches under that current foot.
     for (let r = 0; r < rows.length; r += 1) {
       const row = rows[r] || []
 
@@ -2522,24 +2523,31 @@ async function createCompany() {
         const rightHeader = String((row || [])[c + 1] ?? '').trim().toLowerCase()
 
         if (leftHeader === 'ft-in' && rightHeader.includes('barrel')) {
-          const firstDataRow = rows[r + 1] || []
-          const baseFeet = Number(firstDataRow[c])
-
-          if (!Number.isFinite(baseFeet)) continue
+          let currentFeet: number | null = null
 
           for (let rr = r + 1; rr < rows.length; rr += 1) {
             const dataRow = rows[rr] || []
-            const inchValue = Number(dataRow[c])
+            const gaugeCell = dataRow[c]
             const barrels = Number(dataRow[c + 1])
+            const gaugeValue = Number(gaugeCell)
 
-            if (!Number.isFinite(inchValue) || !Number.isFinite(barrels)) continue
+            if (!Number.isFinite(gaugeValue) || !Number.isFinite(barrels)) continue
 
-            const gaugeDecimal = baseFeet + (inchValue / 12)
+            let inches = gaugeValue
+
+            // In this format, a value greater than 11 means a new whole-foot row.
+            // Example: 12 with 396.50 = 12' 0", then 1 = 12' 1", etc.
+            if (currentFeet === null || gaugeValue > 11) {
+              currentFeet = gaugeValue
+              inches = 0
+            }
+
+            const gaugeDecimal = currentFeet + (inches / 12)
 
             output.push({
               gauge_decimal: gaugeDecimal,
-              gauge_feet: baseFeet,
-              gauge_inches: inchValue,
+              gauge_feet: currentFeet,
+              gauge_inches: inches,
               gauge_fraction: null,
               barrels,
               increment_bbl: null,
@@ -2706,7 +2714,7 @@ async function createCompany() {
 
     setStrappingCsvFile(null)
     setSelectedStrappingTankId('')
-    alert(`Imported ${insertRows.length} strapping rows as calibration Version ${nextVersion}.`)
+    alert(`Imported ${insertRows.length} strapping rows as calibration Version ${nextVersion}. Test 14 ft 4 in should now lookup around 474.60 bbl on the Delek 401 low leg chart.`)
     await loadAll()
   }
 

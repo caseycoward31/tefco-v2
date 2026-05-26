@@ -2512,7 +2512,9 @@ async function createCompany() {
     setSelectedStrappingTankId('')
     alert(`Imported ${insertRows.length} strapping rows as calibration Version ${nextVersion}.`)
     await loadAll()
-  }() {
+  }
+
+  async function importMetersCsv() {
     if (!meterCsvFile) {
       alert('Choose a CSV file first.')
       return

@@ -590,6 +590,12 @@ function App() {
   const [newLineFillName, setNewLineFillName] = useState('')
   const [newLineFillSegmentId, setNewLineFillSegmentId] = useState('')
   const [newLineFillCapacity, setNewLineFillCapacity] = useState('')
+  const [deadwoodTankId, setDeadwoodTankId] = useState('')
+  const [deadwoodStartGauge, setDeadwoodStartGauge] = useState('')
+  const [deadwoodEndGauge, setDeadwoodEndGauge] = useState('')
+  const [deadwoodAdjustmentBbl, setDeadwoodAdjustmentBbl] = useState('')
+  const [deadwoodAdjustmentType, setDeadwoodAdjustmentType] = useState('add')
+  const [deadwoodDescription, setDeadwoodDescription] = useState('')
   const [meterCsvImporting, setMeterCsvImporting] = useState(false)
   const [hasLocalTicketDraft, setHasLocalTicketDraft] = useState(false)
   const [draftRestoredMessage, setDraftRestoredMessage] = useState('')
@@ -2142,6 +2148,66 @@ async function createCompany() {
     setNewLineFillName('')
     setNewLineFillSegmentId('')
     setNewLineFillCapacity('')
+    await loadAll()
+  }
+
+
+  async function saveDeadwoodRule() {
+    if (!deadwoodTankId) {
+      alert('Select a tank.')
+      return
+    }
+
+    if (!deadwoodStartGauge || !deadwoodEndGauge || !deadwoodAdjustmentBbl) {
+      alert('Enter start gauge, end gauge, and adjustment barrels.')
+      return
+    }
+
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const calibration = getActiveTankCalibration(deadwoodTankId)
+
+    if (!calibration) {
+      alert('This tank needs a strapping calibration version before adding deadwood rules.')
+      return
+    }
+
+    const { error } = await supabase.from('tank_deadwood_rules').insert({
+      company_id: targetCompanyId,
+      tank_id: deadwoodTankId,
+      calibration_version_id: calibration.id,
+      start_gauge: Number(deadwoodStartGauge),
+      end_gauge: Number(deadwoodEndGauge),
+      adjustment_bbl: Number(deadwoodAdjustmentBbl),
+      adjustment_type: deadwoodAdjustmentType,
+      description: deadwoodDescription || null,
+      active: true,
+    })
+
+    if (error) {
+      alert('Could not save deadwood rule: ' + error.message)
+      return
+    }
+
+    setDeadwoodStartGauge('')
+    setDeadwoodEndGauge('')
+    setDeadwoodAdjustmentBbl('')
+    setDeadwoodAdjustmentType('add')
+    setDeadwoodDescription('')
+    alert('Deadwood rule saved.')
+    await loadAll()
+  }
+
+  async function deleteDeadwoodRule(ruleId: string) {
+    const { error } = await supabase
+      .from('tank_deadwood_rules')
+      .update({ active: false })
+      .eq('id', ruleId)
+
+    if (error) {
+      alert('Could not delete deadwood rule: ' + error.message)
+      return
+    }
+
     await loadAll()
   }
 
@@ -3859,6 +3925,71 @@ async function saveUserRole() {
                           Import Strapping Chart
                         </button>
                       </div>
+
+                      <div style={card}>
+                        <h4>Deadwood / Tank Adjustment Rules</h4>
+                        <p style={{ color: '#a8b3bd' }}>
+                          Add or subtract barrels by gauge range. These rules are applied automatically on tank tickets.
+                        </p>
+
+                        <select style={input} value={deadwoodTankId} onChange={(e) => setDeadwoodTankId(e.target.value)}>
+                          <option value="">Select Tank</option>
+                          {tanks.map((tank: any) => (
+                            <option key={tank.id} value={tank.id}>
+                              {tank.tank_number} {tank.tank_name ? `- ${tank.tank_name}` : ''}
+                            </option>
+                          ))}
+                        </select>
+
+                        {deadwoodTankId && (
+                          <div style={{ color: '#a8b3bd', fontSize: 12, marginBottom: 8 }}>
+                            Active Calibration: {getActiveTankCalibration(deadwoodTankId)?.name || getActiveTankCalibration(deadwoodTankId)?.version_number || 'None'}
+                          </div>
+                        )}
+
+                        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          <input style={input} placeholder="Start Gauge" value={deadwoodStartGauge} onChange={(e) => setDeadwoodStartGauge(e.target.value)} />
+                          <input style={input} placeholder="End Gauge" value={deadwoodEndGauge} onChange={(e) => setDeadwoodEndGauge(e.target.value)} />
+                        </div>
+
+                        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          <input style={input} placeholder="Adjustment BBLS" value={deadwoodAdjustmentBbl} onChange={(e) => setDeadwoodAdjustmentBbl(e.target.value)} />
+                          <select style={input} value={deadwoodAdjustmentType} onChange={(e) => setDeadwoodAdjustmentType(e.target.value)}>
+                            <option value="add">Add Barrels</option>
+                            <option value="subtract">Subtract Barrels</option>
+                          </select>
+                        </div>
+
+                        <input style={input} placeholder="Description / Rule Note" value={deadwoodDescription} onChange={(e) => setDeadwoodDescription(e.target.value)} />
+
+                        <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Saving deadwood rule', saveDeadwoodRule)}>
+                          Save Deadwood Rule
+                        </button>
+
+                        {deadwoodTankId && (
+                          <div style={{ marginTop: 14 }}>
+                            <h4>Active Rules</h4>
+                            {tankDeadwoodRules
+                              .filter((rule: any) => rule.tank_id === deadwoodTankId)
+                              .map((rule: any) => (
+                                <div key={rule.id} style={card}>
+                                  <strong>{rule.adjustment_type === 'subtract' ? 'Subtract' : 'Add'} {rule.adjustment_bbl} bbl</strong>
+                                  <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                                    Gauge {rule.start_gauge} to {rule.end_gauge}
+                                  </div>
+                                  {rule.description && <div>{rule.description}</div>}
+                                  <button
+                                    disabled={isActionRunning}
+                                    style={{ ...button, background: '#991b1b', borderColor: '#ef4444' }}
+                                    onClick={() => runSafeAction('Disabling deadwood rule', () => deleteDeadwoodRule(rule.id))}
+                                  >
+                                    Disable Rule
+                                  </button>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -4608,6 +4739,8 @@ async function saveUserRole() {
                   {selectedTank && openingGauge && closingGauge && (
                     <div style={card}>
                       Tank Movement: {calculateTankMovement(selectedTank, Number(openingGauge), Number(closingGauge), tankMovementDirection).movementBbl.toFixed(2)} bbl
+                      <div>Deadwood Opening Adj: {getDeadwoodAdjustment(selectedTank, Number(openingGauge)).toFixed(2)} bbl</div>
+                      <div>Deadwood Closing Adj: {getDeadwoodAdjustment(selectedTank, Number(closingGauge)).toFixed(2)} bbl</div>
                     </div>
                   )}
                 </div>

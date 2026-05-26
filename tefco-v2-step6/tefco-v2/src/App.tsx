@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
+import JSZip from 'jszip'
 
 type Company = {
   id: string
@@ -580,6 +581,9 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
+  const [pdfBundleStartDate, setPdfBundleStartDate] = useState('')
+  const [pdfBundleEndDate, setPdfBundleEndDate] = useState('')
+  const [pdfBundleProducerId, setPdfBundleProducerId] = useState('')
   const [companyId, setCompanyId] = useState('')
   const [companySettings, setCompanySettings] = useState<any>(null)
   const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null)
@@ -1740,6 +1744,78 @@ async function saveUserRole() {
     loadAll()
   }
 
+
+  async function exportProducerPdfBundle() {
+    if (!pdfBundleStartDate || !pdfBundleEndDate) {
+      alert('Select a start date and end date.')
+      return
+    }
+
+    const start = new Date(`${pdfBundleStartDate}T00:00:00`)
+    const end = new Date(`${pdfBundleEndDate}T23:59:59`)
+
+    const approvedTickets = tickets.filter((ticket: any) => {
+      const statusOk = ticket.status === 'approved'
+      const pdfUrl = ticket.pdf_url || ticket.pdfUrl
+      const ticketDateValue =
+        ticket.ticket_date ||
+        ticket.created_at ||
+        ticket.createdAt ||
+        ticket.updated_at ||
+        ticket.updatedAt
+
+      const dateOk = ticketDateValue
+        ? new Date(ticketDateValue) >= start && new Date(ticketDateValue) <= end
+        : true
+
+      const producerOk = pdfBundleProducerId
+        ? ticket.producer_id === pdfBundleProducerId || ticket.producerId === pdfBundleProducerId
+        : true
+
+      return statusOk && pdfUrl && dateOk && producerOk
+    })
+
+    if (approvedTickets.length === 0) {
+      alert('No approved ticket PDFs found for that range.')
+      return
+    }
+
+    const zip = new JSZip()
+
+    for (const ticket of approvedTickets as any[]) {
+      const pdfUrl = ticket.pdf_url || ticket.pdfUrl
+      const ticketLabel =
+        ticket.ticket_number ||
+        ticket.ticket_no ||
+        ticket.id ||
+        `ticket-${approvedTickets.indexOf(ticket) + 1}`
+
+      try {
+        const response = await fetch(pdfUrl)
+        if (!response.ok) throw new Error(`Failed to fetch PDF for ${ticketLabel}`)
+
+        const blob = await response.blob()
+        zip.file(`${String(ticketLabel).replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`, blob)
+      } catch (error: any) {
+        console.error('PDF bundle fetch error:', error)
+      }
+    }
+
+    const blob = await zip.generateAsync({ type: 'blob' })
+    const producer = producers.find((p) => p.id === pdfBundleProducerId)
+    const producerName = producer?.name || 'all-producers'
+    const fileName = `producer-pdfs-${producerName.replace(/[^a-zA-Z0-9-_]/g, '_')}-${pdfBundleStartDate}-to-${pdfBundleEndDate}.zip`
+
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
 async function logout() {
     await supabase.auth.signOut()
   }
@@ -2653,10 +2729,43 @@ async function logout() {
               </div>
 
               <div style={card}>
-                <h3>Export Tools</h3>
+                <h3>Export Producer PDFs</h3>
                 <p style={{ color: '#a8b3bd' }}>
-                  Existing export actions stay untouched. Next step can wire the date-range PDF bundle button into this section.
+                  Select a producer and date range to download approved ticket PDFs as one ZIP bundle.
                 </p>
+
+                <select
+                  style={input}
+                  value={pdfBundleProducerId}
+                  onChange={(e) => setPdfBundleProducerId(e.target.value)}
+                >
+                  <option value="">All Producers</option>
+                  {producers.map((producer) => (
+                    <option key={producer.id} value={producer.id}>
+                      {producer.name}
+                    </option>
+                  ))}
+                </select>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <input
+                    style={input}
+                    type="date"
+                    value={pdfBundleStartDate}
+                    onChange={(e) => setPdfBundleStartDate(e.target.value)}
+                  />
+
+                  <input
+                    style={input}
+                    type="date"
+                    value={pdfBundleEndDate}
+                    onChange={(e) => setPdfBundleEndDate(e.target.value)}
+                  />
+                </div>
+
+                <button style={button} onClick={exportProducerPdfBundle}>
+                  Export Producer PDFs Bundle
+                </button>
               </div>
             </div>
 

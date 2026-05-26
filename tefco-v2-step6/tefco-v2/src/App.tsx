@@ -3618,6 +3618,17 @@ async function saveUserRole() {
     }
   }
 
+
+  const workflowTickets = tickets
+    .filter((ticket: any) => {
+      const status = String(ticket.status || '').toLowerCase()
+      return status !== 'approved' && status !== 'voided' && !ticket.is_superseded
+    })
+    .sort((a: any, b: any) =>
+      new Date(b.created_at || b.updated_at || 0).getTime() -
+      new Date(a.created_at || a.updated_at || 0).getTime()
+    )
+
   if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
   if (!session) return <Login />
 
@@ -5008,6 +5019,14 @@ async function saveUserRole() {
 
                   <div style={card}>
                     <h3>Volumes</h3>
+                    {selectedTicket.ticket_type === 'tank' && (
+                      <>
+                        <div><strong>Tank Results</strong></div>
+                        <div>Opening Gauge: {(selectedTicket as any).opening_gauge ?? selectedTicket.observed_inputs?.opening_gauge ?? 'None'}</div>
+                        <div>Closing Gauge: {(selectedTicket as any).closing_gauge ?? selectedTicket.observed_inputs?.closing_gauge ?? 'None'}</div>
+                        <div>GOV: {selectedTicket.calculation_results?.tank_gov ?? selectedTicket.calculation_results?.tank_movement_bbl ?? 'None'}</div>
+                      </>
+                    )}
                     <div>GSV: {selectedTicket.calculation_results?.gsv ?? 'None'}</div>
                     <div>NSV: {selectedTicket.calculation_results?.nsv ?? 'None'}</div>
                     <div>CCF: {selectedTicket.calculation_results?.ccf ?? 'None'}</div>
@@ -5178,7 +5197,7 @@ async function saveUserRole() {
 
             <div style={box}>
               <h3>Workflow Queue</h3>
-              {activeTickets.map((t) => (
+              {workflowTickets.map((t) => (
                 <div key={t.id} style={card}>
                   <strong>{t.ticket_number}</strong>
                   <div><span style={getTicketStatusStyle(t.status)}>{t.status || 'draft'}</span></div>

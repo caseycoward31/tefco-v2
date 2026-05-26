@@ -2298,21 +2298,15 @@ async function saveUserRole() {
       const bsw = pot.bsw ?? pot.bsw_percent ?? pot.bs_w ?? ''
       const grav = pot.observed_api_gravity ?? pot.api_gravity ?? pot.gravity ?? ''
       const temp = pot.observed_temperature ?? pot.sample_temperature ?? pot.temp ?? ''
-      const meter = meters.find((m) => m.id === pot.meter_id)
-      
+
       // Match uploaded GQ liquid import header structure exactly by column position.
-     
-      row[0] =
-      meter?.meter_number ||
-      pot.meter_number ||
-      pot.meter ||
-      getPotExportNumber(pot, index)         // Number
+      row[0] = getPotExportNumber(pot, index)           // Number
       row[1] = pot.column_type || 'A'                   // Column Type
       row[2] = formatCsvDate(sampleDate)                // EffectiveDate
       row[4] = formatCsvDate(sampleDate)                // Sample Date
       row[53] = temp                                    // Temp
       row[59] = pot.user_defined_string_1 || 'L'        // User defined string 1, template sample uses L
-      row[183] = bsw                                    // BSW
+      row[181] = bsw                                    // BSW - FZ column
       row[201] = grav                                   // Grav
 
       return row

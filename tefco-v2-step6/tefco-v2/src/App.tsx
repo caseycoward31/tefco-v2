@@ -1603,7 +1603,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       ? tankTicketSnapshot.nsv
       : gsv * csw
 
-    await supabase.from('tickets').insert({
+    const ticketInsertPayload: any = {
       company_id: companyId,
       ticket_number: generatedNumber,
       ticket_type: ticketType,
@@ -1707,9 +1707,70 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
         product_sub_group: corrections.product_sub_group,
         formula_profile: isApi12 ? 'API 12 2021' : 'API 11.1',
       },
-    })
+    }
+    let ticketInsertResult = await supabase.from('tickets').insert(ticketInsertPayload).select().maybeSingle()
 
-    alert(`Draft ticket created: ${generatedNumber}`)
+    if (ticketInsertResult.error) {
+      console.error('Full ticket insert failed:', ticketInsertResult.error)
+
+      const fallbackTicketPayload: any = {
+        company_id: companyId,
+        ticket_number: generatedNumber,
+        ticket_type: ticketType,
+        status: 'draft',
+        producer_id: selectedProducer || null,
+        segment_id: selectedSegment || null,
+        meter_id: selectedMeter || null,
+        linked_reading_id: latestReading?.id || null,
+        linked_proving_id: latestApprovedProving?.id || null,
+        calculation_profile_id: profile?.id || null,
+        contract_profile_id: contractProfile?.id || null,
+        calculation_profile_snapshot: {
+          ...(profile || {}),
+          contract_profile: contractProfile || null,
+          selected_standard: selectedContractStandard,
+          selected_calculation_method: selectedCalculationMethod,
+          selected_product_group: selectedProductGroup,
+          selected_factor_type: selectedFactorType,
+        },
+        api_chapter: profile?.standard || null,
+        calculation_method: corrections.api_engine,
+        observed_api_gravity: tankTicketSnapshot?.observedGravity || corrections.observed_api_gravity,
+        observed_temperature: tankTicketSnapshot?.observedTemp || corrections.observed_temperature,
+        observed_pressure: corrections.observed_pressure,
+        api_gravity_60: tankTicketSnapshot?.corrections?.api_gravity_60 || corrections.api_gravity_60,
+        density_60: tankTicketSnapshot?.corrections?.density_60 || corrections.density_60,
+        ctl: tankTicketSnapshot?.ctl || ctl,
+        cpl: tankTicketSnapshot?.cpl || cpl,
+        ctlp: tankTicketSnapshot?.ctlp || ctlp,
+        ccf: tankTicketSnapshot?.ccf || ccf,
+        observed_inputs: {
+          ...(ticketInsertPayload.observed_inputs || {}),
+          lease_id: selectedLease || null,
+          tank_id: selectedTank || null,
+          line_fill_id: selectedLineFill || null,
+          opening_reading: openingReading || null,
+          closing_reading: closingReading || null,
+          opening_gauge: tankTicketSnapshot?.openingGaugeDecimal ?? (openingGauge ? Number(openingGauge) : null),
+          closing_gauge: tankTicketSnapshot?.closingGaugeDecimal ?? (closingGauge ? Number(closingGauge) : null),
+          movement_direction: ticketType === 'tank' ? tankMovementDirection : null,
+        },
+        calculation_results: ticketInsertPayload.calculation_results || {},
+      }
+
+      ticketInsertResult = await supabase.from('tickets').insert(fallbackTicketPayload).select().maybeSingle()
+
+      if (ticketInsertResult.error) {
+        alert('Could not create ticket: ' + ticketInsertResult.error.message)
+        return
+      }
+    }
+
+    if (ticketInsertResult.data) {
+      setSelectedTicket(ticketInsertResult.data as any)
+    }
+
+    alert(`Draft ticket created: ${generatedNumber}. If it does not show, press Force Refresh Tickets.`)
     setTankClosingFeet('')
     setTankClosingInches('')
     setTankClosingEighths('')
@@ -5004,7 +5065,7 @@ async function saveUserRole() {
 
             {/* Ticket Debug Counts */}
             <div style={{ ...card, marginBottom: 12 }}>
-              Total tickets loaded: {tickets.length} • Pending workflow tickets: {workflowTickets.length}
+              Total tickets loaded: {tickets.length} • Pending workflow tickets: {workflowTickets.length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
             </div>
 
             {/* All Pending Ticket Approval Queue */}
@@ -5013,6 +5074,16 @@ async function saveUserRole() {
               {workflowTickets.length === 0 && (
                 <div style={card}>
                   No draft or submitted tickets are waiting for approval.
+                </div>
+              )}
+
+              {/* All Loaded Tickets Fallback */}
+              {workflowTickets.length === 0 && tickets.length > 0 && (
+                <div style={card}>
+                  <strong>Loaded tickets exist, but none are pending.</strong>
+                  <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                    This means they may already be approved/voided or status is not draft/submitted.
+                  </div>
                 </div>
               )}
 

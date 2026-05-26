@@ -1428,76 +1428,263 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     const companyAccent = getCompanyAccentColor()
     const companyLogoDataUrl = companyLogoUrl ? await getImageDataUrl(companyLogoUrl) : ''
 
-
     const producer = producers.find((p) => p.id === ticket.producer_id)
     const meter = meters.find((m) => m.id === ticket.meter_id)
     const segment = segments.find((s) => s.id === ticket.segment_id)
 
+    const value = (v: any) => v === null || v === undefined || v === '' ? '—' : v
+    const num = (v: any, decimals = 4) => {
+      const n = Number(v)
+      return Number.isFinite(n) ? n.toFixed(decimals) : value(v)
+    }
+
     const html = `
       <html>
         <head>
-          <title>${ticket.ticket_number}</title>
+          <title>${ticket.ticket_number || 'Ticket'}</title>
           <style>
-            body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
-            .brand-header { border-bottom: 5px solid ${companyAccent}; padding-bottom: 14px; margin-bottom: 22px; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
-            .brand-name { font-size: 28px; font-weight: 900; color: ${companyAccent}; }
-            .brand-subtitle { font-size: 12px; color: #555; margin-top: 4px; }
-            .brand-logo { max-height: 70px; max-width: 160px; object-fit: contain; }
-            .box { border: 1px solid #333; padding: 12px; margin: 12px 0; }
-            .row { display: flex; justify-content: space-between; border-bottom: 1px solid #ddd; padding: 6px 0; }
+            @page {
+              size: letter portrait;
+              margin: 0.35in;
+            }
+
+            * {
+              box-sizing: border-box;
+            }
+
+            html,
+            body {
+              margin: 0;
+              padding: 0;
+              background: #fff;
+              color: #111;
+              font-family: Arial, Helvetica, sans-serif;
+              font-size: 10.5px;
+              line-height: 1.15;
+            }
+
+            .page {
+              width: 100%;
+              max-width: 7.8in;
+              margin: 0 auto;
+            }
+
+            .brand-header {
+              border-bottom: 3px solid ${companyAccent};
+              padding-bottom: 6px;
+              margin-bottom: 8px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              gap: 16px;
+            }
+
+            .brand-name {
+              font-size: 24px;
+              font-weight: 900;
+              color: ${companyAccent};
+              letter-spacing: 0.2px;
+            }
+
+            .brand-subtitle {
+              font-size: 10.5px;
+              color: #111;
+              margin-top: 2px;
+            }
+
+            .brand-logo {
+              max-height: 42px;
+              max-width: 140px;
+              object-fit: contain;
+            }
+
+            .ticket-title {
+              text-align: center;
+              font-size: 24px;
+              font-weight: 900;
+              margin: 8px 0 10px;
+              letter-spacing: 0.4px;
+            }
+
+            .section {
+              border: 1.4px solid #111;
+              margin-bottom: 10px;
+              page-break-inside: avoid;
+            }
+
+            .section-title {
+              text-align: center;
+              font-size: 14px;
+              font-weight: 900;
+              border-bottom: 1.2px solid #111;
+              padding: 5px 8px;
+              background: #fafafa;
+            }
+
+            .grid-two {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+            }
+
+            .row {
+              display: grid;
+              grid-template-columns: 48% 52%;
+              min-height: 21px;
+              border-bottom: 1px solid #d6d6d6;
+            }
+
+            .grid-two > .row:nth-child(odd) {
+              border-right: 1px solid #111;
+            }
+
+            .row:last-child,
+            .grid-two > .row:nth-last-child(1),
+            .grid-two > .row:nth-last-child(2) {
+              border-bottom: none;
+            }
+
+            .label {
+              font-weight: 900;
+              padding: 5px 7px;
+            }
+
+            .val {
+              text-align: right;
+              padding: 5px 7px;
+            }
+
+            .footer {
+              border-top: 1.4px solid #111;
+              margin-top: 10px;
+              padding-top: 8px;
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 18px;
+              page-break-inside: avoid;
+            }
+
+            .small-line {
+              min-height: 24px;
+            }
+
+            @media print {
+              body {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+
+              .page {
+                page-break-after: avoid;
+              }
+            }
           </style>
         </head>
+
         <body>
-          <div class="brand-header">
-            <div>
-              <div class="brand-name">${companyName}</div>
-              <div class="brand-subtitle">Measurement Ticket</div>
+          <div class="page">
+            <div class="brand-header">
+              <div>
+                <div class="brand-name">${companyName}</div>
+                <div class="brand-subtitle">Custody Transfer Ticket</div>
+              </div>
+              ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}
             </div>
-            ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}
+
+            <div class="ticket-title">${ticket.ticket_number || 'Ticket'}</div>
+
+            <div class="section">
+              <div class="grid-two">
+                <div class="row"><div class="label">Status:</div><div class="val">${value(ticket.status)}</div></div>
+                <div class="row"><div class="label">Contract Profile:</div><div class="val">${value(ticket.observed_inputs?.contract_profile_name || ticket.calculation_profile_snapshot?.contract_profile?.name || 'Default')}</div></div>
+
+                <div class="row"><div class="label">Type:</div><div class="val">${value(ticket.ticket_type)}</div></div>
+                <div class="row"><div class="label">Calculation Method:</div><div class="val">${value(ticket.observed_inputs?.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL')}</div></div>
+
+                <div class="row"><div class="label">Producer:</div><div class="val">${value(producer?.name)}</div></div>
+                <div class="row"><div class="label">Ticket Created:</div><div class="val">${value((ticket as any).created_at ? new Date((ticket as any).created_at).toLocaleString() : '')}</div></div>
+
+                <div class="row"><div class="label">Meter:</div><div class="val">${value(meter?.meter_number)}</div></div>
+                <div class="row"><div class="label">Created By:</div><div class="val">${value((ticket as any).created_by_name || (ticket as any).created_by_email)}</div></div>
+
+                <div class="row"><div class="label">Segment:</div><div class="val">${value(segment?.name)}</div></div>
+                <div class="row"><div class="label">Last Updated:</div><div class="val">${value((ticket as any).updated_at ? new Date((ticket as any).updated_at).toLocaleString() : '')}</div></div>
+
+                <div class="row"><div class="label">Profile:</div><div class="val">${value(ticket.calculation_profile_snapshot?.name)}</div></div>
+                <div class="row"><div class="label">Updated By:</div><div class="val">${value((ticket as any).updated_by_name || (ticket as any).updated_by_email)}</div></div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Observed Inputs</div>
+              <div class="grid-two">
+                <div class="row"><div class="label">IV:</div><div class="val">${value(ticket.observed_inputs?.iv)}</div></div>
+                <div class="row"><div class="label">Density @60 kg/m³:</div><div class="val">${value(ticket.observed_inputs?.density_60)}</div></div>
+
+                <div class="row"><div class="label">CTL:</div><div class="val">${value(ticket.observed_inputs?.ctl)}</div></div>
+                <div class="row"><div class="label">Avg Temp (°F):</div><div class="val">${value(ticket.observed_inputs?.average_temperature)}</div></div>
+
+                <div class="row"><div class="label">CPL:</div><div class="val">${value(ticket.observed_inputs?.cpl)}</div></div>
+                <div class="row"><div class="label">Avg Pressure (psi):</div><div class="val">${value(ticket.observed_inputs?.average_pressure)}</div></div>
+
+                <div class="row"><div class="label">CTLP:</div><div class="val">${value(ticket.observed_inputs?.ctlp)}</div></div>
+                <div class="row"><div class="label">BS&W %:</div><div class="val">${value(ticket.observed_inputs?.bsw_percent)}</div></div>
+
+                <div class="row"><div class="label">CMF:</div><div class="val">${value(ticket.observed_inputs?.cmf)}</div></div>
+                <div class="row"><div class="label">CSW:</div><div class="val">${value(ticket.observed_inputs?.csw)}</div></div>
+
+                <div class="row"><div class="label">Observed API Gravity:</div><div class="val">${value(ticket.observed_inputs?.observed_api_gravity)}</div></div>
+                <div class="row"><div class="label">Casing / Line Size:</div><div class="val">${value(ticket.observed_inputs?.line_size || ticket.observed_inputs?.casing_size)}</div></div>
+
+                <div class="row"><div class="label">Observed Temp (°F):</div><div class="val">${value(ticket.observed_inputs?.observed_temperature)}</div></div>
+                <div class="row"><div class="label">Meter Type:</div><div class="val">${value((meter as any)?.meter_type || (meter as any)?.type)}</div></div>
+
+                <div class="row"><div class="label">API Gravity @60°F:</div><div class="val">${value(ticket.observed_inputs?.api_gravity_60 || ticket.observed_inputs?.corrected_api)}</div></div>
+                <div class="row"><div class="label">Meter Factor:</div><div class="val">${value(ticket.observed_inputs?.meter_factor || ticket.observed_inputs?.mf)}</div></div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Calculated Results</div>
+              <div class="grid-two">
+                <div class="row"><div class="label">CCF:</div><div class="val">${value(ticket.calculation_results?.ccf)}</div></div>
+                <div class="row"><div class="label">Flowing Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.flowing_volume || ticket.calculation_results?.gross_volume)}</div></div>
+
+                <div class="row"><div class="label">GSV:</div><div class="val">${value(ticket.calculation_results?.gsv)}</div></div>
+                <div class="row"><div class="label">Net Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.net_volume || ticket.calculation_results?.nsv)}</div></div>
+
+                <div class="row"><div class="label">NSV:</div><div class="val">${value(ticket.calculation_results?.nsv)}</div></div>
+                <div class="row"><div class="label">Shrink %:</div><div class="val">${value(ticket.calculation_results?.shrink_percent)}</div></div>
+
+                <div class="row"><div class="label">CF (Total):</div><div class="val">${value(ticket.calculation_results?.cf_total || ticket.calculation_results?.ccf)}</div></div>
+                <div class="row"><div class="label">Water Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.water_volume)}</div></div>
+              </div>
+            </div>
+
+            <div class="footer">
+              <div>
+                <strong>Notes:</strong>
+                <div class="small-line">${value((ticket as any).notes)}</div>
+              </div>
+              <div>
+                <div><strong>Approved By:</strong> ${value((ticket as any).approved_by_name || (ticket as any).approved_by_email)}</div>
+                <div style="margin-top: 10px;"><strong>Approved Date:</strong> ${value((ticket as any).approved_at ? new Date((ticket as any).approved_at).toLocaleString() : '')}</div>
+              </div>
+            </div>
           </div>
-          <h1>${ticket.ticket_number}</h1>
-          <div class="box">
-            <div class="row"><strong>Status</strong><span>${ticket.status}${ticket.is_locked ? ' • LOCKED' : ''}</span></div>
-            <div class="row"><strong>Type</strong><span>${ticket.ticket_type}</span></div>
-            <div class="row"><strong>Producer</strong><span>${producer?.name || ''}</span></div>
-            <div class="row"><strong>Meter</strong><span>${meter?.meter_number || ''}</span></div>
-            <div class="row"><strong>Segment</strong><span>${segment?.name || ''}</span></div>
-            <div class="row"><strong>Profile</strong><span>${ticket.calculation_profile_snapshot?.name || ''}</span></div>
-            <div class="row"><strong>Contract Profile</strong><span>${ticket.observed_inputs?.contract_profile_name || ticket.calculation_profile_snapshot?.contract_profile?.name || 'Default'}</span></div>
-            <div class="row"><strong>Calculation Method</strong><span>${ticket.observed_inputs?.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL'}</span></div>
-          </div>
-          <div class="box">
-            <h3>Observed Inputs</h3>
-            <div class="row"><strong>IV</strong><span>${ticket.observed_inputs?.iv ?? ''}</span></div>
-            <div class="row"><strong>CTL</strong><span>${ticket.observed_inputs?.ctl ?? ''}</span></div>
-            <div class="row"><strong>CPL</strong><span>${ticket.observed_inputs?.cpl ?? ''}</span></div>
-            <div class="row"><strong>CTLP</strong><span>${ticket.observed_inputs?.ctlp ?? ''}</span></div>
-            <div class="row"><strong>${ticket.observed_inputs?.factor_type || 'MF'}</strong><span>${ticket.observed_inputs?.mf ?? ''}</span></div>
-            <div class="row"><strong>Observed API Gravity</strong><span>${ticket.observed_inputs?.observed_api_gravity ?? ticket.observed_inputs?.api_gravity ?? ''}</span></div>
-            <div class="row"><strong>Observed Temp</strong><span>${ticket.observed_inputs?.observed_temperature ?? ticket.observed_inputs?.temperature ?? ''}</span></div>
-            <div class="row"><strong>API Gravity @60</strong><span>${formatOneDecimal(ticket.observed_inputs?.api_gravity_60 ?? ticket.api_gravity_60)}</span></div>
-            <div class="row"><strong>Density @60 kg/m³</strong><span>${ticket.observed_inputs?.density_60 ?? ticket.density_60 ?? ''}</span></div>
-            <div class="row"><strong>Avg Temp</strong><span>${ticket.observed_inputs?.average_temperature ?? ''}</span></div>
-            <div class="row"><strong>Avg Pressure</strong><span>${ticket.observed_inputs?.average_pressure ?? ''}</span></div>
-            <div class="row"><strong>BS&W %</strong><span>${ticket.observed_inputs?.bsw_percent ?? ''}</span></div>
-            <div class="row"><strong>CSW</strong><span>${ticket.observed_inputs?.csw ?? ''}</span></div>
-          </div>
-          <div class="box">
-            <h3>Calculated Results</h3>
-            <div class="row"><strong>CCF</strong><span>${ticket.calculation_results?.ccf ?? ''}</span></div>
-            <div class="row"><strong>GSV</strong><span>${ticket.calculation_results?.gsv ?? ''}</span></div>
-            <div class="row"><strong>NSV</strong><span>${ticket.calculation_results?.nsv ?? ''}</span></div>
-          </div>
-          <script>window.print()</script>
         </body>
       </html>
     `
 
-    const printWindow = window.open('', '_blank')
-    if (printWindow) {
-      printWindow.document.write(html)
-      printWindow.document.close()
-    }
+    const w = window.open('', '_blank')
+    if (!w) return
+
+    w.document.write(html)
+    w.document.close()
+    w.focus()
+
+    setTimeout(() => {
+      w.print()
+    }, 500)
   }
 
   

@@ -739,6 +739,11 @@ function App() {
     potQuality,
   ])
 
+  const userIsSuperAdmin = currentUserRole === 'super_admin'
+  const userIsCompanyAdmin = currentUserRole === 'admin'
+  const userCanManageCompanySetup = userIsSuperAdmin || userIsCompanyAdmin
+  const userCanCreateCompanyScopedUsers = userIsSuperAdmin || userIsCompanyAdmin
+
   async function runSafeAction(label: string, action: () => Promise<void> | void) {
     if (isActionRunning) return
 
@@ -923,18 +928,15 @@ function App() {
   const isReadOnly =
     currentUserRole === 'auditor'
 
-    const isSuperAdmin = isSuperAdmin
+    const userIsSuperAdmin = userIsSuperAdmin
 
-const canViewAdmin =
-    isSuperAdmin ||
-    isCompanyAdmin
+const canViewAdmin = userCanManageCompanySetup
 
-  const canEditAdmin =
-    isSuperAdmin ||
-    isCompanyAdmin
-    isCompanyAdmin ||
+  const canEditAdmin = userCanManageCompanySetup
+    userIsCompanyAdmin
+    userIsCompanyAdmin ||
     userRoles.some((role) => role.active !== false && ['super_admin', 'admin'].includes(role.role))
-    isCompanyAdmin ||
+    userIsCompanyAdmin ||
     userRoles.length === 0 ||
     !currentUserRole
 
@@ -973,14 +975,14 @@ const provingCompliancePercent =
 
   async function addArea() {
     if (!newArea || !companyId) return
-    await supabase.from('areas').insert({ company_id: isSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId, name: newArea })
+    await supabase.from('areas').insert({ company_id: userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId, name: newArea })
     setNewArea('')
     loadAll()
   }
 
   async function addSegment() {
     if (!newSegment || !companyId) return
-    await supabase.from('segments').insert({ company_id: isSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId, name: newSegment })
+    await supabase.from('segments').insert({ company_id: userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId, name: newSegment })
     setNewSegment('')
     loadAll()
   }
@@ -1546,7 +1548,7 @@ function getCompanyDisplayName() {
   }
 
   async function saveCompanySettings() {
-    if (!companyId && !isSuperAdmin) {
+    if (!companyId && !userIsSuperAdmin) {
       alert('Company not loaded.')
       return
     }
@@ -1600,7 +1602,7 @@ function getCompanyDisplayName() {
   }
 
 async function createCompany() {
-    if (!isSuperAdmin) {
+    if (!userIsSuperAdmin) {
       alert('Only super admins can create companies.')
       return
     }
@@ -1646,13 +1648,13 @@ async function createCompany() {
   }
 
   async function createCompanyAdminUser() {
-    if (!isSuperAdmin) {
+    if (!userIsSuperAdmin) {
       alert('Only super admins can create company admins.')
       return
     }
 
 
-    if (!isSuperAdmin && userRoles.length > 0) {
+    if (!userIsSuperAdmin && userRoles.length > 0) {
       alert('Only a Super Admin can create company admins.')
       return
     }
@@ -1683,12 +1685,12 @@ async function createCompany() {
   }
 
 async function createAppUser() {
-    if (isCompanyAdmin && (newAdminRole === 'admin' || newAdminRole === 'super_admin')) {
+    if (userIsCompanyAdmin && (newAdminRole === 'admin' || newAdminRole === 'super_admin')) {
       alert('Company admins cannot create admin or super admin users.')
       return
     }
 
-    if (isCompanyAdmin && !companyId) {
+    if (userIsCompanyAdmin && !companyId) {
       alert('Your company is not loaded yet.')
       return
     }
@@ -2481,7 +2483,7 @@ async function logout() {
               </div>
             </div>
 
-            {isSuperAdmin && (
+            {userIsSuperAdmin && (
               <div style={box}>
                 <h2>Super Admin: Companies</h2>
                 <p style={{ color: '#a8b3bd' }}>
@@ -2665,11 +2667,11 @@ async function logout() {
                 <>
                   <p style={{ color: '#a8b3bd' }}>
                     Create users by email/password. UUIDs are handled automatically in the background.
-                    {isCompanyAdmin && ' Company admins can create operators and measurement techs for their own company only.'}
-                    {isSuperAdmin && ' Super admins can create companies, company admins, and global super admins.'}
+                    {userIsCompanyAdmin && ' Company admins can create operators and measurement techs for their own company only.'}
+                    {userIsSuperAdmin && ' Super admins can create companies, company admins, and global super admins.'}
                   </p>
 
-                  {isSuperAdmin && (
+                  {userIsSuperAdmin && (
                     <select
                       style={input}
                       value={selectedAdminCompanyId}
@@ -2707,7 +2709,7 @@ async function logout() {
                     >
                       <option value="operator">Operator</option>
                       <option value="measurement_tech">Measurement Tech</option>
-                      {isSuperAdmin && (
+                      {userIsSuperAdmin && (
                         <>
                           <option value="admin">Company Admin</option>
                           <option value="super_admin">Super Admin</option>
@@ -2730,7 +2732,7 @@ async function logout() {
 
                   {showActiveUsers && (
                     <div style={{ display: 'grid', gap: 10 }}>
-                      {userRoles.filter((role: any) => isSuperAdmin || !role.company_id || role.company_id === companyId).map((role) => (
+                      {userRoles.filter((role: any) => userIsSuperAdmin || !role.company_id || role.company_id === companyId).map((role) => (
                         <div
                           key={role.id}
                           style={{

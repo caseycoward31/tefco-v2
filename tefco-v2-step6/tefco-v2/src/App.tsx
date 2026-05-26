@@ -1725,7 +1725,35 @@ function getCompanyDisplayName() {
   }
 
   function getCompanyAccentColor() {
-    return companySettings?.accent_color || '#c46a2b'
+    return companyAccentInput || companySettings?.accent_color || '#c46a2b'
+  }
+
+  function hexToRgb(hex: string) {
+    const cleaned = String(hex || '#c46a2b').replace('#', '')
+    const value = cleaned.length === 3
+      ? cleaned.split('').map((char) => char + char).join('')
+      : cleaned
+
+    const bigint = parseInt(value, 16)
+
+    if (Number.isNaN(bigint)) {
+      return { r: 196, g: 106, b: 43 }
+    }
+
+    return {
+      r: (bigint >> 16) & 255,
+      g: (bigint >> 8) & 255,
+      b: bigint & 255,
+    }
+  }
+
+  function accentRgba(alpha: number) {
+    const { r, g, b } = hexToRgb(getCompanyAccentColor())
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+  }
+
+  function accentGradient() {
+    return `linear-gradient(135deg, ${getCompanyAccentColor()}, ${accentRgba(0.55)})`
   }
 
   function getCompanyLogoUrl() {
@@ -2533,7 +2561,7 @@ async function saveUserRole() {
 
   const box: CSSProperties = {
     background: 'linear-gradient(145deg, rgba(28,32,35,0.98), rgba(10,15,18,0.98))',
-    border: '1px solid rgba(196,106,43,0.28)',
+    border: `1px solid ${accentRgba(0.28)}`,
     padding: 20,
     borderRadius: 18,
     marginBottom: 20,
@@ -2565,20 +2593,20 @@ async function saveUserRole() {
     width: '100%',
     padding: 12,
     marginTop: 10,
-    background: 'linear-gradient(135deg, #c46a2b, #7a3b18)',
+    background: accentGradient(),
     color: 'white',
-    border: '1px solid #e08745',
+    border: `1px solid ${accentRgba(0.9)}`,
     borderRadius: 12,
     cursor: 'pointer',
     opacity: isActionRunning ? 0.65 : 1,
     fontWeight: 700,
-    boxShadow: '0 0 18px rgba(196,106,43,0.24)',
+    boxShadow: `0 0 18px ${accentRgba(0.24)}`,
     minHeight: 44,
   }
 
   const sidebarBrandCard: CSSProperties = {
     background: 'linear-gradient(145deg, rgba(20,25,28,1), rgba(9,13,16,1))',
-    border: '1px solid rgba(196,106,43,0.28)',
+    border: `1px solid ${accentRgba(0.28)}`,
     borderRadius: 16,
     padding: 14,
     marginBottom: 16,
@@ -2605,12 +2633,12 @@ async function saveUserRole() {
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'space-between',
-    border: '1px solid rgba(196,106,43,0.22)',
+    border: `1px solid ${accentRgba(0.22)}`,
   }
 
   const reportPanel: CSSProperties = {
     ...box,
-    border: '1px solid rgba(196,106,43,0.30)',
+    border: `1px solid ${accentRgba(0.30)}`,
   }
 
   const reportGrid: CSSProperties = {
@@ -2874,7 +2902,7 @@ async function saveUserRole() {
         width: 250,
         background: 'linear-gradient(180deg, #111820 0%, #070a0d 100%)',
         padding: 20,
-        borderRight: '1px solid rgba(196,106,43,0.28)',
+        borderRight: `1px solid ${accentRgba(0.28)}`,
         boxShadow: '10px 0 30px rgba(0,0,0,0.35)',
       }}>
         <div style={sidebarBrandCard}>
@@ -2946,7 +2974,7 @@ async function saveUserRole() {
               position: 'sticky',
               top: 10,
               zIndex: 60,
-              border: '1px solid rgba(196,106,43,0.45)',
+              border: `1px solid ${accentRgba(0.45)}`,
               marginBottom: 14,
             }}
           >
@@ -2962,7 +2990,7 @@ async function saveUserRole() {
           <div
             style={{
               ...card,
-              border: '1px solid rgba(196,106,43,0.45)',
+              border: `1px solid ${accentRgba(0.45)}`,
               marginBottom: 14,
             }}
           >
@@ -3046,7 +3074,7 @@ async function saveUserRole() {
             <div style={adminHeaderCard}>
               <div>
                 <h1 style={{ margin: 0 }}>
-                  Admin <span style={{ color: '#c46a2b' }}>/</span> Settings
+                  Admin <span style={{ color: getCompanyAccentColor() }}>/</span> Settings
                 </h1>
                 <div style={{ color: '#a8b3bd', marginTop: 6 }}>
                   Company setup, users, roles, branding, and contract configuration.
@@ -4002,7 +4030,7 @@ async function saveUserRole() {
                         style={{
                           height: '100%',
                           width: `${tickets.length ? Math.round((tickets.filter((t) => (t.status || 'draft') === status).length / tickets.length) * 100) : 0}%`,
-                          background: 'linear-gradient(90deg, #c46a2b, #e08745)',
+                          background: `linear-gradient(90deg, ${getCompanyAccentColor()}, ${accentRgba(0.55)})`,
                         }}
                       />
                     </div>

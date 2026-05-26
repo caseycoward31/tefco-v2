@@ -1795,6 +1795,25 @@ async function logout() {
     border: '1px solid rgba(196,106,43,0.22)',
   }
 
+  const reportPanel: CSSProperties = {
+    ...box,
+    border: '1px solid rgba(196,106,43,0.30)',
+  }
+
+  const reportGrid: CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+    gap: 12,
+    marginBottom: 18,
+  }
+
+  const compactMetric: CSSProperties = {
+    ...card,
+    minHeight: 76,
+  }
+
+
+
   const ticketRow: CSSProperties = {
     ...card,
     display: 'grid',
@@ -2557,6 +2576,157 @@ async function logout() {
                   </div>
                 )
               })}
+            </div>
+          </>
+        )}
+
+        {page === 'reports' && (
+          <>
+            <h1>Reports</h1>
+
+            <div style={reportGrid}>
+              <div style={kpiCard}>
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Total Tickets</div>
+                <div style={{ fontSize: 32, fontWeight: 900 }}>{tickets.length}</div>
+                <div style={{ color: '#a8b3bd', fontSize: 12 }}>All statuses</div>
+              </div>
+
+              <div style={kpiCard}>
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Approved Tickets</div>
+                <div style={{ fontSize: 32, fontWeight: 900 }}>
+                  {tickets.filter((t) => t.status === 'approved').length}
+                </div>
+                <span style={getTicketStatusStyle('approved')}>Approved</span>
+              </div>
+
+              <div style={kpiCard}>
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Submitted</div>
+                <div style={{ fontSize: 32, fontWeight: 900 }}>
+                  {tickets.filter((t) => t.status === 'submitted').length}
+                </div>
+                <span style={getTicketStatusStyle('submitted')}>Pending</span>
+              </div>
+
+              <div style={kpiCard}>
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Draft / Working</div>
+                <div style={{ fontSize: 32, fontWeight: 900 }}>
+                  {tickets.filter((t) => !t.status || t.status === 'draft').length}
+                </div>
+                <span style={getTicketStatusStyle('draft')}>Draft</span>
+              </div>
+            </div>
+
+            <div style={reportPanel}>
+              <h2>Producer PDF Export</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Bundle approved producer ticket PDFs by date range. This keeps monthly statement packages clean and easy to send.
+              </p>
+
+              <div style={reportGrid}>
+                <div style={compactMetric}>
+                  <strong>Approved Ready</strong>
+                  <div style={{ fontSize: 26, fontWeight: 900, marginTop: 8 }}>
+                    {tickets.filter((t) => t.status === 'approved').length}
+                  </div>
+                </div>
+
+                <div style={compactMetric}>
+                  <strong>Voided</strong>
+                  <div style={{ fontSize: 26, fontWeight: 900, marginTop: 8 }}>
+                    {tickets.filter((t) => t.status === 'voided').length}
+                  </div>
+                </div>
+
+                <div style={compactMetric}>
+                  <strong>Provings</strong>
+                  <div style={{ fontSize: 26, fontWeight: 900, marginTop: 8 }}>
+                    {provings.length}
+                  </div>
+                </div>
+
+                <div style={compactMetric}>
+                  <strong>Readings</strong>
+                  <div style={{ fontSize: 26, fontWeight: 900, marginTop: 8 }}>
+                    {readings.length}
+                  </div>
+                </div>
+              </div>
+
+              <div style={card}>
+                <h3>Export Tools</h3>
+                <p style={{ color: '#a8b3bd' }}>
+                  Existing export actions stay untouched. Next step can wire the date-range PDF bundle button into this section.
+                </p>
+              </div>
+            </div>
+
+            <div style={reportPanel}>
+              <h2>Status Breakdown</h2>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {['draft', 'submitted', 'approved', 'voided'].map((status) => (
+                  <div
+                    key={status}
+                    style={{
+                      ...card,
+                      display: 'grid',
+                      gridTemplateColumns: '160px 1fr auto',
+                      alignItems: 'center',
+                      gap: 12,
+                    }}
+                  >
+                    <span style={getTicketStatusStyle(status)}>{status}</span>
+                    <div
+                      style={{
+                        height: 10,
+                        borderRadius: 999,
+                        background: 'rgba(255,255,255,0.08)',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${tickets.length ? Math.round((tickets.filter((t) => (t.status || 'draft') === status).length / tickets.length) * 100) : 0}%`,
+                          background: 'linear-gradient(90deg, #c46a2b, #e08745)',
+                        }}
+                      />
+                    </div>
+                    <strong>{tickets.filter((t) => (t.status || 'draft') === status).length}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={reportPanel}>
+              <h2>Recent Approved Tickets</h2>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {tickets
+                  .filter((ticket) => ticket.status === 'approved')
+                  .slice(0, 10)
+                  .map((ticket) => (
+                    <div
+                      key={ticket.id}
+                      style={{
+                        ...card,
+                        display: 'grid',
+                        gridTemplateColumns: '1fr auto auto',
+                        gap: 12,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <div>
+                        <strong>{ticket.ticket_number || ticket.id}</strong>
+                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                          {ticket.created_at ? new Date(ticket.created_at).toLocaleDateString() : 'No date'}
+                        </div>
+                      </div>
+                      <span style={getTicketStatusStyle(ticket.status)}>{ticket.status}</span>
+                      <button style={button} onClick={() => { setSelectedTicket(ticket); setPage('tickets') }}>
+                        Open
+                      </button>
+                    </div>
+                  ))}
+              </div>
             </div>
           </>
         )}

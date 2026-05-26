@@ -2074,6 +2074,68 @@ async function logout() {
   }
 
 
+
+  function getLatestProvingForMeter(meterId: string) {
+    return provings
+      .filter((proving: any) => proving.meter_id === meterId || proving.meterId === meterId)
+      .sort((a: any, b: any) => {
+        const aDate = new Date(a.proving_date || a.created_at || 0).getTime()
+        const bDate = new Date(b.proving_date || b.created_at || 0).getTime()
+        return bDate - aDate
+      })[0]
+  }
+
+  function getLatestReadingForMeter(meterId: string) {
+    return readings
+      .filter((reading: any) => reading.meter_id === meterId || reading.meterId === meterId)
+      .sort((a: any, b: any) => {
+        const aDate = new Date(a.reading_date || a.created_at || 0).getTime()
+        const bDate = new Date(b.reading_date || b.created_at || 0).getTime()
+        return bDate - aDate
+      })[0]
+  }
+
+  function daysSince(value?: string | null) {
+    if (!value) return null
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return null
+    return Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24))
+  }
+
+  const meterIntelligence = meters.map((meter: any) => {
+    const latestProving = getLatestProvingForMeter(meter.id)
+    const latestReading = getLatestReadingForMeter(meter.id)
+    const provingDate = latestProving?.proving_date || latestProving?.created_at || null
+    const readingDate = latestReading?.reading_date || latestReading?.created_at || null
+    const provingAgeDays = daysSince(provingDate)
+    const readingAgeDays = daysSince(readingDate)
+    const provingFrequencyDays = Number(meter.proving_frequency_days || meter.provingFrequencyDays || 30)
+    const isOverdue = provingAgeDays === null || provingAgeDays > provingFrequencyDays
+    const isDueSoon = provingAgeDays !== null && !isOverdue && provingAgeDays >= Math.max(provingFrequencyDays - 7, 0)
+    const readingStale = readingAgeDays === null || readingAgeDays > 7
+
+    return {
+      meter,
+      latestProving,
+      latestReading,
+      provingDate,
+      readingDate,
+      provingAgeDays,
+      readingAgeDays,
+      provingFrequencyDays,
+      isOverdue,
+      isDueSoon,
+      readingStale,
+    }
+  })
+
+  const overdueMeters = meterIntelligence.filter((item) => item.isOverdue)
+  const dueSoonMeters = meterIntelligence.filter((item) => item.isDueSoon)
+  const staleReadingMeters = meterIntelligence.filter((item) => item.readingStale)
+  const compliantMeters = meterIntelligence.filter((item) => !item.isOverdue)
+  const provingCompliancePercent =
+    meters.length > 0 ? Math.round((compliantMeters.length / meters.length) * 100) : 100
+
   if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
   if (!session) return <Login />
 
@@ -2849,6 +2911,113 @@ async function logout() {
                   </div>
                 )
               })}
+            </div>
+          </>
+        )}
+
+        {page === 'operations' && (
+          <>
+            <h1>Operations Intelligence</h1>
+
+            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
+              <div style={kpiCard}>
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Proving Compliance</div>
+                <div style={{ fontSize: 34, fontWeight: 900 }}>{provingCompliancePercent}%</div>
+                <div style={{ color: '#a8b3bd', fontSize: 12 }}>{compliantMeters.length} of {meters.length} meters</div>
+              </div>
+
+              <div style={kpiCard}>
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Overdue Proving</div>
+                <div style={{ fontSize: 34, fontWeight: 900, color: overdueMeters.length ? '#fecaca' : '#bbf7d0' }}>{overdueMeters.length}</div>
+                <div style={{ color: '#a8b3bd', fontSize: 12 }}>Needs attention</div>
+              </div>
+
+              <div style={kpiCard}>
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Due Soon</div>
+                <div style={{ fontSize: 34, fontWeight: 900 }}>{dueSoonMeters.length}</div>
+                <div style={{ color: '#a8b3bd', fontSize: 12 }}>Within 7 days</div>
+              </div>
+
+              <div style={kpiCard}>
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Stale Readings</div>
+                <div style={{ fontSize: 34, fontWeight: 900 }}>{staleReadingMeters.length}</div>
+                <div style={{ color: '#a8b3bd', fontSize: 12 }}>No recent reading</div>
+              </div>
+            </div>
+
+            <div style={box}>
+              <h2>Proving Watchlist</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Meters are flagged overdue when no proving exists or the latest proving age exceeds the meter proving frequency.
+              </p>
+
+              {overdueMeters.length === 0 && (
+                <div style={card}>No overdue provings found.</div>
+              )}
+
+              <div style={{ display: 'grid', gap: 10 }}>
+                {overdueMeters.slice(0, 20).map((item) => (
+                  <div
+                    key={item.meter.id}
+                    style={{
+                      ...card,
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 140px 140px auto',
+                      gap: 12,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div>
+                      <strong>{item.meter.meter_number || item.meter.name || item.meter.id}</strong>
+                      <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                        Last proving: {item.provingDate || 'None'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ color: '#a8b3bd', fontSize: 12 }}>Age</div>
+                      <strong>{item.provingAgeDays === null ? 'None' : `${item.provingAgeDays} days`}</strong>
+                    </div>
+
+                    <div>
+                      <div style={{ color: '#a8b3bd', fontSize: 12 }}>Frequency</div>
+                      <strong>{item.provingFrequencyDays} days</strong>
+                    </div>
+
+                    <button style={button} onClick={() => setPage('provings')}>
+                      Open Provings
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={box}>
+                <h2>Due Soon</h2>
+                {dueSoonMeters.length === 0 && <div style={card}>Nothing due soon.</div>}
+                {dueSoonMeters.slice(0, 10).map((item) => (
+                  <div key={item.meter.id} style={card}>
+                    <strong>{item.meter.meter_number || item.meter.name || item.meter.id}</strong>
+                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                      Last proving: {item.provingDate || 'None'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={box}>
+                <h2>Reading Freshness</h2>
+                {staleReadingMeters.length === 0 && <div style={card}>All meters have recent readings.</div>}
+                {staleReadingMeters.slice(0, 10).map((item) => (
+                  <div key={item.meter.id} style={card}>
+                    <strong>{item.meter.meter_number || item.meter.name || item.meter.id}</strong>
+                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                      Last reading: {item.readingDate || 'None'}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </>
         )}

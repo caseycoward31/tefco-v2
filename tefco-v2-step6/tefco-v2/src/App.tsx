@@ -582,6 +582,14 @@ function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
   const [meterCsvFile, setMeterCsvFile] = useState<File | null>(null)
+  const [strappingCsvFile, setStrappingCsvFile] = useState<File | null>(null)
+  const [selectedStrappingTankId, setSelectedStrappingTankId] = useState('')
+  const [newTankNumber, setNewTankNumber] = useState('')
+  const [newTankName, setNewTankName] = useState('')
+  const [newTankSegmentId, setNewTankSegmentId] = useState('')
+  const [newLineFillName, setNewLineFillName] = useState('')
+  const [newLineFillSegmentId, setNewLineFillSegmentId] = useState('')
+  const [newLineFillCapacity, setNewLineFillCapacity] = useState('')
   const [meterCsvImporting, setMeterCsvImporting] = useState(false)
   const [hasLocalTicketDraft, setHasLocalTicketDraft] = useState(false)
   const [draftRestoredMessage, setDraftRestoredMessage] = useState('')
@@ -608,6 +616,12 @@ function App() {
   const [segments, setSegments] = useState<Segment[]>([])
   const [leases, setLeases] = useState<Lease[]>([])
   const [meters, setMeters] = useState<Meter[]>([])
+  const [tanks, setTanks] = useState<any[]>([])
+  const [lineFills, setLineFills] = useState<any[]>([])
+  const [meterAssetConfigs, setMeterAssetConfigs] = useState<any[]>([])
+  const [tankCalibrationVersions, setTankCalibrationVersions] = useState<any[]>([])
+  const [tankStrappingRows, setTankStrappingRows] = useState<any[]>([])
+  const [tankDeadwoodRules, setTankDeadwoodRules] = useState<any[]>([])
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [ticketAuditLogs, setTicketAuditLogs] = useState<TicketAuditLog[]>([])
   const [userRoles, setUserRoles] = useState<UserRole[]>([])
@@ -664,6 +678,12 @@ function App() {
   const [selectedLease, setSelectedLease] = useState('')
   const [selectedMeter, setSelectedMeter] = useState('')
   const [ticketType, setTicketType] = useState('meter')
+  const [selectedTank, setSelectedTank] = useState('')
+  const [selectedLineFill, setSelectedLineFill] = useState('')
+  const [openingGauge, setOpeningGauge] = useState('')
+  const [closingGauge, setClosingGauge] = useState('')
+  const [tankMovementDirection, setTankMovementDirection] = useState('delivery')
+  const [manualClosingReading, setManualClosingReading] = useState('')
   const [autofillPreview, setAutofillPreview] = useState<any>(null)
 
   const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
@@ -850,6 +870,13 @@ function App() {
     const { data: provingData } = await supabase.from('meter_provings').select('*').order('proving_date', { ascending: false })
     const { data: potData } = await supabase.from('pot_quality').select('*').order('sample_date', { ascending: false })
 
+    const { data: tankData } = await supabase.from('tanks').select('*').order('tank_number')
+    const { data: lineFillData } = await supabase.from('line_fills').select('*').order('line_name')
+    const { data: meterAssetConfigData } = await supabase.from('meter_asset_config').select('*')
+    const { data: tankCalibrationData } = await supabase.from('tank_calibration_versions').select('*').order('created_at', { ascending: false })
+    const { data: tankStrappingData } = await supabase.from('tank_strapping_rows').select('*').order('gauge_decimal')
+    const { data: tankDeadwoodData } = await supabase.from('tank_deadwood_rules').select('*').eq('active', true)
+
     if (areaData) setAreas(areaData)
     if (segData) setSegments(segData)
     if (leaseData) setLeases(leaseData)
@@ -863,6 +890,12 @@ function App() {
     if (readingData) setReadings(readingData)
     if (provingData) setProvings(provingData)
     if (potData) setPotQuality(potData)
+    if (tankData) setTanks(tankData)
+    if (lineFillData) setLineFills(lineFillData)
+    if (meterAssetConfigData) setMeterAssetConfigs(meterAssetConfigData)
+    if (tankCalibrationData) setTankCalibrationVersions(tankCalibrationData)
+    if (tankStrappingData) setTankStrappingRows(tankStrappingData)
+    if (tankDeadwoodData) setTankDeadwoodRules(tankDeadwoodData)
 
     const { data: contractProfileData } = await supabase
       .from('contract_profiles')
@@ -1007,6 +1040,14 @@ const provingCompliancePercent =
       company_id: companyId,
       area_id: selectedArea || null,
       segment_id: selectedSegment || null,
+      lease_id: selectedLease || null,
+      tank_id: selectedTank || null,
+      line_fill_id: selectedLineFill || null,
+      opening_reading: openingReading || null,
+      closing_reading: closingReading || null,
+      opening_gauge: openingGauge ? Number(openingGauge) : null,
+      closing_gauge: closingGauge ? Number(closingGauge) : null,
+      movement_direction: ticketType === 'tank' ? tankMovementDirection : null,
       producer_id: selectedProducer || null,
       lease_name: newLeaseName,
       lease_number: newLeaseNumber,
@@ -1248,6 +1289,113 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     loadAll()
   }
 
+
+  function normalizeGaugeToDecimal(feetOrDecimal: any, inches?: any, fraction?: any) {
+    const feetValue = Number(feetOrDecimal || 0)
+    const inchesValue = Number(inches || 0)
+    const fractionValue = Number(fraction || 0)
+
+    if (inches !== undefined || fraction !== undefined) {
+      return feetValue + (inchesValue / 12) + (fractionValue / 12)
+    }
+
+    return feetValue
+  }
+
+  function getActiveTankCalibration(tankId: string) {
+    return (
+      tankCalibrationVersions.find((version: any) => version.tank_id === tankId && version.active !== false) ||
+      tankCalibrationVersions.find((version: any) => version.tank_id === tankId)
+    )
+  }
+
+  function getTankBarrelsAtGauge(tankId: string, gauge: number) {
+    const calibration = getActiveTankCalibration(tankId)
+
+    if (!calibration || !Number.isFinite(gauge)) return 0
+
+    const rows = tankStrappingRows
+      .filter((row: any) => row.tank_id === tankId && row.calibration_version_id === calibration.id)
+      .sort((a: any, b: any) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
+
+    if (rows.length === 0) return 0
+
+    const exact = rows.find((row: any) => Number(row.gauge_decimal) === gauge)
+    if (exact) return Number(exact.barrels || 0)
+
+    const lower = rows.filter((row: any) => Number(row.gauge_decimal) <= gauge).pop()
+    const upper = rows.find((row: any) => Number(row.gauge_decimal) >= gauge)
+
+    if (!lower && upper) return Number(upper.barrels || 0)
+    if (lower && !upper) return Number(lower.barrels || 0)
+    if (!lower || !upper) return 0
+
+    const lowerGauge = Number(lower.gauge_decimal)
+    const upperGauge = Number(upper.gauge_decimal)
+    const lowerBbl = Number(lower.barrels || 0)
+    const upperBbl = Number(upper.barrels || 0)
+
+    if (upperGauge === lowerGauge) return lowerBbl
+
+    const ratio = (gauge - lowerGauge) / (upperGauge - lowerGauge)
+    return lowerBbl + ((upperBbl - lowerBbl) * ratio)
+  }
+
+  function getDeadwoodAdjustment(tankId: string, gauge: number) {
+    const calibration = getActiveTankCalibration(tankId)
+
+    if (!calibration) return 0
+
+    return tankDeadwoodRules
+      .filter((rule: any) =>
+        rule.tank_id === tankId &&
+        rule.calibration_version_id === calibration.id &&
+        Number(rule.start_gauge || 0) <= gauge &&
+        Number(rule.end_gauge || 0) >= gauge
+      )
+      .reduce((sum: number, rule: any) => {
+        const value = Number(rule.adjustment_bbl || 0)
+        return rule.adjustment_type === 'subtract' ? sum - value : sum + value
+      }, 0)
+  }
+
+  function calculateTankMovement(tankId: string, opening: number, closing: number, direction: string) {
+    const openingGross = getTankBarrelsAtGauge(tankId, opening)
+    const closingGross = getTankBarrelsAtGauge(tankId, closing)
+    const openingCorrected = openingGross + getDeadwoodAdjustment(tankId, opening)
+    const closingCorrected = closingGross + getDeadwoodAdjustment(tankId, closing)
+    const rawMovement = direction === 'receipt'
+      ? closingCorrected - openingCorrected
+      : openingCorrected - closingCorrected
+
+    return {
+      openingGross,
+      closingGross,
+      openingCorrected,
+      closingCorrected,
+      movementBbl: Math.abs(rawMovement),
+      signedMovementBbl: rawMovement,
+    }
+  }
+
+  function getPreviousClosingForLease(leaseId: string, meterId?: string) {
+    const previous = tickets
+      .filter((ticket: any) =>
+        ticket.status === 'approved' &&
+        (ticket.lease_id === leaseId || ticket.observed_inputs?.lease_id === leaseId) &&
+        (!meterId || ticket.meter_id === meterId)
+      )
+      .sort((a: any, b: any) => new Date(b.approved_at || b.created_at || 0).getTime() - new Date(a.approved_at || a.created_at || 0).getTime())[0]
+
+    return (
+      previous?.closing_reading ||
+      previous?.observed_inputs?.closing_reading ||
+      previous?.observed_inputs?.closing_meter_reading ||
+      previous?.observed_inputs?.ending_reading ||
+      ''
+    )
+  }
+
   async function createTicket() {
     if (!companyId) return
 
@@ -1268,7 +1416,22 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       (p) => p.segment_id === selectedSegment && p.producer_id === selectedProducer && p.lease_id === selectedLease
     )
 
-    const iv = Number(latestReading?.indicated_volume || 0)
+    const previousClosingReading = getPreviousClosingForLease(selectedLease, selectedMeter)
+    const openingReading = Number(previousClosingReading || 0)
+    const closingReading = Number(manualClosingReading || latestReading?.indicated_volume || 0)
+
+    const tankCalculation = ticketType === 'tank' && selectedTank
+      ? calculateTankMovement(
+          selectedTank,
+          Number(openingGauge || 0),
+          Number(closingGauge || 0),
+          tankMovementDirection
+        )
+      : null
+
+    const iv = tankCalculation
+      ? Number(tankCalculation.movementBbl || 0)
+      : Number(closingReading || latestReading?.indicated_volume || 0)
     const contractProfile = getProducerProfile(
       contractProfiles,
       selectedProducer || null
@@ -1365,6 +1528,17 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       ccf,
       observed_inputs: {
         iv,
+        lease_id: selectedLease || null,
+        opening_reading: openingReading || null,
+        closing_reading: closingReading || null,
+        previous_closing_source: previousClosingReading ? 'previous_approved_ticket_for_lease' : 'none',
+        tank_id: selectedTank || null,
+        line_fill_id: selectedLineFill || null,
+        opening_gauge: openingGauge || null,
+        closing_gauge: closingGauge || null,
+        tank_movement_direction: ticketType === 'tank' ? tankMovementDirection : null,
+        tank_opening_bbl: tankCalculation?.openingCorrected ?? null,
+        tank_closing_bbl: tankCalculation?.closingCorrected ?? null,
         ctl,
         cpl,
         ctlp,
@@ -1396,6 +1570,9 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
         cpl,
         ctlp,
         ccf,
+        tank_opening_bbl: tankCalculation?.openingCorrected ?? null,
+        tank_closing_bbl: tankCalculation?.closingCorrected ?? null,
+        tank_movement_bbl: tankCalculation?.movementBbl ?? null,
         gsv: roundTo(gsv, volumeRounding),
         nsv: roundTo(nsv, volumeRounding),
         api_gravity_60: corrections.api_gravity_60,
@@ -1913,6 +2090,142 @@ async function createCompany() {
     return data
   }
 
+
+  async function createTankAsset() {
+    if (!newTankNumber) {
+      alert('Enter tank number.')
+      return
+    }
+
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    const { error } = await supabase.from('tanks').insert({
+      company_id: targetCompanyId,
+      segment_id: newTankSegmentId || null,
+      tank_number: newTankNumber,
+      tank_name: newTankName || null,
+      active: true,
+    })
+
+    if (error) {
+      alert('Could not create tank: ' + error.message)
+      return
+    }
+
+    setNewTankNumber('')
+    setNewTankName('')
+    setNewTankSegmentId('')
+    await loadAll()
+  }
+
+  async function createLineFillAsset() {
+    if (!newLineFillName) {
+      alert('Enter line fill name.')
+      return
+    }
+
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    const { error } = await supabase.from('line_fills').insert({
+      company_id: targetCompanyId,
+      segment_id: newLineFillSegmentId || null,
+      line_name: newLineFillName,
+      capacity_bbl: newLineFillCapacity ? Number(newLineFillCapacity) : null,
+      active: true,
+    })
+
+    if (error) {
+      alert('Could not create line fill: ' + error.message)
+      return
+    }
+
+    setNewLineFillName('')
+    setNewLineFillSegmentId('')
+    setNewLineFillCapacity('')
+    await loadAll()
+  }
+
+  async function importTankStrappingCsv() {
+    if (!selectedStrappingTankId || !strappingCsvFile) {
+      alert('Select a tank and CSV file.')
+      return
+    }
+
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const existingVersions = tankCalibrationVersions.filter((version: any) => version.tank_id === selectedStrappingTankId)
+    const nextVersion = existingVersions.length + 1
+
+    const { data: version, error: versionError } = await supabase
+      .from('tank_calibration_versions')
+      .insert({
+        company_id: targetCompanyId,
+        tank_id: selectedStrappingTankId,
+        version_number: nextVersion,
+        name: `Version ${nextVersion}`,
+        active: true,
+      })
+      .select()
+      .single()
+
+    if (versionError || !version) {
+      alert('Could not create calibration version: ' + (versionError?.message || 'unknown error'))
+      return
+    }
+
+    await supabase
+      .from('tank_calibration_versions')
+      .update({ active: false })
+      .eq('tank_id', selectedStrappingTankId)
+      .neq('id', version.id)
+
+    const csvText = await strappingCsvFile.text()
+    const rows = parseMeterCsv(csvText)
+
+    const insertRows = rows
+      .map((row: any) => {
+        const gaugeDecimal = Number(
+          row.gauge_decimal ||
+          row.gauge ||
+          normalizeGaugeToDecimal(row.gauge_feet || row.feet, row.gauge_inches || row.inches, row.gauge_fraction || row.fraction)
+        )
+
+        const barrels = Number(row.barrels || row.bbl || row.volume_bbl || row.volume)
+
+        if (!Number.isFinite(gaugeDecimal) || !Number.isFinite(barrels)) return null
+
+        return {
+          company_id: targetCompanyId,
+          tank_id: selectedStrappingTankId,
+          calibration_version_id: version.id,
+          gauge_decimal: gaugeDecimal,
+          gauge_feet: row.gauge_feet || row.feet || null,
+          gauge_inches: row.gauge_inches || row.inches || null,
+          gauge_fraction: row.gauge_fraction || row.fraction || null,
+          barrels,
+          increment_bbl: row.increment || row.increment_bbl || null,
+          notes: row.notes || null,
+        }
+      })
+      .filter(Boolean)
+
+    if (insertRows.length === 0) {
+      alert('No valid strapping rows found.')
+      return
+    }
+
+    const { error } = await supabase.from('tank_strapping_rows').insert(insertRows)
+
+    if (error) {
+      alert('Could not import strapping chart: ' + error.message)
+      return
+    }
+
+    setStrappingCsvFile(null)
+    setSelectedStrappingTankId('')
+    alert(`Imported ${insertRows.length} strapping rows.`)
+    await loadAll()
+  }
+
   async function importMetersCsv() {
     if (!meterCsvFile) {
       alert('Choose a CSV file first.')
@@ -1945,8 +2258,25 @@ async function createCompany() {
         const producerName = row.producer || row.producer_name || ''
         const leaseName = row.lease || row.lease_name || ''
         const meterNumber = row.meter_number || row.meter || row.meter_name || ''
+        const meterDirection = row.meter_direction || row.direction || ''
+        const defaultTicketType = row.default_ticket_type || row.ticket_type || ''
+        const sourceTankNumber = row.source_tank || row.source_tank_number || ''
+        const destinationTankNumber = row.destination_tank || row.destination_tank_number || ''
+        const lineFillName = row.line_fill || row.line_fill_name || ''
 
         if (!meterNumber) continue
+
+        const sourceTank = sourceTankNumber
+          ? tanks.find((tank: any) => tank.tank_number === sourceTankNumber) || await findOrCreateByName('tanks', 'tank_number', sourceTankNumber, { segment_id: segment?.id || null })
+          : null
+
+        const destinationTank = destinationTankNumber
+          ? tanks.find((tank: any) => tank.tank_number === destinationTankNumber) || await findOrCreateByName('tanks', 'tank_number', destinationTankNumber, { segment_id: segment?.id || null })
+          : null
+
+        const lineFill = lineFillName
+          ? lineFills.find((line: any) => line.line_name === lineFillName) || await findOrCreateByName('line_fills', 'line_name', lineFillName, { segment_id: segment?.id || null })
+          : null
 
         const area = await findOrCreateByName('areas', 'name', areaName)
         const segment = await findOrCreateByName('segments', 'name', segmentName, {
@@ -1975,6 +2305,11 @@ async function createCompany() {
               producer_id: producer?.id || existingMeter.producer_id || null,
               lease_id: lease?.id || existingMeter.lease_id || null,
               active: true,
+              direction: meterDirection || existingMeter.direction || null,
+              default_ticket_type: defaultTicketType || existingMeter.default_ticket_type || null,
+              source_tank_id: sourceTank?.id || existingMeter.source_tank_id || null,
+              destination_tank_id: destinationTank?.id || existingMeter.destination_tank_id || null,
+              line_fill_id: lineFill?.id || existingMeter.line_fill_id || null,
             })
             .eq('id', existingMeter.id)
         } else {
@@ -1986,6 +2321,11 @@ async function createCompany() {
             producer_id: producer?.id || null,
             lease_id: lease?.id || null,
             active: true,
+            direction: meterDirection || null,
+            default_ticket_type: defaultTicketType || null,
+            source_tank_id: sourceTank?.id || null,
+            destination_tank_id: destinationTank?.id || null,
+            line_fill_id: lineFill?.id || null,
           })
 
           if (error) throw error
@@ -3470,6 +3810,52 @@ async function saveUserRole() {
                         {meterCsvImporting ? 'Importing...' : 'Import Meters CSV'}
                       </button>
                     </div>
+
+                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                      <h3>Tank / Line Fill Setup</h3>
+                      <p style={{ color: '#a8b3bd' }}>
+                        Tanks and line fills are company-specific assets. Strapping charts are uploaded per tank as calibration versions.
+                      </p>
+
+                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <div style={card}>
+                          <h4>Create Tank</h4>
+                          <input style={input} placeholder="Tank Number" value={newTankNumber} onChange={(e) => setNewTankNumber(e.target.value)} />
+                          <input style={input} placeholder="Tank Name" value={newTankName} onChange={(e) => setNewTankName(e.target.value)} />
+                          <select style={input} value={newTankSegmentId} onChange={(e) => setNewTankSegmentId(e.target.value)}>
+                            <option value="">Select Segment</option>
+                            {segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                          </select>
+                          <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Creating tank', createTankAsset)}>Create Tank</button>
+                        </div>
+
+                        <div style={card}>
+                          <h4>Create Line Fill</h4>
+                          <input style={input} placeholder="Line Fill Name" value={newLineFillName} onChange={(e) => setNewLineFillName(e.target.value)} />
+                          <input style={input} placeholder="Capacity BBLS" value={newLineFillCapacity} onChange={(e) => setNewLineFillCapacity(e.target.value)} />
+                          <select style={input} value={newLineFillSegmentId} onChange={(e) => setNewLineFillSegmentId(e.target.value)}>
+                            <option value="">Select Segment</option>
+                            {segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                          </select>
+                          <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Creating line fill', createLineFillAsset)}>Create Line Fill</button>
+                        </div>
+                      </div>
+
+                      <div style={card}>
+                        <h4>Upload Tank Strapping Chart CSV</h4>
+                        <p style={{ color: '#a8b3bd' }}>
+                          Supported headers: gauge_decimal, gauge_feet, gauge_inches, gauge_fraction, barrels, increment_bbl, notes.
+                        </p>
+                        <select style={input} value={selectedStrappingTankId} onChange={(e) => setSelectedStrappingTankId(e.target.value)}>
+                          <option value="">Select Tank</option>
+                          {tanks.map((tank: any) => <option key={tank.id} value={tank.id}>{tank.tank_number} {tank.tank_name ? `- ${tank.tank_name}` : ''}</option>)}
+                        </select>
+                        <input style={input} type="file" accept=".csv,text/csv" onChange={(e) => setStrappingCsvFile(e.target.files?.[0] || null)} />
+                        <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Importing strapping chart', importTankStrappingCsv)}>
+                          Import Strapping Chart
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -3847,7 +4233,45 @@ async function saveUserRole() {
                 ))}
               </div>
             </div>
-          </>
+                      <div style={box}>
+              <h2>Segment Over / Short</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Early over/short model: approved receipt meters minus delivery meters plus tank/line-fill movements. This becomes more accurate as meter directions, tank assets, and line fills are configured.
+              </p>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {segments.map((segment: any) => {
+                  const segmentTickets = tickets.filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
+                  const receipts = segmentTickets
+                    .filter((ticket: any) => {
+                      const meter = meters.find((m: any) => m.id === ticket.meter_id)
+                      return (meter as any)?.direction === 'receipt'
+                    })
+                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+                  const deliveries = segmentTickets
+                    .filter((ticket: any) => {
+                      const meter = meters.find((m: any) => m.id === ticket.meter_id)
+                      return (meter as any)?.direction === 'delivery'
+                    })
+                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+                  const tankMovements = segmentTickets
+                    .filter((ticket: any) => ticket.ticket_type === 'tank')
+                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.tank_movement_bbl || 0), 0)
+                  const overShort = receipts - deliveries + tankMovements
+
+                  return (
+                    <div key={segment.id} style={card}>
+                      <strong>{segment.name}</strong>
+                      <div>Receipts: {receipts.toFixed(2)}</div>
+                      <div>Deliveries: {deliveries.toFixed(2)}</div>
+                      <div>Tank Movement: {tankMovements.toFixed(2)}</div>
+                      <div><strong>Over / Short: {overShort.toFixed(2)}</strong></div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+</>
         )}
 
         {page === 'reports' && (
@@ -4150,13 +4574,67 @@ async function saveUserRole() {
               <select style={input} value={ticketType} onChange={(e) => setTicketType(e.target.value)}>
                 <option value="meter">Meter Ticket</option>
                 <option value="tank">Tank Ticket</option>
+                <option value="line_fill">Line Fill Ticket</option>
+                <option value="transfer">Transfer Ticket</option>
                 <option value="truck">Truck Ticket</option>
               </select>
+
+              {(ticketType === 'tank' || ticketType === 'transfer') && (
+                <div style={card}>
+                  <h3>Tank Ticket Inputs</h3>
+                  <select style={input} value={selectedTank} onChange={(e) => setSelectedTank(e.target.value)}>
+                    <option value="">Select Tank</option>
+                    {tanks
+                      .filter((tank: any) => !selectedSegment || tank.segment_id === selectedSegment)
+                      .map((tank: any) => (
+                        <option key={tank.id} value={tank.id}>
+                          {tank.tank_number} {tank.tank_name ? `- ${tank.tank_name}` : ''}
+                        </option>
+                      ))}
+                  </select>
+
+                  <select style={input} value={tankMovementDirection} onChange={(e) => setTankMovementDirection(e.target.value)}>
+                    <option value="delivery">Delivery / Drawdown</option>
+                    <option value="receipt">Receipt / Fill</option>
+                  </select>
+
+                  <input style={input} placeholder="Opening Gauge (decimal feet)" value={openingGauge} onChange={(e) => setOpeningGauge(e.target.value)} />
+                  <input style={input} placeholder="Closing Gauge (decimal feet)" value={closingGauge} onChange={(e) => setClosingGauge(e.target.value)} />
+
+                  {selectedTank && openingGauge && closingGauge && (
+                    <div style={card}>
+                      Tank Movement: {calculateTankMovement(selectedTank, Number(openingGauge), Number(closingGauge), tankMovementDirection).movementBbl.toFixed(2)} bbl
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {ticketType === 'line_fill' && (
+                <div style={card}>
+                  <h3>Line Fill Ticket Inputs</h3>
+                  <select style={input} value={selectedLineFill} onChange={(e) => setSelectedLineFill(e.target.value)}>
+                    <option value="">Select Line Fill</option>
+                    {lineFills
+                      .filter((line: any) => !selectedSegment || line.segment_id === selectedSegment)
+                      .map((line: any) => (
+                        <option key={line.id} value={line.id}>{line.line_name}</option>
+                      ))}
+                  </select>
+                </div>
+              )}
+
+              <input
+                style={input}
+                placeholder="Closing Reading (optional — opening auto-fills from previous approved lease ticket)"
+                value={manualClosingReading}
+                onChange={(e) => setManualClosingReading(e.target.value)}
+              />
 
               <div style={card}>
                 <h3>Autofill Preview</h3>
                 <div>Profile: {autofillPreview?.profile?.name || 'None'}</div>
                 <div>IV: {autofillPreview?.reading?.indicated_volume ?? 'None'}</div>
+                <div>Previous Closing Reading: {selectedLease ? getPreviousClosingForLease(selectedLease, selectedMeter) || 'None' : 'Select lease'}</div>
                 <div>Avg Temp: {autofillPreview?.reading?.average_temperature ?? 'None'}</div>
                 <div>Avg Pressure: {autofillPreview?.reading?.average_pressure ?? 'None'}</div>
                 <div>Latest Approved {autofillPreview?.proving?.factor_type || 'MF'}: {autofillPreview?.proving?.accepted_meter_factor ?? 'None'}</div>

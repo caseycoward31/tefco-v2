@@ -2224,57 +2224,194 @@ async function saveUserRole() {
     const start = new Date(`${pdfBundleStartDate}T00:00:00`)
     const end = new Date(`${pdfBundleEndDate}T23:59:59`)
 
-    const approvedTickets = tickets.filter((ticket: any) => {
+    const getTicketDate = (ticket: any) =>
+      ticket.ticket_date ||
+      ticket.ticketDate ||
+      ticket.created_at ||
+      ticket.createdAt ||
+      ticket.updated_at ||
+      ticket.updatedAt ||
+      ticket.approved_at ||
+      ticket.approvedAt ||
+      ''
+
+    const getTicketProducerId = (ticket: any) =>
+      ticket.producer_id ||
+      ticket.producerId ||
+      ticket.observed_inputs?.producer_id ||
+      ticket.calculation_profile_snapshot?.producer_id ||
+      ''
+
+    const ticketsToExport = tickets.filter((ticket: any) => {
       const statusOk = ticket.status === 'approved'
-      const pdfUrl = ticket.pdf_url || ticket.pdfUrl
-      const ticketDateValue =
-        ticket.ticket_date ||
-        ticket.created_at ||
-        ticket.createdAt ||
-        ticket.updated_at ||
-        ticket.updatedAt
+      const ticketDateValue = getTicketDate(ticket)
 
       const dateOk = ticketDateValue
         ? new Date(ticketDateValue) >= start && new Date(ticketDateValue) <= end
         : true
 
       const producerOk = pdfBundleProducerId
-        ? ticket.producer_id === pdfBundleProducerId || ticket.producerId === pdfBundleProducerId
+        ? getTicketProducerId(ticket) === pdfBundleProducerId
         : true
 
-      return statusOk && pdfUrl && dateOk && producerOk
+      return statusOk && dateOk && producerOk
     })
 
-    if (approvedTickets.length === 0) {
-      alert('No approved ticket PDFs found for that range.')
+    if (ticketsToExport.length === 0) {
+      alert('No approved tickets found for that producer/date range.')
       return
     }
 
     const zip = new JSZip()
+    let addedCount = 0
 
-    for (const ticket of approvedTickets as any[]) {
+    const makeTicketHtml = async (ticket: any) => {
+      const companyName = getCompanyDisplayName()
+      const companyLogoUrl = getCompanyLogoUrl()
+      const companyAccent = getCompanyAccentColor()
+      const companyLogoDataUrl = companyLogoUrl ? await getImageDataUrl(companyLogoUrl) : ''
+      const producer = producers.find((p) => p.id === ticket.producer_id)
+      const meter = meters.find((m) => m.id === ticket.meter_id)
+      const segment = segments.find((s) => s.id === ticket.segment_id)
+      const value = (v: any) => v === null || v === undefined || v === '' ? '—' : v
+
+      return `
+        <html>
+          <head>
+            <title>${ticket.ticket_number || 'Ticket'}</title>
+            <style>
+              @page { size: letter portrait; margin: 0.35in; }
+              * { box-sizing: border-box; }
+              body { margin: 0; padding: 0; background: #fff; color: #111; font-family: Arial, Helvetica, sans-serif; font-size: 10.5px; line-height: 1.15; }
+              .page { width: 100%; max-width: 7.8in; margin: 0 auto; }
+              .brand-header { border-bottom: 3px solid ${companyAccent}; padding-bottom: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+              .brand-name { font-size: 24px; font-weight: 900; color: ${companyAccent}; }
+              .brand-subtitle { font-size: 10.5px; color: #111; margin-top: 2px; }
+              .brand-logo { max-height: 42px; max-width: 140px; object-fit: contain; }
+              .ticket-title { text-align: center; font-size: 24px; font-weight: 900; margin: 8px 0 10px; letter-spacing: 0.4px; }
+              .section { border: 1.4px solid #111; margin-bottom: 10px; page-break-inside: avoid; }
+              .section-title { text-align: center; font-size: 14px; font-weight: 900; border-bottom: 1.2px solid #111; padding: 5px 8px; background: #fafafa; }
+              .grid-two { display: grid; grid-template-columns: 1fr 1fr; }
+              .row { display: grid; grid-template-columns: 48% 52%; min-height: 21px; border-bottom: 1px solid #d6d6d6; }
+              .grid-two > .row:nth-child(odd) { border-right: 1px solid #111; }
+              .label { font-weight: 900; padding: 5px 7px; }
+              .val { text-align: right; padding: 5px 7px; }
+              .footer { border-top: 1.4px solid #111; margin-top: 10px; padding-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+            </style>
+          </head>
+          <body>
+            <div class="page">
+              <div class="brand-header">
+                <div>
+                  <div class="brand-name">${companyName}</div>
+                  <div class="brand-subtitle">Custody Transfer Ticket</div>
+                </div>
+                ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}
+              </div>
+
+              <div class="ticket-title">${ticket.ticket_number || 'Ticket'}</div>
+
+              <div class="section">
+                <div class="grid-two">
+                  <div class="row"><div class="label">Status:</div><div class="val">${value(ticket.status)}</div></div>
+                  <div class="row"><div class="label">Contract Profile:</div><div class="val">${value(ticket.observed_inputs?.contract_profile_name || ticket.calculation_profile_snapshot?.contract_profile?.name || 'Default')}</div></div>
+                  <div class="row"><div class="label">Type:</div><div class="val">${value(ticket.ticket_type)}</div></div>
+                  <div class="row"><div class="label">Calculation Method:</div><div class="val">${value(ticket.observed_inputs?.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL')}</div></div>
+                  <div class="row"><div class="label">Producer:</div><div class="val">${value(producer?.name)}</div></div>
+                  <div class="row"><div class="label">Ticket Created:</div><div class="val">${value(getTicketDate(ticket) ? new Date(getTicketDate(ticket)).toLocaleString() : '')}</div></div>
+                  <div class="row"><div class="label">Meter:</div><div class="val">${value(meter?.meter_number)}</div></div>
+                  <div class="row"><div class="label">Segment:</div><div class="val">${value(segment?.name)}</div></div>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-title">Observed Inputs</div>
+                <div class="grid-two">
+                  <div class="row"><div class="label">IV:</div><div class="val">${value(ticket.observed_inputs?.iv)}</div></div>
+                  <div class="row"><div class="label">Density @60 kg/m³:</div><div class="val">${value(ticket.observed_inputs?.density_60)}</div></div>
+                  <div class="row"><div class="label">CTL:</div><div class="val">${value(ticket.observed_inputs?.ctl)}</div></div>
+                  <div class="row"><div class="label">Avg Temp (°F):</div><div class="val">${value(ticket.observed_inputs?.average_temperature)}</div></div>
+                  <div class="row"><div class="label">CPL:</div><div class="val">${value(ticket.observed_inputs?.cpl)}</div></div>
+                  <div class="row"><div class="label">Avg Pressure (psi):</div><div class="val">${value(ticket.observed_inputs?.average_pressure)}</div></div>
+                  <div class="row"><div class="label">CTLP:</div><div class="val">${value(ticket.observed_inputs?.ctlp)}</div></div>
+                  <div class="row"><div class="label">BS&W %:</div><div class="val">${value(ticket.observed_inputs?.bsw_percent)}</div></div>
+                  <div class="row"><div class="label">CMF:</div><div class="val">${value(ticket.observed_inputs?.cmf)}</div></div>
+                  <div class="row"><div class="label">CSW:</div><div class="val">${value(ticket.observed_inputs?.csw)}</div></div>
+                  <div class="row"><div class="label">Observed API Gravity:</div><div class="val">${value(ticket.observed_inputs?.observed_api_gravity)}</div></div>
+                  <div class="row"><div class="label">API Gravity @60°F:</div><div class="val">${value(ticket.observed_inputs?.api_gravity_60 || ticket.observed_inputs?.corrected_api)}</div></div>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-title">Calculated Results</div>
+                <div class="grid-two">
+                  <div class="row"><div class="label">CCF:</div><div class="val">${value(ticket.calculation_results?.ccf)}</div></div>
+                  <div class="row"><div class="label">Flowing Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.flowing_volume || ticket.calculation_results?.gross_volume)}</div></div>
+                  <div class="row"><div class="label">GSV:</div><div class="val">${value(ticket.calculation_results?.gsv)}</div></div>
+                  <div class="row"><div class="label">Net Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.net_volume || ticket.calculation_results?.nsv)}</div></div>
+                  <div class="row"><div class="label">NSV:</div><div class="val">${value(ticket.calculation_results?.nsv)}</div></div>
+                  <div class="row"><div class="label">Water Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.water_volume)}</div></div>
+                </div>
+              </div>
+
+              <div class="footer">
+                <div><strong>Notes:</strong><br />${value(ticket.notes)}</div>
+                <div>
+                  <div><strong>Approved By:</strong> ${value(ticket.approved_by_name || ticket.approved_by_email)}</div>
+                  <div style="margin-top: 10px;"><strong>Approved Date:</strong> ${value(ticket.approved_at ? new Date(ticket.approved_at).toLocaleString() : '')}</div>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `
+    }
+
+    for (const ticket of ticketsToExport as any[]) {
       const pdfUrl = ticket.pdf_url || ticket.pdfUrl
       const ticketLabel =
         ticket.ticket_number ||
         ticket.ticket_no ||
         ticket.id ||
-        `ticket-${approvedTickets.indexOf(ticket) + 1}`
+        `ticket-${ticketsToExport.indexOf(ticket) + 1}`
 
-      try {
-        const response = await fetch(pdfUrl)
-        if (!response.ok) throw new Error(`Failed to fetch PDF for ${ticketLabel}`)
+      const safeLabel = String(ticketLabel).replace(/[^a-zA-Z0-9-_]/g, '_')
 
-        const blob = await response.blob()
-        zip.file(`${String(ticketLabel).replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`, blob)
-      } catch (error: any) {
-        console.error('PDF bundle fetch error:', error)
+      if (pdfUrl) {
+        try {
+          const response = await fetch(pdfUrl)
+          if (response.ok) {
+            const blob = await response.blob()
+            if (blob.size > 0) {
+              zip.file(`${safeLabel}.pdf`, blob)
+              addedCount += 1
+              continue
+            }
+          }
+        } catch (error) {
+          console.error('PDF fetch failed, falling back to HTML:', error)
+        }
       }
+
+      const html = await makeTicketHtml(ticket)
+      zip.file(`${safeLabel}.html`, html)
+      addedCount += 1
     }
+
+    if (addedCount === 0) {
+      alert('No files could be added to the ZIP.')
+      return
+    }
+
+    zip.file(
+      'README.txt',
+      `Producer PDF Bundle\nTickets exported: ${addedCount}\nIf PDF files were not stored yet, the app included printable HTML custody transfer tickets instead. Open the HTML files in your browser and save/print as PDF.\n`
+    )
 
     const blob = await zip.generateAsync({ type: 'blob' })
     const producer = producers.find((p) => p.id === pdfBundleProducerId)
     const producerName = producer?.name || 'all-producers'
-    const fileName = `producer-pdfs-${producerName.replace(/[^a-zA-Z0-9-_]/g, '_')}-${pdfBundleStartDate}-to-${pdfBundleEndDate}.zip`
+    const fileName = `producer-tickets-${producerName.replace(/[^a-zA-Z0-9-_]/g, '_')}-${pdfBundleStartDate}-to-${pdfBundleEndDate}.zip`
 
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -2286,7 +2423,7 @@ async function saveUserRole() {
     URL.revokeObjectURL(url)
   }
 
-async function logout() {
+  async function logout() {
     await supabase.auth.signOut()
   }
 

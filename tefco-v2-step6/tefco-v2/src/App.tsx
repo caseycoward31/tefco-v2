@@ -2717,7 +2717,7 @@ async function logout() {
                       <div>
                         <strong>{ticket.ticket_number || ticket.id}</strong>
                         <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                          {ticket.created_at ? new Date(ticket.created_at).toLocaleDateString() : 'No date'}
+                          {(ticket as any).created_at ? new Date((ticket as any).created_at).toLocaleDateString() : 'No date'}
                         </div>
                       </div>
                       <span style={getTicketStatusStyle(ticket.status)}>{ticket.status}</span>

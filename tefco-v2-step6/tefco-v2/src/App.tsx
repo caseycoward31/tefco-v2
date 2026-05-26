@@ -2211,15 +2211,236 @@ async function createCompany() {
     await loadAll()
   }
 
+
+  function columnLettersToIndex(letters: string) {
+    return letters.split('').reduce((sum, char) => sum * 26 + char.charCodeAt(0) - 64, 0) - 1
+  }
+
+  function cellRefToPosition(ref: string) {
+    const match = String(ref || '').match(/^([A-Z]+)(\d+)$/i)
+
+    if (!match) return { row: 0, col: 0 }
+
+    return {
+      col: columnLettersToIndex(match[1].toUpperCase()),
+      row: Number(match[2]) - 1,
+    }
+  }
+
+  function parseXmlText(xml: string) {
+    return new DOMParser().parseFromString(xml, 'application/xml')
+  }
+
+  async function readXlsxSheets(file: File) {
+    const zip = await JSZip.loadAsync(await file.arrayBuffer())
+    const workbookXml = await zip.file('xl/workbook.xml')?.async('text')
+    const relsXml = await zip.file('xl/_rels/workbook.xml.rels')?.async('text')
+
+    if (!workbookXml || !relsXml) {
+      throw new Error('Could not read XLSX workbook.')
+    }
+
+    const workbook = parseXmlText(workbookXml)
+    const rels = parseXmlText(relsXml)
+
+    const relMap: Record<string, string> = {}
+    Array.from(rels.getElementsByTagName('Relationship')).forEach((rel: any) => {
+      relMap[rel.getAttribute('Id')] = rel.getAttribute('Target')
+    })
+
+    const sharedStringsXml = await zip.file('xl/sharedStrings.xml')?.async('text')
+    const sharedStrings = sharedStringsXml
+      ? Array.from(parseXmlText(sharedStringsXml).getElementsByTagName('si')).map((si: any) =>
+          Array.from(si.getElementsByTagName('t')).map((t: any) => t.textContent || '').join('')
+        )
+      : []
+
+    const sheets = await Promise.all(
+      Array.from(workbook.getElementsByTagName('sheet')).map(async (sheet: any) => {
+        const name = sheet.getAttribute('name') || 'Sheet'
+        const relId = sheet.getAttribute('r:id')
+        const target = relMap[relId] || ''
+        const sheetPath = target.startsWith('worksheets/')
+          ? `xl/${target}`
+          : `xl/worksheets/${target.split('/').pop()}`
+        const sheetXml = await zip.file(sheetPath)?.async('text')
+
+        if (!sheetXml) return { name, rows: [] as any[][] }
+
+        const doc = parseXmlText(sheetXml)
+        const rows: any[][] = []
+
+        Array.from(doc.getElementsByTagName('c')).forEach((cell: any) => {
+          const ref = cell.getAttribute('r') || ''
+          const type = cell.getAttribute('t') || ''
+          const { row, col } = cellRefToPosition(ref)
+          const v = cell.getElementsByTagName('v')[0]?.textContent || ''
+          const inline = cell.getElementsByTagName('t')[0]?.textContent || ''
+          let value: any = ''
+
+          if (type === 's') {
+            value = sharedStrings[Number(v)] || ''
+          } else if (type === 'inlineStr') {
+            value = inline
+          } else {
+            value = v
+          }
+
+          if (value !== '' && !Number.isNaN(Number(value))) {
+            value = Number(value)
+          }
+
+          rows[row] = rows[row] || []
+          rows[row][col] = value
+        })
+
+        return { name, rows }
+      })
+    )
+
+    return sheets
+  }
+
+  function parseGaugeTextToDecimal(value: any) {
+    if (value === null || value === undefined || value === '') return null
+    if (typeof value === 'number') return value
+
+    const textValue = String(value).trim()
+
+    const feetInchMatch = textValue.match(/(\d+(?:\.\d+)?)\s*'\s*[-]?\s*(\d+(?:\.\d+)?)?/)
+    if (feetInchMatch) {
+      return Number(feetInchMatch[1]) + (Number(feetInchMatch[2] || 0) / 12)
+    }
+
+    const numeric = Number(textValue.replace(/[^0-9.-]/g, ''))
+    return Number.isFinite(numeric) ? numeric : null
+  }
+
+  function extractRefineryStrappingRowsFromSheet(rows: any[][]) {
+    const output: any[] = []
+
+    // Detect multi-pair format like:
+    // row header: FT-IN | Barrels | FT-IN | Barrels
+    // first data row in each pair gives base feet; following rows give inches.
+    for (let r = 0; r < rows.length; r += 1) {
+      const row = rows[r] || []
+
+      for (let c = 0; c < row.length - 1; c += 1) {
+        const leftHeader = String(row[c] || '').trim().toLowerCase()
+        const rightHeader = String(row[c + 1] || '').trim().toLowerCase()
+
+        if (leftHeader === 'ft-in' && rightHeader.includes('barrel')) {
+          const firstDataRow = rows[r + 1] || []
+          const baseFeet = Number(firstDataRow[c])
+
+          if (!Number.isFinite(baseFeet)) continue
+
+          for (let rr = r + 1; rr < rows.length; rr += 1) {
+            const dataRow = rows[rr] || []
+            const inchValue = Number(dataRow[c])
+            const barrels = Number(dataRow[c + 1])
+
+            if (!Number.isFinite(inchValue) || !Number.isFinite(barrels)) continue
+
+            const gaugeDecimal = baseFeet + (inchValue / 12)
+
+            output.push({
+              gauge_decimal: gaugeDecimal,
+              gauge_feet: baseFeet,
+              gauge_inches: inchValue,
+              gauge_fraction: null,
+              barrels,
+              increment_bbl: null,
+              notes: 'Imported from XLSX refinery strapping table',
+            })
+          }
+        }
+      }
+    }
+
+    return output
+  }
+
+  function extractIncrementFactorSheetRows(rows: any[][]) {
+    const output: any[] = []
+
+    const headerRowIndex = rows.findIndex((row) =>
+      (row || []).some((value) => String(value || '').toLowerCase().includes('gauge from')) &&
+      (row || []).some((value) => String(value || '').toLowerCase().includes('total volume'))
+    )
+
+    if (headerRowIndex < 0) return output
+
+    const headers = (rows[headerRowIndex] || []).map((value) => String(value || '').trim().toLowerCase())
+    const gaugeFromIndex = headers.findIndex((header) => header.includes('gauge from'))
+    const totalVolumeIndex = headers.findIndex((header) => header.includes('total volume'))
+    const incrementalVolumeIndex = headers.findIndex((header) => header.includes('incremental volume'))
+
+    for (let r = headerRowIndex + 1; r < rows.length; r += 1) {
+      const row = rows[r] || []
+      const gauge = parseGaugeTextToDecimal(row[gaugeFromIndex])
+      const barrels = Number(row[totalVolumeIndex])
+      const increment = Number(row[incrementalVolumeIndex])
+
+      if (gauge === null || !Number.isFinite(barrels)) continue
+
+      output.push({
+        gauge_decimal: gauge,
+        gauge_feet: Math.floor(gauge),
+        gauge_inches: Number(((gauge - Math.floor(gauge)) * 12).toFixed(4)),
+        gauge_fraction: null,
+        barrels,
+        increment_bbl: Number.isFinite(increment) ? increment : null,
+        notes: 'Imported from XLSX increment factor sheet',
+      })
+    }
+
+    return output
+  }
+
+  async function parseStrappingFileRows(file: File) {
+    const lowerName = file.name.toLowerCase()
+
+    if (lowerName.endsWith('.xlsx')) {
+      const sheets = await readXlsxSheets(file)
+      let rows: any[] = []
+
+      for (const sheet of sheets) {
+        const refineryRows = extractRefineryStrappingRowsFromSheet(sheet.rows)
+        const ifsRows = extractIncrementFactorSheetRows(sheet.rows)
+
+        rows = [...rows, ...refineryRows, ...ifsRows]
+      }
+
+      const unique = new Map<string, any>()
+      rows.forEach((row) => {
+        const key = Number(row.gauge_decimal).toFixed(6)
+        if (!unique.has(key)) unique.set(key, row)
+      })
+
+      return Array.from(unique.values()).sort((a, b) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
+    }
+
+    const csvText = await file.text()
+    return parseMeterCsv(csvText)
+  }
+
   async function importTankStrappingCsv() {
     if (!selectedStrappingTankId || !strappingCsvFile) {
-      alert('Select a tank and CSV file.')
+      alert('Select a tank and CSV/XLSX file.')
       return
     }
 
     const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
-    const existingVersions = tankCalibrationVersions.filter((version: any) => version.tank_id === selectedStrappingTankId)
-    const nextVersion = existingVersions.length + 1
+
+    const { data: latestVersions } = await supabase
+      .from('tank_calibration_versions')
+      .select('version_number')
+      .eq('tank_id', selectedStrappingTankId)
+      .order('version_number', { ascending: false })
+      .limit(1)
+
+    const nextVersion = Number(latestVersions?.[0]?.version_number || 0) + 1
 
     const { data: version, error: versionError } = await supabase
       .from('tank_calibration_versions')
@@ -2244,8 +2465,7 @@ async function createCompany() {
       .eq('tank_id', selectedStrappingTankId)
       .neq('id', version.id)
 
-    const csvText = await strappingCsvFile.text()
-    const rows = parseMeterCsv(csvText)
+    const rows = await parseStrappingFileRows(strappingCsvFile)
 
     const insertRows = rows
       .map((row: any) => {
@@ -2272,29 +2492,27 @@ async function createCompany() {
           notes: row.notes || null,
         }
       })
-      .filter(Boolean)
+      .filter(Boolean) as any[]
 
-    if ((insertRows.filter(Boolean) as any[]).length === 0) {
+    if (insertRows.length === 0) {
+      await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
       alert('No valid strapping rows found.')
       return
     }
 
-    const validInsertRows = insertRows.filter(Boolean) as any[]
-
-    const { error } = await supabase.from('tank_strapping_rows').insert(validInsertRows)
+    const { error } = await supabase.from('tank_strapping_rows').insert(insertRows)
 
     if (error) {
+      await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
       alert('Could not import strapping chart: ' + error.message)
       return
     }
 
     setStrappingCsvFile(null)
     setSelectedStrappingTankId('')
-    alert(`Imported ${(insertRows.filter(Boolean) as any[]).length} strapping rows.`)
+    alert(`Imported ${insertRows.length} strapping rows as calibration Version ${nextVersion}.`)
     await loadAll()
-  }
-
-  async function importMetersCsv() {
+  }() {
     if (!meterCsvFile) {
       alert('Choose a CSV file first.')
       return
@@ -3869,7 +4087,7 @@ async function saveUserRole() {
                       <input
                         style={input}
                         type="file"
-                        accept=".csv,text/csv"
+                        accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         onChange={(e) => setMeterCsvFile(e.target.files?.[0] || null)}
                       />
                       <button
@@ -3912,9 +4130,9 @@ async function saveUserRole() {
                       </div>
 
                       <div style={card}>
-                        <h4>Upload Tank Strapping Chart CSV</h4>
+                        <h4>Upload Tank Strapping Chart CSV/XLSX</h4>
                         <p style={{ color: '#a8b3bd' }}>
-                          Supported headers: gauge_decimal, gauge_feet, gauge_inches, gauge_fraction, barrels, increment_bbl, notes.
+                          CSV headers supported: gauge_decimal, gauge_feet, gauge_inches, gauge_fraction, barrels, increment_bbl, notes. XLSX refinery strapping tables with FT-IN/Barrels pairs are detected automatically.
                         </p>
                         <select style={input} value={selectedStrappingTankId} onChange={(e) => setSelectedStrappingTankId(e.target.value)}>
                           <option value="">Select Tank</option>

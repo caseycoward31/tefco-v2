@@ -2360,7 +2360,7 @@ function getCompanyDisplayName() {
     }
 
     const payload = {
-      company_id: targetcompanyId || null,
+      company_id: targetCompanyId || null,
       company_name: companyNameInput || null,
       address_line1: companyAddress1Input || null,
       address_line2: companyAddress2Input || null,

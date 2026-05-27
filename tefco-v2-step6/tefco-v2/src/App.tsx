@@ -581,8 +581,6 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
-  const [dailyBalanceDate, setDailyBalanceDate] = useState(new Date().toISOString().slice(0, 10))
-  const [dailyBalanceSegmentId, setDailyBalanceSegmentId] = useState('')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [meterCsvFile, setMeterCsvFile] = useState<File | null>(null)
   const [strappingCsvFile, setStrappingCsvFile] = useState<File | null>(null)
@@ -827,7 +825,33 @@ function App() {
   const userIsCompanyAdmin = currentUserRole === 'admin'
   const userCanManageCompanySetup = userIsSuperAdmin || userIsCompanyAdmin
   const userCanCreateCompanyScopedUsers = userIsSuperAdmin || userIsCompanyAdmin
+useEffect(() => {
+  const loadBranding = async () => {
+    const targetCompanyId =
+      userIsSuperAdmin && selectedAdminCompanyId
+        ? selectedAdminCompanyId
+        : companyId
 
+    if (!targetCompanyId) return
+
+    const { data } = await supabase
+      .from('company_settings')
+      .select('*')
+      .eq('company_id', targetCompanyId)
+      .maybeSingle()
+
+    if (data) {
+      setCompanySettings(data)
+      setCompanyNameInput(data.company_name || '')
+      setCompanyAddress1Input(data.address_line1 || '')
+      setCompanyAddress2Input(data.address_line2 || '')
+      setCompanyPhoneInput(data.phone || '')
+      setCompanyAccentInput(data.accent_color || '#c46a2b')
+    }
+  }
+
+  loadBranding()
+}, [companyId, selectedAdminCompanyId, userIsSuperAdmin])
   async function runSafeAction(label: string, action: () => Promise<void> | void) {
     if (isActionRunning) return
 
@@ -1829,147 +1853,6 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     loadAll()
   }
 
-
-  function getInventoryVolume(ticket: any) {
-    return Number(ticket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? ticket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? ticket.calculation_results?.gov ?? 0)
-  }
-
-  function getInventoryRole(ticket: any) {
-    const meter = meters.find((m: any) => m.id === ticket.meter_id)
-    return String(ticket.meter_direction || ticket.observed_inputs?.meter_direction || (meter as any)?.meter_role || (meter as any)?.meter_direction || (meter as any)?.direction || '').toLowerCase()
-  }
-
-  function getInventoryDate(ticket: any) {
-    return ticket.approved_at || ticket.ticket_date || ticket.created_at || new Date().toISOString()
-  }
-
-  function getTankInventoryChange(ticket: any) {
-    const direction = String(ticket.movement_direction || ticket.observed_inputs?.tank_movement_direction || '').toLowerCase()
-    const volume = Number(ticket.calculation_results?.tank_nsv ?? ticket.calculation_results?.tank_movement_bbl ?? ticket.calculation_results?.nsv ?? 0)
-    if (direction === 'delivery') return -Math.abs(volume)
-    if (direction === 'receipt') return Math.abs(volume)
-    return volume
-  }
-
-  async function postInventoryLedgerForTicket(ticket: any) {
-    if (!ticket || ticket.status !== 'approved' || ticket.observed_inputs?.inventory_posted) return
-
-    const type = ticket.ticket_type || 'meter'
-    const role = getInventoryRole(ticket)
-    const volume = getInventoryVolume(ticket)
-
-    let receipt = 0
-    let delivery = 0
-    let truck = 0
-    let tankChange = 0
-    let lineFill = 0
-
-    if (type === 'tank') tankChange = getTankInventoryChange(ticket)
-    else if (type === 'line_fill') lineFill = volume
-    else if (type === 'truck') truck = volume
-    else if (role === 'delivery') delivery = volume
-    else receipt = volume
-
-    const netEffect = receipt - delivery - truck + tankChange + lineFill
-
-    const { error } = await supabase.from('inventory_ledger').insert({
-      company_id: ticket.company_id || companyId,
-      segment_id: ticket.segment_id || null,
-      ticket_id: ticket.id,
-      ticket_number: ticket.ticket_number || null,
-      ticket_type: type,
-      movement_date: getInventoryDate(ticket),
-      movement_source: 'ticket_approval',
-      movement_direction: role || ticket.observed_inputs?.tank_movement_direction || type,
-      receipt_bbl: receipt,
-      delivery_bbl: delivery,
-      truck_bbl: truck,
-      tank_change_bbl: tankChange,
-      line_fill_change_bbl: lineFill,
-      net_effect_bbl: netEffect,
-      notes: 'Posted automatically on approval.',
-    })
-
-    if (error) {
-      console.error('Inventory ledger post failed:', error)
-      return
-    }
-
-    if (type === 'tank') {
-      const tankId = ticket.tank_id || ticket.observed_inputs?.tank_id
-      if (tankId) {
-        await supabase.from('tank_inventory_balances').insert({
-          company_id: ticket.company_id || companyId,
-          tank_id: tankId,
-          segment_id: ticket.segment_id || null,
-          source_ticket_id: ticket.id,
-          balance_at: getInventoryDate(ticket),
-          gauge_decimal: ticket.closing_gauge || ticket.observed_inputs?.closing_gauge || null,
-          inventory_bbl: Number(ticket.calculation_results?.tank_closing_bbl ?? ticket.observed_inputs?.tank_closing_bbl ?? 0),
-          gov_bbl: Number(ticket.calculation_results?.tank_gov || 0),
-          gsv_bbl: Number(ticket.calculation_results?.tank_gsv || ticket.calculation_results?.gsv || 0),
-          nsv_bbl: Number(ticket.calculation_results?.tank_nsv || ticket.calculation_results?.nsv || 0),
-        })
-      }
-    }
-
-    await supabase.from('tickets').update({
-      observed_inputs: { ...(ticket.observed_inputs || {}), inventory_posted: true, inventory_posted_at: new Date().toISOString() }
-    }).eq('id', ticket.id)
-  }
-
-  function getDailyBalanceRowsForDate() {
-    const day = dailyBalanceDate || new Date().toISOString().slice(0, 10)
-    return segments
-      .filter((segment: any) => !dailyBalanceSegmentId || segment.id === dailyBalanceSegmentId)
-      .map((segment: any) => {
-        const dayTickets = tickets.filter((ticket: any) => ticket.status === 'approved' && ticket.segment_id === segment.id && new Date(getInventoryDate(ticket)).toISOString().slice(0, 10) === day)
-        const receipts = dayTickets.filter((t: any) => t.ticket_type !== 'tank' && t.ticket_type !== 'truck' && getInventoryRole(t) !== 'delivery').reduce((s: number, t: any) => s + getInventoryVolume(t), 0)
-        const deliveries = dayTickets.filter((t: any) => getInventoryRole(t) === 'delivery').reduce((s: number, t: any) => s + getInventoryVolume(t), 0)
-        const truckBbl = dayTickets.filter((t: any) => t.ticket_type === 'truck').reduce((s: number, t: any) => s + getInventoryVolume(t), 0)
-        const tankChange = dayTickets.filter((t: any) => t.ticket_type === 'tank').reduce((s: number, t: any) => s + getTankInventoryChange(t), 0)
-        const lineFillChange = dayTickets.filter((t: any) => t.ticket_type === 'line_fill').reduce((s: number, t: any) => s + getInventoryVolume(t), 0)
-        const bookInventory = receipts - deliveries - truckBbl + tankChange + lineFillChange
-        const actualInventory = typeof getActualTankInventoryForSegment === 'function' ? getActualTankInventoryForSegment(segment.id) : 0
-        const overShort = actualInventory - bookInventory
-        const overShortPercent = bookInventory !== 0 ? (overShort / Math.abs(bookInventory)) * 100 : 0
-        return { segment, day, receipts, deliveries, truckBbl, tankChange, lineFillChange, bookInventory, actualInventory, overShort, overShortPercent }
-      })
-  }
-
-  async function saveDailyBalances() {
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
-    if (!targetCompanyId) return alert('No company selected.')
-
-    for (const row of getDailyBalanceRowsForDate() as any[]) {
-      await supabase.from('segment_daily_balances').upsert({
-        company_id: targetCompanyId,
-        segment_id: row.segment.id,
-        balance_date: row.day,
-        receipt_bbl: row.receipts,
-        delivery_bbl: row.deliveries,
-        truck_bbl: row.truckBbl,
-        tank_change_bbl: row.tankChange,
-        line_fill_change_bbl: row.lineFillChange,
-        book_inventory_bbl: row.bookInventory,
-        actual_inventory_bbl: row.actualInventory,
-        over_short_bbl: row.overShort,
-        over_short_percent: row.overShortPercent,
-      }, { onConflict: 'company_id,segment_id,balance_date' })
-    }
-
-    alert('Daily balances saved.')
-  }
-
-  function exportDailyBalancesExcel() {
-    const rows = getDailyBalanceRowsForDate()
-    const sheetRows = [
-      ['Date','Segment','Receipts','Deliveries','Truck BBL','Tank Change','Line Fill','Book Inventory','Actual Inventory','Over / Short','O/S %'],
-      ...rows.map((r: any) => [r.day, r.segment.name, r.receipts.toFixed(2), r.deliveries.toFixed(2), r.truckBbl.toFixed(2), r.tankChange.toFixed(2), r.lineFillChange.toFixed(2), r.bookInventory.toFixed(2), r.actualInventory.toFixed(2), r.overShort.toFixed(2), r.overShortPercent.toFixed(4)])
-    ]
-    downloadExcelXml(`daily-balances-${dailyBalanceDate || 'today'}.xls`, [{ name: 'Daily Balances', rows: sheetRows, numericIndexes: [2,3,4,5,6,7,8,9,10] }])
-  }
-
   async function updateTicketStatus(ticket: Ticket, status: string) {
     const { data: userData } = await supabase.auth.getUser()
 
@@ -1983,11 +1866,6 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     await supabase.from('tickets').update(updateData).eq('id', ticket.id)
 
     setSelectedTicket({ ...ticket, ...updateData })
-    if (newStatus === 'approved') {
-      const approvedTicket = { ...ticket, status: 'approved', approved_at: new Date().toISOString() }
-      await postInventoryLedgerForTicket(approvedTicket)
-    }
-
     loadAll()
   }
 
@@ -2298,7 +2176,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
           <div class="page">
             <div class="brand-header">
               <div>
-                <div class="brand-name">{getCompanyDisplayName()}</div>
+                <div class="brand-name">${getCompanyDisplayName()}</div>
                 <div class="brand-subtitle">Custody Transfer Ticket</div>
               </div>
               ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}
@@ -2427,16 +2305,23 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   }
 
 function getCompanyDisplayName() {
+    const targetCompanyId =
+      userIsSuperAdmin && selectedAdminCompanyId
+        ? selectedAdminCompanyId
+        : companyId
+
+    const selectedCompany = companies.find((company: any) => company.id === targetCompanyId)
+
     return (
-      companyNameInput ||
       companySettings?.company_name ||
-      companySettings?.name ||
-      'getCompanyDisplayName()'
+      companyNameInput ||
+      selectedCompany?.name ||
+      'Measurement App'
     )
   }
 
   function getCompanyAccentColor() {
-    return companyAccentInput || companySettings?.accent_color || '#c46a2b'
+    return companySettings?.accent_color || companyAccentInput || '#c46a2b'
   }
 
   function hexToRgb(hex: string) {
@@ -2468,64 +2353,83 @@ function getCompanyDisplayName() {
   }
 
   function getCompanyLogoUrl() {
-    if (companyLogoFile) {
-      return URL.createObjectURL(companyLogoFile)
-    }
-
     return companySettings?.logo_url || ''
   }
 
   async function saveCompanySettings() {
-    if (!companyId && !userIsSuperAdmin) {
-      alert('Company not loaded.')
+    const targetCompanyId =
+      userIsSuperAdmin && selectedAdminCompanyId
+        ? selectedAdminCompanyId
+        : companyId
+
+    if (!targetCompanyId) {
+      alert('No company selected.')
       return
     }
 
-    let logoUrl = companySettings?.logo_url || null
+    let logoUrl = companySettings?.logo_url || ''
 
-    if (companyLogoFile && companyId) {
-      const ext = companyLogoFile.name.split('.').pop() || 'png'
-      const logoPath = `${companyId}/company-logo.${ext}`
+    if (companyLogoFile) {
+      const fileExt = companyLogoFile.name.split('.').pop() || 'png'
+      const filePath = `${targetCompanyId}/logo-${Date.now()}.${fileExt}`
 
       const { error: uploadError } = await supabase.storage
         .from('company-logos')
-        .upload(logoPath, companyLogoFile, {
+        .upload(filePath, companyLogoFile, {
+          cacheControl: '3600',
           upsert: true,
-          contentType: companyLogoFile.type || 'image/png',
         })
 
       if (uploadError) {
-        alert('Could not upload logo: ' + uploadError.message)
+        alert('Logo upload failed: ' + uploadError.message)
         return
       }
 
-      const { data } = supabase.storage.from('company-logos').getPublicUrl(logoPath)
-      logoUrl = data?.publicUrl || null
+      const { data: publicUrlData } = supabase.storage
+        .from('company-logos')
+        .getPublicUrl(filePath)
+
+      logoUrl = publicUrlData.publicUrl
     }
 
     const payload = {
-      company_id: companyId || null,
-      company_name: companyNameInput || null,
-      address_line1: companyAddress1Input || null,
-      address_line2: companyAddress2Input || null,
-      phone: companyPhoneInput || null,
+      company_id: targetCompanyId,
+      company_name: companyNameInput || '',
+      address_line1: companyAddress1Input || '',
+      address_line2: companyAddress2Input || '',
+      phone: companyPhoneInput || '',
       accent_color: companyAccentInput || '#c46a2b',
-      logo_url: logoUrl,
+      logo_url: logoUrl || companySettings?.logo_url || '',
+      updated_at: new Date().toISOString(),
     }
 
     const { data, error } = await supabase
       .from('company_settings')
       .upsert(payload, { onConflict: 'company_id' })
       .select()
-      .maybeSingle()
+      .single()
 
     if (error) {
       alert('Could not save company branding: ' + error.message)
       return
     }
 
-    if (data) setCompanySettings(data)
-    setCompanyLogoFile(null)
+    if (companyNameInput) {
+      await supabase
+        .from('companies')
+        .update({ name: companyNameInput })
+        .eq('id', targetCompanyId)
+    }
+
+    setCompanySettings(data as any)
+    logo_url: logoUrl || companySettings?.logo_url || '',
+    setCompanyNameInput((data as any).company_name || '')
+    setCompanyAddress1Input((data as any).address_line1 || '')
+    setCompanyAddress2Input((data as any).address_line2 || '')
+    setCompanyPhoneInput((data as any).phone || '')
+    setCompanyAccentInput((data as any).accent_color || '#c46a2b')
+
+    await loadAll()
     alert('Company branding saved.')
   }
 
@@ -4309,7 +4213,7 @@ async function saveUserRole() {
             <div class="page">
               <div class="brand-header">
                 <div>
-                  <div class="brand-name">{getCompanyDisplayName()}</div>
+                  <div class="brand-name">${getCompanyDisplayName()}</div>
                   <div class="brand-subtitle">Custody Transfer Ticket</div>
                 </div>
                 ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}
@@ -4936,8 +4840,8 @@ async function saveUserRole() {
             )}
           </div>
 
-          <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 0.3 }}>
-            getCompanyDisplayName()
+         <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 0.3 }}>
+  {getCompanyDisplayName()}
           </div>
           <div style={{ fontSize: 12, color: '#a8b3bd', marginTop: 4 }}>
             Measurement Platform
@@ -6313,32 +6217,10 @@ async function saveUserRole() {
 
             {reportCenterSection === 'daily' && (
               <div style={box}>
-                <h2>Daily Balance Roll Forward</h2>
-                <p style={{ color: '#a8b3bd' }}>Save daily segment inventory balances from approved tickets and export them to Excel.</p>
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <input style={input} type="date" value={dailyBalanceDate} onChange={(e) => setDailyBalanceDate(e.target.value)} />
-                  <select style={input} value={dailyBalanceSegmentId} onChange={(e) => setDailyBalanceSegmentId(e.target.value)}>
-                    <option value="">All Segments</option>
-                    {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
-                  </select>
-                </div>
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <button style={button} onClick={() => runSafeAction('Saving daily balances', saveDailyBalances)}>Save Daily Balances</button>
-                  <button style={button} onClick={exportDailyBalancesExcel}>Export Daily Balance Excel</button>
-                </div>
-                <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
-                  {getDailyBalanceRowsForDate().map((row: any) => (
-                    <div key={row.segment.id} style={card}>
-                      <strong>{row.segment.name}</strong>
-                      <div>Receipts: {row.receipts.toFixed(2)}</div>
-                      <div>Deliveries: {row.deliveries.toFixed(2)}</div>
-                      <div>Tank Change: {row.tankChange.toFixed(2)}</div>
-                      <div>Book Inventory: {row.bookInventory.toFixed(2)}</div>
-                      <div>Actual Inventory: {row.actualInventory.toFixed(2)}</div>
-                      <div>Over / Short: {row.overShort.toFixed(2)}</div>
-                    </div>
-                  ))}
-                </div>
+                <h2>Daily Reports</h2>
+                <p style={{ color: '#a8b3bd' }}>
+                  Daily balance exports will use the same segment inventory engine. Next phase will add save-to-database daily balance snapshots.
+                </p>
               </div>
             )}
           </>

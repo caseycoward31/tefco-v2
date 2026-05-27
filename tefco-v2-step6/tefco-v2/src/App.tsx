@@ -2371,7 +2371,7 @@ function getCompanyDisplayName() {
       address_line2: companyAddress2Input || null,
       phone: companyPhoneInput || null,
       accent_color: companyAccentInput || '#c46a2b',
-      logo_url: logoUrl,
+      logo_url: logoUrl || companySettings?.logo_url || null,
     }
 
     const { data, error } = await supabase

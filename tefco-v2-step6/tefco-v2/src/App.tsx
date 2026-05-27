@@ -1843,6 +1843,18 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     loadAll()
   }
 
+
+  function formatGaugeFeetInchesEighths(decimalGauge: any) {
+    const parts = decimalGaugeToParts(decimalGauge)
+    return `${parts.feet}' ${parts.inches}-${parts.eighths}/8"`
+  }
+
+  function getTankDisplayName(tankId?: string | null) {
+    const tank = tanks.find((t: any) => t.id === tankId)
+    if (!tank) return ''
+    return `${tank.tank_number || ''}${tank.tank_name ? ` - ${tank.tank_name}` : ''}`
+  }
+
   async function generatePdfPreview(ticket: Ticket) {
     const companyName = getCompanyDisplayName()
     const companyLogoUrl = getCompanyLogoUrl()
@@ -1852,6 +1864,139 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     const producer = producers.find((p) => p.id === ticket.producer_id)
     const meter = meters.find((m) => m.id === ticket.meter_id)
     const segment = segments.find((s) => s.id === ticket.segment_id)
+
+    // Refinery Tank Ticket PDF
+    if (ticket.ticket_type === 'tank') {
+      const tankId = (ticket as any).tank_id || ticket.observed_inputs?.tank_id
+      const tankName = getTankDisplayName(tankId)
+      const openingGauge = (ticket as any).opening_gauge ?? ticket.observed_inputs?.opening_gauge ?? ticket.observed_inputs?.opening_gauge_decimal ?? 0
+      const closingGauge = (ticket as any).closing_gauge ?? ticket.observed_inputs?.closing_gauge ?? ticket.observed_inputs?.closing_gauge_decimal ?? 0
+      const openingBbl = ticket.observed_inputs?.tank_opening_bbl ?? ticket.calculation_results?.tank_opening_bbl ?? 0
+      const closingBbl = ticket.observed_inputs?.tank_closing_bbl ?? ticket.calculation_results?.tank_closing_bbl ?? 0
+      const gov = ticket.calculation_results?.tank_gov ?? ticket.calculation_results?.tank_movement_bbl ?? ticket.calculation_results?.gov ?? 0
+      const gsv = ticket.calculation_results?.tank_gsv ?? ticket.calculation_results?.gsv ?? 0
+      const nsv = ticket.calculation_results?.tank_nsv ?? ticket.calculation_results?.nsv ?? 0
+      const swPercent = ticket.observed_inputs?.tank_sw_percent ?? ticket.calculation_results?.tank_sw_percent ?? ticket.observed_inputs?.bsw_percent ?? ''
+      const avgTemp = ticket.observed_inputs?.tank_average_temp ?? ticket.observed_inputs?.average_temperature ?? ''
+      const ambientTemp = ticket.observed_inputs?.tank_ambient_temp ?? ''
+      const obsGravity = ticket.observed_inputs?.tank_observed_gravity ?? ticket.observed_inputs?.observed_api_gravity ?? ''
+      const obsTemp = ticket.observed_inputs?.tank_observed_temp ?? ticket.observed_inputs?.observed_temperature ?? ''
+      const api60 = ticket.calculation_results?.api_gravity_60 ?? ticket.observed_inputs?.api_gravity_60 ?? ''
+      const ctl = ticket.calculation_results?.ctl ?? ticket.observed_inputs?.ctl ?? ''
+      const cpl = ticket.calculation_results?.cpl ?? ticket.observed_inputs?.cpl ?? ''
+      const ccf = ticket.calculation_results?.ccf ?? ticket.observed_inputs?.ccf ?? ''
+      const direction = (ticket as any).movement_direction || ticket.observed_inputs?.tank_movement_direction || ''
+      const openingDeadwood = getDeadwoodAdjustment(tankId, Number(openingGauge))
+      const closingDeadwood = getDeadwoodAdjustment(tankId, Number(closingGauge))
+
+      const tankHtml = `
+        <html>
+          <head>
+            <title>${ticket.ticket_number || 'Tank Ticket'}</title>
+            <style>
+              @page { size: letter portrait; margin: 0.35in; }
+              * { box-sizing: border-box; }
+              body { margin: 0; padding: 0; color: #111; font-family: Arial, Helvetica, sans-serif; font-size: 11px; }
+              .page { width: 100%; max-width: 7.8in; margin: 0 auto; }
+              .brand { display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid ${companyAccent}; padding-bottom: 8px; margin-bottom: 10px; }
+              .brand-name { font-size: 24px; font-weight: 900; color: ${companyAccent}; }
+              .subtitle { font-size: 12px; margin-top: 3px; }
+              .logo { max-height: 48px; max-width: 150px; object-fit: contain; }
+              .title { text-align: center; font-size: 24px; font-weight: 900; margin: 10px 0; }
+              .section { border: 1.5px solid #111; margin-bottom: 9px; page-break-inside: avoid; }
+              .section-title { text-align: center; font-weight: 900; font-size: 14px; padding: 5px; border-bottom: 1.2px solid #111; background: #f4f4f4; }
+              .grid { display: grid; grid-template-columns: 1fr 1fr; }
+              .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+              .row { display: grid; grid-template-columns: 48% 52%; min-height: 23px; border-bottom: 1px solid #d6d6d6; }
+              .grid > .row:nth-child(odd), .grid3 > .row:not(:nth-child(3n)) { border-right: 1px solid #111; }
+              .label { font-weight: 900; padding: 5px 7px; }
+              .val { text-align: right; padding: 5px 7px; }
+              .big { font-size: 16px; font-weight: 900; }
+              .footer { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 18px; }
+              .sig { border-top: 1.2px solid #111; padding-top: 6px; min-height: 44px; }
+            </style>
+          </head>
+          <body>
+            <div class="page">
+              <div class="brand">
+                <div>
+                  <div class="brand-name">${companyName}</div>
+                  <div class="subtitle">Refinery Tank Ticket</div>
+                </div>
+                ${companyLogoDataUrl ? `<img class="logo" src="${companyLogoDataUrl}" />` : ''}
+              </div>
+
+              <div class="title">${ticket.ticket_number || 'Tank Ticket'}</div>
+
+              <div class="section">
+                <div class="grid">
+                  <div class="row"><div class="label">Tank:</div><div class="val">${tankName || '—'}</div></div>
+                  <div class="row"><div class="label">Status:</div><div class="val">${ticket.status || 'draft'}</div></div>
+                  <div class="row"><div class="label">Segment:</div><div class="val">${segment?.name || '—'}</div></div>
+                  <div class="row"><div class="label">Movement:</div><div class="val">${direction || '—'}</div></div>
+                  <div class="row"><div class="label">Producer:</div><div class="val">${producer?.name || '—'}</div></div>
+                  <div class="row"><div class="label">Date:</div><div class="val">${(ticket as any).created_at ? new Date((ticket as any).created_at).toLocaleString() : '—'}</div></div>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-title">Gauge / Strapping</div>
+                <div class="grid">
+                  <div class="row"><div class="label">Opening Gauge:</div><div class="val">${formatGaugeFeetInchesEighths(openingGauge)}</div></div>
+                  <div class="row"><div class="label">Closing Gauge:</div><div class="val">${formatGaugeFeetInchesEighths(closingGauge)}</div></div>
+                  <div class="row"><div class="label">Opening BBL:</div><div class="val">${Number(openingBbl || 0).toFixed(2)}</div></div>
+                  <div class="row"><div class="label">Closing BBL:</div><div class="val">${Number(closingBbl || 0).toFixed(2)}</div></div>
+                  <div class="row"><div class="label">Opening Deadwood:</div><div class="val">${Number(openingDeadwood || 0).toFixed(2)}</div></div>
+                  <div class="row"><div class="label">Closing Deadwood:</div><div class="val">${Number(closingDeadwood || 0).toFixed(2)}</div></div>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-title">Observed Quality / Corrections</div>
+                <div class="grid3">
+                  <div class="row"><div class="label">Avg Temp:</div><div class="val">${avgTemp || '—'}</div></div>
+                  <div class="row"><div class="label">Ambient Temp:</div><div class="val">${ambientTemp || '—'}</div></div>
+                  <div class="row"><div class="label">Obs Temp:</div><div class="val">${obsTemp || '—'}</div></div>
+                  <div class="row"><div class="label">Obs Gravity:</div><div class="val">${obsGravity || '—'}</div></div>
+                  <div class="row"><div class="label">API @60:</div><div class="val">${api60 || '—'}</div></div>
+                  <div class="row"><div class="label">S&W %:</div><div class="val">${swPercent || '—'}</div></div>
+                  <div class="row"><div class="label">CTL:</div><div class="val">${ctl || '—'}</div></div>
+                  <div class="row"><div class="label">CPL:</div><div class="val">${cpl || '—'}</div></div>
+                  <div class="row"><div class="label">CCF:</div><div class="val">${ccf || '—'}</div></div>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-title">Volumes</div>
+                <div class="grid3">
+                  <div class="row"><div class="label big">GOV:</div><div class="val big">${Number(gov || 0).toFixed(2)}</div></div>
+                  <div class="row"><div class="label big">GSV:</div><div class="val big">${Number(gsv || 0).toFixed(2)}</div></div>
+                  <div class="row"><div class="label big">NSV:</div><div class="val big">${Number(nsv || 0).toFixed(2)}</div></div>
+                </div>
+              </div>
+
+              <div class="footer">
+                <div class="sig">Operator Signature</div>
+                <div class="sig">Approval Signature / Date</div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `
+
+      const w = window.open('', '_blank')
+      if (!w) return
+
+      w.document.write(tankHtml)
+      w.document.close()
+      w.focus()
+
+      setTimeout(() => {
+        w.print()
+      }, 500)
+
+      return
+    }
 
     const value = (v: any) => v === null || v === undefined || v === '' ? '—' : v
     const num = (v: any, decimals = 4) => {

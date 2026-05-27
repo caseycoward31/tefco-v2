@@ -2150,7 +2150,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
           <div class="page">
             <div class="brand-header">
               <div>
-                <div class="brand-name">{getCompanyDisplayName()}</div>
+                <div class="brand-name">${getCompanyDisplayName()}</div>
                 <div class="brand-subtitle">Custody Transfer Ticket</div>
               </div>
               ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}

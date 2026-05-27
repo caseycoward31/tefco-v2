@@ -745,6 +745,19 @@ function App() {
   const [potNotes, setPotNotes] = useState('')
 
 
+
+  useEffect(() => {
+    function handleMobileResize() {
+      if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+        setMobileMenuOpen(true)
+      }
+    }
+
+    handleMobileResize()
+    window.addEventListener('resize', handleMobileResize)
+    return () => window.removeEventListener('resize', handleMobileResize)
+  }, [])
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       setMobileMenuOpen(window.innerWidth <= 768)
@@ -2117,7 +2130,7 @@ function getCompanyDisplayName() {
       companyNameInput ||
       companySettings?.company_name ||
       companySettings?.name ||
-      '{getCompanyDisplayName()}'
+      'getCompanyDisplayName()'
     )
   }
 
@@ -4105,7 +4118,52 @@ async function saveUserRole() {
             display: none !important;
           }
         }
-      `}</style>
+      
+        @media (max-width: 768px) {
+          .desktop-sidebar,
+          aside,
+          nav[aria-label="sidebar"],
+          [data-sidebar="true"] {
+            display: none !important;
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 0 !important;
+            overflow: hidden !important;
+            position: absolute !important;
+            left: -9999px !important;
+          }
+
+          .mobile-home {
+            display: block !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: 14px !important;
+            margin: 0 !important;
+          }
+
+          .mobile-home button {
+            width: 100% !important;
+          }
+
+          .app-content,
+          main,
+          .main-content {
+            margin-left: 0 !important;
+            padding-left: 12px !important;
+            padding-right: 12px !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            transform: none !important;
+          }
+
+          body,
+          #root {
+            overflow-x: hidden !important;
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+        }
+`}</style>
 <style>{`
         input::placeholder { color: rgba(248,250,252,0.48); }
         select option { background: #0b1117; color: #f8fafc; }
@@ -4179,7 +4237,7 @@ async function saveUserRole() {
           </div>
 
           <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 0.3 }}>
-            {getCompanyDisplayName()}
+            getCompanyDisplayName()
           </div>
           <div style={{ fontSize: 12, color: '#a8b3bd', marginTop: 4 }}>
             Measurement Platform

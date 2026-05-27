@@ -2359,6 +2359,11 @@ function getCompanyDisplayName() {
       logoUrl = data?.publicUrl || null
     }
 
+    const targetCompanyId =
+  userIsSuperAdmin && selectedAdminCompanyId
+    ? selectedAdminCompanyId
+    : companyId
+    
     const payload = {
       company_id: targetCompanyId || null,
       company_name: companyNameInput || null,

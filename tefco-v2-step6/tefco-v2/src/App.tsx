@@ -581,6 +581,7 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [meterCsvFile, setMeterCsvFile] = useState<File | null>(null)
   const [strappingCsvFile, setStrappingCsvFile] = useState<File | null>(null)
   const [selectedStrappingTankId, setSelectedStrappingTankId] = useState('')
@@ -590,6 +591,20 @@ function App() {
   const [newLineFillName, setNewLineFillName] = useState('')
   const [newLineFillSegmentId, setNewLineFillSegmentId] = useState('')
   const [newLineFillCapacity, setNewLineFillCapacity] = useState('')
+  const [flowxCsvFile, setFlowxCsvFile] = useState<File | null>(null)
+  const [flowxLactName, setFlowxLactName] = useState('')
+  const [flowxDefaultSegmentId, setFlowxDefaultSegmentId] = useState('')
+  const [flowxCustomer1, setFlowxCustomer1] = useState('')
+  const [flowxCustomer2, setFlowxCustomer2] = useState('')
+  const [flowxCustomer3, setFlowxCustomer3] = useState('')
+  const [flowxCustomer4, setFlowxCustomer4] = useState('')
+  const [flowxPercent1, setFlowxPercent1] = useState('')
+  const [flowxPercent2, setFlowxPercent2] = useState('')
+  const [flowxPercent3, setFlowxPercent3] = useState('')
+  const [flowxPercent4, setFlowxPercent4] = useState('')
+  const [inventoryStartDate, setInventoryStartDate] = useState('')
+  const [inventoryEndDate, setInventoryEndDate] = useState('')
+  const [inventorySegmentId, setInventorySegmentId] = useState('')
   const [deadwoodTankId, setDeadwoodTankId] = useState('')
   const [deadwoodStartGauge, setDeadwoodStartGauge] = useState('')
   const [deadwoodEndGauge, setDeadwoodEndGauge] = useState('')
@@ -728,6 +743,13 @@ function App() {
   const [potBSW, setPotBSW] = useState('')
   const [potTemp, setPotTemp] = useState('')
   const [potNotes, setPotNotes] = useState('')
+
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setMobileMenuOpen(window.innerWidth <= 768)
+    }
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -1962,7 +1984,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
           <div class="page">
             <div class="brand-header">
               <div>
-                <div class="brand-name">${companyName}</div>
+                <div class="brand-name">{getCompanyDisplayName()}</div>
                 <div class="brand-subtitle">Custody Transfer Ticket</div>
               </div>
               ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}
@@ -2095,7 +2117,7 @@ function getCompanyDisplayName() {
       companyNameInput ||
       companySettings?.company_name ||
       companySettings?.name ||
-      '${companyName}'
+      '{getCompanyDisplayName()}'
     )
   }
 
@@ -2718,6 +2740,311 @@ async function createCompany() {
     await loadAll()
   }
 
+
+  function normalizeFlowXHeader(header: string) {
+    return String(header || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+  }
+
+  function parseGenericCsv(textValue: string) {
+    const rows: string[][] = []
+    let current = ''
+    let row: string[] = []
+    let inQuotes = false
+
+    for (let i = 0; i < textValue.length; i += 1) {
+      const char = textValue[i]
+      const next = textValue[i + 1]
+
+      if (char === '"' && inQuotes && next === '"') {
+        current += '"'
+        i += 1
+      } else if (char === '"') {
+        inQuotes = !inQuotes
+      } else if (char === ',' && !inQuotes) {
+        row.push(current.trim())
+        current = ''
+      } else if ((char === '\n' || char === '\r') && !inQuotes) {
+        if (current || row.length) {
+          row.push(current.trim())
+          rows.push(row)
+          row = []
+          current = ''
+        }
+        if (char === '\r' && next === '\n') i += 1
+      } else {
+        current += char
+      }
+    }
+
+    if (current || row.length) {
+      row.push(current.trim())
+      rows.push(row)
+    }
+
+    if (rows.length < 2) return []
+
+    const headers = rows[0].map(normalizeFlowXHeader)
+
+    return rows.slice(1).map((values) => {
+      const output: Record<string, string> = {}
+      headers.forEach((header, index) => {
+        output[header] = values[index] || ''
+      })
+      return output
+    })
+  }
+
+  function getFlowXValue(row: any, names: string[]) {
+    for (const name of names) {
+      const key = normalizeFlowXHeader(name)
+      if (row[key] !== undefined && row[key] !== '') return row[key]
+    }
+
+    return ''
+  }
+
+  function getFlowXNumber(row: any, names: string[]) {
+    const raw = getFlowXValue(row, names)
+    const value = Number(String(raw).replace(/,/g, ''))
+    return Number.isFinite(value) ? value : 0
+  }
+
+  function getFlowXDate(row: any, names: string[]) {
+    const raw = getFlowXValue(row, names)
+    if (!raw) return null
+
+    const date = new Date(raw)
+    return Number.isNaN(date.getTime()) ? null : date.toISOString()
+  }
+
+  function getFlowXSplits() {
+    const splits = [
+      { customer: flowxCustomer1, percent: Number(flowxPercent1 || 0) },
+      { customer: flowxCustomer2, percent: Number(flowxPercent2 || 0) },
+      { customer: flowxCustomer3, percent: Number(flowxPercent3 || 0) },
+      { customer: flowxCustomer4, percent: Number(flowxPercent4 || 0) },
+    ].filter((split) => split.customer && split.percent > 0)
+
+    const total = splits.reduce((sum, split) => sum + split.percent, 0)
+
+    if (splits.length === 0) return []
+
+    return splits.map((split) => ({
+      ...split,
+      normalizedPercent: total > 0 ? split.percent / total : 0,
+    }))
+  }
+
+  async function importFlowXTruckTickets() {
+    if (!flowxCsvFile) {
+      alert('Choose a Flow-X CSV file first.')
+      return
+    }
+
+    const splits = getFlowXSplits()
+
+    if (splits.length === 0) {
+      alert('Enter at least one customer split percentage.')
+      return
+    }
+
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const { data: userData } = await supabase.auth.getUser()
+    const csvText = await flowxCsvFile.text()
+    const rows = parseGenericCsv(csvText)
+
+    if (rows.length === 0) {
+      alert('No Flow-X rows found.')
+      return
+    }
+
+    const { data: batch, error: batchError } = await supabase
+      .from('flowx_import_batches')
+      .insert({
+        company_id: targetCompanyId,
+        imported_by: userData.user?.id || null,
+        lact_name: flowxLactName || null,
+        source_file_name: flowxCsvFile.name,
+        imported_count: rows.length,
+      })
+      .select()
+      .single()
+
+    if (batchError || !batch) {
+      alert('Could not create Flow-X import batch: ' + (batchError?.message || 'unknown error'))
+      return
+    }
+
+    let createdTickets = 0
+
+    for (const row of rows) {
+      const batchNumber = getFlowXValue(row, ['batch', 'batch_number', 'batch no', 'load_number', 'load no'])
+      const sourceTicketNumber = getFlowXValue(row, ['ticket', 'ticket_number', 'ticket no'])
+      const truckNumber = getFlowXValue(row, ['truck', 'truck_number', 'truck no'])
+      const driverName = getFlowXValue(row, ['driver', 'driver_name'])
+      const leaseName = getFlowXValue(row, ['lease', 'lease_name'])
+      const producerName = getFlowXValue(row, ['producer', 'producer_name'])
+      const meterNumber = getFlowXValue(row, ['meter', 'meter_number'])
+      const segmentName = getFlowXValue(row, ['segment', 'segment_name'])
+      const grossVolume = getFlowXNumber(row, ['gross', 'gross_volume', 'gross_bbl', 'gov', 'gsv'])
+      const netVolume = getFlowXNumber(row, ['net', 'net_volume', 'net_bbl', 'nsv'])
+      const apiGravity = getFlowXNumber(row, ['api', 'api_gravity', 'gravity'])
+      const observedTemp = getFlowXNumber(row, ['temperature', 'observed_temperature', 'obs_temp'])
+      const bswPercent = getFlowXNumber(row, ['bsw', 'bsw_percent', 's_w', 'sw'])
+      const openDate = getFlowXDate(row, ['open_time', 'open_datetime', 'start_time', 'start_datetime'])
+      const closeDate = getFlowXDate(row, ['close_time', 'close_datetime', 'end_time', 'end_datetime'])
+
+      const { data: flowxRow } = await supabase
+        .from('flowx_truck_import_rows')
+        .insert({
+          company_id: targetCompanyId,
+          import_batch_id: batch.id,
+          lact_name: flowxLactName || getFlowXValue(row, ['lact', 'lact_name']) || null,
+          batch_number: batchNumber || null,
+          ticket_number: sourceTicketNumber || null,
+          truck_number: truckNumber || null,
+          driver_name: driverName || null,
+          producer_name: producerName || null,
+          lease_name: leaseName || null,
+          meter_number: meterNumber || null,
+          segment_name: segmentName || null,
+          open_datetime: openDate,
+          close_datetime: closeDate,
+          gross_volume_bbl: grossVolume || null,
+          net_volume_bbl: netVolume || null,
+          api_gravity: apiGravity || null,
+          observed_temperature: observedTemp || null,
+          bsw_percent: bswPercent || null,
+          split_customer_1: flowxCustomer1 || null,
+          split_percent_1: flowxPercent1 ? Number(flowxPercent1) : null,
+          split_customer_2: flowxCustomer2 || null,
+          split_percent_2: flowxPercent2 ? Number(flowxPercent2) : null,
+          split_customer_3: flowxCustomer3 || null,
+          split_percent_3: flowxPercent3 ? Number(flowxPercent3) : null,
+          split_customer_4: flowxCustomer4 || null,
+          split_percent_4: flowxPercent4 ? Number(flowxPercent4) : null,
+          raw_row: row,
+        })
+        .select()
+        .single()
+
+      const createdIds: string[] = []
+
+      for (const split of splits) {
+        const { data: generatedNumber } = await supabase.rpc('generate_ticket_number', {
+          p_company_id: targetCompanyId,
+        })
+
+        const splitGross = grossVolume * split.normalizedPercent
+        const splitNet = (netVolume || grossVolume) * split.normalizedPercent
+
+        const ticketPayload: any = {
+          company_id: targetCompanyId,
+          ticket_number: generatedNumber || `${sourceTicketNumber || batchNumber}-${split.customer}`,
+          ticket_type: 'truck',
+          status: 'draft',
+          segment_id: flowxDefaultSegmentId || null,
+          import_batch_id: batch.id,
+          flowx_row_id: flowxRow?.id || null,
+          truck_number: truckNumber || null,
+          driver_name: driverName || null,
+          customer_name: split.customer,
+          split_parent_ticket: sourceTicketNumber || batchNumber || null,
+          split_percent: split.percent,
+          lact_name: flowxLactName || null,
+          observed_inputs: {
+            source: 'flowx_csv',
+            lact_name: flowxLactName || null,
+            source_ticket_number: sourceTicketNumber || null,
+            batch_number: batchNumber || null,
+            truck_number: truckNumber || null,
+            driver_name: driverName || null,
+            customer_name: split.customer,
+            split_percent: split.percent,
+            gross_volume_bbl: splitGross,
+            net_volume_bbl: splitNet,
+            api_gravity: apiGravity || null,
+            observed_temperature: observedTemp || null,
+            bsw_percent: bswPercent || null,
+          },
+          calculation_results: {
+            gov: splitGross,
+            gsv: splitGross,
+            nsv: splitNet,
+            split_percent: split.percent,
+          },
+        }
+
+        const { data: ticketData, error: ticketError } = await supabase
+          .from('tickets')
+          .insert(ticketPayload)
+          .select()
+          .single()
+
+        if (!ticketError && ticketData?.id) {
+          createdIds.push(ticketData.id)
+          createdTickets += 1
+        } else {
+          console.error('Flow-X split ticket insert failed:', ticketError)
+        }
+      }
+
+      if (flowxRow?.id) {
+        await supabase
+          .from('flowx_truck_import_rows')
+          .update({ created_ticket_ids: createdIds })
+          .eq('id', flowxRow.id)
+      }
+    }
+
+    alert(`Flow-X import complete. Created ${createdTickets} draft truck tickets.`)
+    setFlowxCsvFile(null)
+    await loadAll()
+    setPage('tickets')
+  }
+
+  function getSegmentInventoryRows() {
+    return segments.map((segment: any) => {
+      const segmentTickets = tickets.filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
+      const receiptVolume = segmentTickets
+        .filter((ticket: any) => {
+          const meter = meters.find((m: any) => m.id === ticket.meter_id)
+          return ((meter as any)?.meter_role || (meter as any)?.meter_direction || (meter as any)?.direction) === 'receipt'
+        })
+        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+
+      const deliveryVolume = segmentTickets
+        .filter((ticket: any) => {
+          const meter = meters.find((m: any) => m.id === ticket.meter_id)
+          return ((meter as any)?.meter_role || (meter as any)?.meter_direction || (meter as any)?.direction) === 'delivery'
+        })
+        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+
+      const tankMovement = segmentTickets
+        .filter((ticket: any) => ticket.ticket_type === 'tank')
+        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.tank_nsv || ticket.calculation_results?.tank_movement_bbl || 0), 0)
+
+      const truckVolume = segmentTickets
+        .filter((ticket: any) => ticket.ticket_type === 'truck')
+        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || 0), 0)
+
+      const overShort = receiptVolume - deliveryVolume + tankMovement - truckVolume
+
+      return {
+        segment,
+        receiptVolume,
+        deliveryVolume,
+        tankMovement,
+        truckVolume,
+        overShort,
+      }
+    })
+  }
+
   async function importMetersCsv() {
     if (!meterCsvFile) {
       alert('Choose a CSV file first.')
@@ -3269,7 +3596,7 @@ async function saveUserRole() {
             <div class="page">
               <div class="brand-header">
                 <div>
-                  <div class="brand-name">${companyName}</div>
+                  <div class="brand-name">{getCompanyDisplayName()}</div>
                   <div class="brand-subtitle">Custody Transfer Ticket</div>
                 </div>
                 ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}
@@ -3701,12 +4028,85 @@ async function saveUserRole() {
     )
 
 
+
+  const mobileHomeModules = [
+    { key: 'dashboard', label: 'Dashboard', description: 'Totals and quick status' },
+    { key: 'tickets', label: 'Tickets', description: 'Create, open, approve tickets' },
+    { key: 'readings', label: 'Readings', description: 'Operator readings' },
+    { key: 'pot', label: 'POT', description: 'Quality and S&W' },
+    { key: 'provings', label: 'Provings', description: 'Meter proving records' },
+    { key: 'reports', label: 'Reports', description: 'Exports and PDF bundles' },
+    ...(canViewAdmin ? [{ key: 'admin', label: 'Admin', description: 'Company setup and imports' }] : []),
+    { key: 'operations', label: 'Operations', description: 'Over / short and alerts' },
+  ]
+
+  function openMobileModule(moduleKey: string) {
+    setPage(moduleKey)
+    setMobileMenuOpen(false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
   if (!session) return <Login />
 
   return (
     <>
       <style>{`
+        @media (max-width: 768px) {
+          body {
+            overflow-x: hidden;
+          }
+
+          .desktop-sidebar {
+            display: none !important;
+          }
+
+          .mobile-home {
+            display: block !important;
+            padding: 14px;
+          }
+
+          .mobile-page-header {
+            display: flex !important;
+          }
+
+          .app-content {
+            margin-left: 0 !important;
+            width: 100% !important;
+            padding: 12px !important;
+          }
+
+          .responsive-grid {
+            grid-template-columns: 1fr !important;
+          }
+
+          input,
+          select,
+          button {
+            min-height: 44px;
+            font-size: 16px !important;
+          }
+
+          h1 {
+            font-size: 22px !important;
+          }
+
+          h2 {
+            font-size: 18px !important;
+          }
+        }
+
+        @media (min-width: 769px) {
+          .mobile-home {
+            display: none !important;
+          }
+
+          .mobile-page-header {
+            display: none !important;
+          }
+        }
+      `}</style>
+<style>{`
         input::placeholder { color: rgba(248,250,252,0.48); }
         select option { background: #0b1117; color: #f8fafc; }
         button:hover { filter: brightness(1.08); }
@@ -3871,6 +4271,63 @@ async function saveUserRole() {
           }}
         />
 
+        {/* Mobile Module Home */}
+        {(mobileMenuOpen || !page) && (
+          <div className="mobile-home">
+            <div style={{ ...box, marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {getCompanyLogoUrl() ? (
+                  <img src={getCompanyLogoUrl()} style={{ width: 54, height: 54, objectFit: 'contain', borderRadius: 12, background: '#fff' }} />
+                ) : (
+                  <div style={{ width: 54, height: 54, borderRadius: 14, background: accentGradient(), display: 'grid', placeItems: 'center', fontWeight: 900, fontSize: 22 }}>
+                    $
+                  </div>
+                )}
+                <div>
+                  <h1 style={{ margin: 0 }}>{getCompanyDisplayName()}</h1>
+                  <div style={{ color: '#a8b3bd' }}>Measurement Platform</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {mobileHomeModules.map((module) => (
+                <button
+                  key={module.key}
+                  style={{
+                    ...card,
+                    textAlign: 'left',
+                    minHeight: 104,
+                    border: `1px solid ${accentRgba(0.45)}`,
+                    background: 'rgba(15, 23, 42, 0.92)',
+                    color: '#fff',
+                  }}
+                  onClick={() => openMobileModule(module.key)}
+                >
+                  <div style={{ fontSize: 18, fontWeight: 900 }}>{module.label}</div>
+                  <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 6 }}>{module.description}</div>
+                </button>
+              ))}
+            </div>
+
+            <button style={{ ...button, background: '#dc2626', borderColor: '#ef4444', marginTop: 16 }} onClick={logout}>
+              Logout
+            </button>
+          </div>
+        )}
+
+        {/* Mobile Page Header */}
+        {!mobileMenuOpen && page && (
+          <div className="mobile-page-header" style={{ display: 'none', gap: 10, alignItems: 'center', marginBottom: 12, position: 'sticky', top: 0, zIndex: 80, background: '#050b12', padding: '10px 0' }}>
+            <button style={{ ...button, width: 'auto', padding: '10px 14px' }} onClick={() => setMobileMenuOpen(true)}>
+              Home
+            </button>
+            <div style={{ fontWeight: 900, textTransform: 'uppercase' }}>{page}</div>
+          </div>
+        )}
+
+        {!mobileMenuOpen && (
+          <>
         {page === 'dashboard' && (
           <>
             <h1>Dashboard</h1>
@@ -4318,6 +4775,37 @@ async function saveUserRole() {
                     </div>
 
                     <div style={{ ...card, gridColumn: '1 / -1' }}>
+                      <h3>Flow-X Truck Ticket CSV Import</h3>
+                      <p style={{ color: '#a8b3bd' }}>
+                        Import Flow-X LACT truck CSV rows and split each load into up to 4 customer draft truck tickets.
+                      </p>
+
+                      <input style={input} placeholder="LACT Name" value={flowxLactName} onChange={(e) => setFlowxLactName(e.target.value)} />
+
+                      <select style={input} value={flowxDefaultSegmentId} onChange={(e) => setFlowxDefaultSegmentId(e.target.value)}>
+                        <option value="">Default Segment</option>
+                        {segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                      </select>
+
+                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 12 }}>
+                        <input style={input} placeholder="Customer 1" value={flowxCustomer1} onChange={(e) => setFlowxCustomer1(e.target.value)} />
+                        <input style={input} placeholder="% 1" value={flowxPercent1} onChange={(e) => setFlowxPercent1(e.target.value)} />
+                        <input style={input} placeholder="Customer 2" value={flowxCustomer2} onChange={(e) => setFlowxCustomer2(e.target.value)} />
+                        <input style={input} placeholder="% 2" value={flowxPercent2} onChange={(e) => setFlowxPercent2(e.target.value)} />
+                        <input style={input} placeholder="Customer 3" value={flowxCustomer3} onChange={(e) => setFlowxCustomer3(e.target.value)} />
+                        <input style={input} placeholder="% 3" value={flowxPercent3} onChange={(e) => setFlowxPercent3(e.target.value)} />
+                        <input style={input} placeholder="Customer 4" value={flowxCustomer4} onChange={(e) => setFlowxCustomer4(e.target.value)} />
+                        <input style={input} placeholder="% 4" value={flowxPercent4} onChange={(e) => setFlowxPercent4(e.target.value)} />
+                      </div>
+
+                      <input style={input} type="file" accept=".csv,text/csv" onChange={(e) => setFlowxCsvFile(e.target.files?.[0] || null)} />
+
+                      <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Importing Flow-X truck tickets', importFlowXTruckTickets)}>
+                        Import Flow-X Truck Tickets
+                      </button>
+                    </div>
+
+                    <div style={{ ...card, gridColumn: '1 / -1' }}>
                       <h3>Tank / Line Fill Setup</h3>
                       <p style={{ color: '#a8b3bd' }}>
                         Tanks and line fills are company-specific assets. Strapping charts are uploaded per tank as calibration versions.
@@ -4703,6 +5191,27 @@ async function saveUserRole() {
         {page === 'operations' && (
           <>
             <h1>Operations Intelligence</h1>
+
+            {/* Phase 24 Inventory / Over-Short */}
+            <div style={box}>
+              <h2>Inventory / Over & Short</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Uses approved tickets, meter receipt/delivery roles, tank movements, and truck tickets to calculate segment balance.
+              </p>
+
+              <div style={{ display: 'grid', gap: 10 }}>
+                {getSegmentInventoryRows().map((row: any) => (
+                  <div key={row.segment.id} style={card}>
+                    <strong>{row.segment.name}</strong>
+                    <div>Receipts: {row.receiptVolume.toFixed(2)}</div>
+                    <div>Deliveries: {row.deliveryVolume.toFixed(2)}</div>
+                    <div>Tank Movement: {row.tankMovement.toFixed(2)}</div>
+                    <div>Truck Tickets: {row.truckVolume.toFixed(2)}</div>
+                    <div><strong>Over / Short: {row.overShort.toFixed(2)}</strong></div>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
               <div style={kpiCard}>
@@ -5490,6 +5999,8 @@ async function saveUserRole() {
               </div>
             )}
           </>
+        )}
+                </>
         )}
       </main>
     </div>

@@ -603,6 +603,7 @@ function App() {
     driver_name: '',
     customer_name: '',
     producer_name: '',
+    transporter_name: '',
     lease_name: '',
     meter_number: '',
     segment_name: '',
@@ -616,10 +617,10 @@ function App() {
   })
   const [flowxLactName, setFlowxLactName] = useState('')
   const [flowxDefaultSegmentId, setFlowxDefaultSegmentId] = useState('')
-  const [flowxCustomer1, setFlowxCustomer1] = useState('')
-  const [flowxCustomer2, setFlowxCustomer2] = useState('')
-  const [flowxCustomer3, setFlowxCustomer3] = useState('')
-  const [flowxCustomer4, setFlowxCustomer4] = useState('')
+  const [flowxTransporter1, setFlowxTransporter1] = useState('')
+  const [flowxTransporter2, setFlowxTransporter2] = useState('')
+  const [flowxTransporter3, setFlowxTransporter3] = useState('')
+  const [flowxTransporter4, setFlowxTransporter4] = useState('')
   const [flowxPercent1, setFlowxPercent1] = useState('')
   const [flowxPercent2, setFlowxPercent2] = useState('')
   const [flowxPercent3, setFlowxPercent3] = useState('')
@@ -3063,10 +3064,10 @@ async function createCompany() {
 
   function getFlowXSplits() {
     const splits = [
-      { customer: flowxCustomer1, percent: Number(flowxPercent1 || 0) },
-      { customer: flowxCustomer2, percent: Number(flowxPercent2 || 0) },
-      { customer: flowxCustomer3, percent: Number(flowxPercent3 || 0) },
-      { customer: flowxCustomer4, percent: Number(flowxPercent4 || 0) },
+      { customer: flowxTransporter1, percent: Number(flowxPercent1 || 0) },
+      { customer: flowxTransporter2, percent: Number(flowxPercent2 || 0) },
+      { customer: flowxTransporter3, percent: Number(flowxPercent3 || 0) },
+      { customer: flowxTransporter4, percent: Number(flowxPercent4 || 0) },
     ].filter((split) => split.customer && split.percent > 0)
 
     const total = splits.reduce((sum, split) => sum + split.percent, 0)
@@ -3197,7 +3198,8 @@ async function createCompany() {
       truck_number: guessFlowXColumn(parsed.headers, ['truck nr', 'truck_number', 'truck no', 'truck']),
       driver_name: guessFlowXColumn(parsed.headers, ['driver name', 'driver_name', 'driver']),
       customer_name: guessFlowXColumn(parsed.headers, ['customer', 'customer_name']),
-      producer_name: guessFlowXColumn(parsed.headers, ['transporter', 'producer_name', 'producer']),
+      producer_name: guessFlowXColumn(parsed.headers, ['producer_name', 'producer']),
+      transporter_name: guessFlowXColumn(parsed.headers, ['transporter', 'transporter_name']),
       lease_name: guessFlowXColumn(parsed.headers, ['lease_name', 'lease']),
       meter_number: guessFlowXColumn(parsed.headers, ['rack nr', 'meter_number', 'meter']),
       segment_name: guessFlowXColumn(parsed.headers, ['site', 'segment_name', 'segment']),
@@ -3235,10 +3237,10 @@ async function createCompany() {
 
   function getFlowXSplitsFromForm() {
     const splits = [
-      { customer: flowxCustomer1, percent: Number(flowxPercent1 || 0) },
-      { customer: flowxCustomer2, percent: Number(flowxPercent2 || 0) },
-      { customer: flowxCustomer3, percent: Number(flowxPercent3 || 0) },
-      { customer: flowxCustomer4, percent: Number(flowxPercent4 || 0) },
+      { customer: flowxTransporter1, percent: Number(flowxPercent1 || 0) },
+      { customer: flowxTransporter2, percent: Number(flowxPercent2 || 0) },
+      { customer: flowxTransporter3, percent: Number(flowxPercent3 || 0) },
+      { customer: flowxTransporter4, percent: Number(flowxPercent4 || 0) },
     ].filter((split) => split.customer && split.percent > 0)
 
     const total = splits.reduce((sum, split) => sum + split.percent, 0)
@@ -3249,21 +3251,79 @@ async function createCompany() {
     }))
   }
 
+
+  function getFlowXAutoTransporterSplits(rows: any[]) {
+    const totals: Record<string, number> = {}
+    let grandTotal = 0
+
+    rows.forEach((row) => {
+      const transporter = String(getMappedFlowXValue(row, 'transporter_name') || getMappedFlowXValue(row, 'producer_name') || 'Unknown Transporter').trim()
+      const nsv = getMappedFlowXNumber(row, 'net_volume_bbl') || getMappedFlowXNumber(row, 'gross_volume_bbl')
+
+      if (!transporter || !nsv) return
+
+      totals[transporter] = (totals[transporter] || 0) + nsv
+      grandTotal += nsv
+    })
+
+    return Object.entries(totals).map(([transporter, total]) => ({
+      customer: transporter,
+      transporter,
+      percent: grandTotal ? (total / grandTotal) * 100 : 0,
+      normalizedPercent: grandTotal ? total / grandTotal : 0,
+      totalNsv: total,
+    }))
+  }
+
+  function getFlowXSplitsForImport(rows: any[]) {
+    const manualSplits = getFlowXSplitsFromForm()
+
+    if (manualSplits.length > 0) {
+      return manualSplits.map((split: any) => ({
+        ...split,
+        transporter: split.customer,
+      }))
+    }
+
+    return getFlowXAutoTransporterSplits(rows)
+  }
+
+  function getLatestPotForTransporter(transporterName: string) {
+    if (!transporterName) return null
+
+    return potQuality
+      .filter((pot: any) => {
+        const potTransporter = String(
+          pot.transporter ||
+          pot.transporter_name ||
+          pot.customer ||
+          pot.customer_name ||
+          pot.producer_name ||
+          ''
+        ).toLowerCase()
+
+        return potTransporter === transporterName.toLowerCase()
+      })
+      .sort((a: any, b: any) =>
+        new Date(b.created_at || b.sample_date || 0).getTime() -
+        new Date(a.created_at || a.sample_date || 0).getTime()
+      )[0] || null
+  }
+
   async function importMappedFlowXTruckTickets() {
     if (!flowxCsvFile) {
       alert('Choose a Flow-X CSV file first.')
       return
     }
 
-    const splits = getFlowXSplitsFromForm()
-
-    if (splits.length === 0) {
-      alert('Enter at least one customer split.')
-      return
-    }
-
     const csvText = await flowxCsvFile.text()
     const parsed = parseFlowXCsvForMapping(csvText)
+    const splits = getFlowXSplitsForImport(parsed.data)
+
+    if (splits.length === 0) {
+      alert('No transporter volumes found in the CSV and no manual split was entered.')
+      return
+    }
     const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
     if (!targetCompanyId) {
@@ -3294,8 +3354,9 @@ async function createCompany() {
       const batchNumber = getMappedFlowXValue(row, 'batch_number')
       const truckNumber = getMappedFlowXValue(row, 'truck_number')
       const driverName = getMappedFlowXValue(row, 'driver_name')
-      const fileCustomerName = getMappedFlowXValue(row, 'customer_name')
+      const fileTransporterName = getMappedFlowXValue(row, 'customer_name')
       const producerName = getMappedFlowXValue(row, 'producer_name')
+      const transporterName = getMappedFlowXValue(row, 'transporter_name') || producerName
       const leaseName = getMappedFlowXValue(row, 'lease_name')
       const meterNumber = getMappedFlowXValue(row, 'meter_number')
       const segmentName = getMappedFlowXValue(row, 'segment_name')
@@ -3316,6 +3377,7 @@ async function createCompany() {
           truck_number: truckNumber || null,
           driver_name: driverName || null,
           producer_name: producerName || null,
+          transporter_name: transporterName || null,
           lease_name: leaseName || null,
           meter_number: meterNumber || null,
           segment_name: segmentName || null,
@@ -3336,12 +3398,14 @@ async function createCompany() {
           p_company_id: targetCompanyId,
         })
 
+        const splitTransporter = split.transporter || split.customer || transporterName
+        const assignedPot = getLatestPotForTransporter(splitTransporter)
         const splitGross = grossVolume * split.normalizedPercent
         const splitNet = netVolume * split.normalizedPercent
 
         const ticketPayload: any = {
           company_id: targetCompanyId,
-          ticket_number: generatedNumber || `${sourceTicketNumber || batchNumber}-${split.customer}`,
+          ticket_number: generatedNumber || `${sourceTicketNumber || batchNumber}-${splitTransporter}`,
           ticket_type: 'truck',
           status: 'draft',
           segment_id: flowxDefaultSegmentId || null,
@@ -3349,7 +3413,7 @@ async function createCompany() {
           flowx_row_id: flowxRow?.id || null,
           truck_number: truckNumber || null,
           driver_name: driverName || null,
-          customer_name: split.customer || fileCustomerName,
+          customer_name: split.customer || fileTransporterName,
           split_parent_ticket: sourceTicketNumber || batchNumber || null,
           split_percent: split.percent,
           lact_name: flowxLactName || null,
@@ -3363,7 +3427,10 @@ async function createCompany() {
             producer_name: producerName || null,
             lease_name: leaseName || null,
             meter_number: meterNumber || null,
-            customer_name: split.customer,
+            customer_name: splitTransporter,
+            transporter_name: splitTransporter,
+            assigned_pot_id: assignedPot?.id || null,
+            assigned_pot_sample_date: assignedPot?.sample_date || assignedPot?.created_at || null,
             split_percent: split.percent,
             gross_volume_bbl: splitGross,
             net_volume_bbl: splitNet,
@@ -3376,6 +3443,7 @@ async function createCompany() {
             gsv: splitGross,
             nsv: splitNet,
             split_percent: split.percent,
+            assigned_pot_id: assignedPot?.id || null,
           },
         }
 
@@ -3403,7 +3471,7 @@ async function createCompany() {
     const splits = getFlowXSplits()
 
     if (splits.length === 0) {
-      alert('Enter at least one customer split percentage.')
+      alert('Enter at least one transporter split percentage.')
       return
     }
 
@@ -3474,13 +3542,13 @@ async function createCompany() {
           api_gravity: apiGravity || null,
           observed_temperature: observedTemp || null,
           bsw_percent: bswPercent || null,
-          split_customer_1: flowxCustomer1 || null,
+          split_customer_1: flowxTransporter1 || null,
           split_percent_1: flowxPercent1 ? Number(flowxPercent1) : null,
-          split_customer_2: flowxCustomer2 || null,
+          split_customer_2: flowxTransporter2 || null,
           split_percent_2: flowxPercent2 ? Number(flowxPercent2) : null,
-          split_customer_3: flowxCustomer3 || null,
+          split_customer_3: flowxTransporter3 || null,
           split_percent_3: flowxPercent3 ? Number(flowxPercent3) : null,
-          split_customer_4: flowxCustomer4 || null,
+          split_customer_4: flowxTransporter4 || null,
           split_percent_4: flowxPercent4 ? Number(flowxPercent4) : null,
           raw_row: row,
         })
@@ -3499,7 +3567,7 @@ async function createCompany() {
 
         const ticketPayload: any = {
           company_id: targetCompanyId,
-          ticket_number: generatedNumber || `${sourceTicketNumber || batchNumber}-${split.customer}`,
+          ticket_number: generatedNumber || `${sourceTicketNumber || batchNumber}-${splitTransporter}`,
           ticket_type: 'truck',
           status: 'draft',
           segment_id: flowxDefaultSegmentId || null,
@@ -3507,7 +3575,7 @@ async function createCompany() {
           flowx_row_id: flowxRow?.id || null,
           truck_number: truckNumber || null,
           driver_name: driverName || null,
-          customer_name: split.customer,
+          customer_name: splitTransporter,
           split_parent_ticket: sourceTicketNumber || batchNumber || null,
           split_percent: split.percent,
           lact_name: flowxLactName || null,
@@ -3518,7 +3586,7 @@ async function createCompany() {
             batch_number: batchNumber || null,
             truck_number: truckNumber || null,
             driver_name: driverName || null,
-            customer_name: split.customer,
+            customer_name: splitTransporter,
             split_percent: split.percent,
             gross_volume_bbl: splitGross,
             net_volume_bbl: splitNet,
@@ -3848,7 +3916,7 @@ async function createCompany() {
   function exportFlowXImportedTicketsExcel() {
     const rows = getFlowXImportedTickets()
     const sheetRows = [
-      ['Ticket #', 'Truck #', 'Driver', 'Customer', 'Split %', 'GSV', 'NSV', 'LACT', 'Date'],
+      ['Ticket #', 'Truck #', 'Driver', 'Transporter', 'Split %', 'GSV', 'NSV', 'LACT', 'Date'],
       ...rows.map((ticket: any) => [
         ticket.ticket_number || ticket.id,
         ticket.truck_number || ticket.observed_inputs?.truck_number || '',
@@ -3909,7 +3977,7 @@ async function createCompany() {
         name: row.segment.name || 'Segment',
         numericIndexes: [4, 5, 6, 7],
         rows: [
-          ['Ticket #', 'Type', 'Status', 'Meter Role', 'Volume', 'Tank Change', 'Date', 'Customer'],
+          ['Ticket #', 'Type', 'Status', 'Meter Role', 'Volume', 'Tank Change', 'Date', 'Transporter'],
           ...segmentTickets.map((ticket: any) => [
             ticket.ticket_number || ticket.id,
             ticket.ticket_type || '',
@@ -5085,11 +5153,11 @@ async function saveUserRole() {
         approvedUnposted.length === 0 ? 'ok' : 'warning'
       )
 
-      const flowxReady = !!flowxCustomer1 || !!flowxCustomer2 || !!flowxCustomer3 || !!flowxCustomer4
+      const flowxReady = !!flowxTransporter1 || !!flowxTransporter2 || !!flowxTransporter3 || !!flowxTransporter4
       addCheck(
         'Flow-X split setup',
         flowxReady,
-        flowxReady ? 'At least one Flow-X customer split is configured in the current form.' : 'No Flow-X customer split is currently configured.',
+        flowxReady ? 'At least one Flow-X transporter split is configured in the current form.' : 'No Flow-X transporter split is currently configured.',
         flowxReady ? 'ok' : 'warning'
       )
 
@@ -5904,13 +5972,13 @@ async function saveUserRole() {
                       </select>
 
                       <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 12 }}>
-                        <input style={input} placeholder="Customer 1" value={flowxCustomer1} onChange={(e) => setFlowxCustomer1(e.target.value)} />
+                        <input style={input} placeholder="Transporter 1" value={flowxTransporter1} onChange={(e) => setFlowxTransporter1(e.target.value)} />
                         <input style={input} placeholder="% 1" value={flowxPercent1} onChange={(e) => setFlowxPercent1(e.target.value)} />
-                        <input style={input} placeholder="Customer 2" value={flowxCustomer2} onChange={(e) => setFlowxCustomer2(e.target.value)} />
+                        <input style={input} placeholder="Transporter 2" value={flowxTransporter2} onChange={(e) => setFlowxTransporter2(e.target.value)} />
                         <input style={input} placeholder="% 2" value={flowxPercent2} onChange={(e) => setFlowxPercent2(e.target.value)} />
-                        <input style={input} placeholder="Customer 3" value={flowxCustomer3} onChange={(e) => setFlowxCustomer3(e.target.value)} />
+                        <input style={input} placeholder="Transporter 3" value={flowxTransporter3} onChange={(e) => setFlowxTransporter3(e.target.value)} />
                         <input style={input} placeholder="% 3" value={flowxPercent3} onChange={(e) => setFlowxPercent3(e.target.value)} />
-                        <input style={input} placeholder="Customer 4" value={flowxCustomer4} onChange={(e) => setFlowxCustomer4(e.target.value)} />
+                        <input style={input} placeholder="Transporter 4" value={flowxTransporter4} onChange={(e) => setFlowxTransporter4(e.target.value)} />
                         <input style={input} placeholder="% 4" value={flowxPercent4} onChange={(e) => setFlowxPercent4(e.target.value)} />
                       </div>
 
@@ -6654,7 +6722,7 @@ async function saveUserRole() {
               <div style={box}>
                 <h2>Flow-X Mapping Import</h2>
                 <p style={{ color: '#a8b3bd' }}>
-                  Upload a Flow-X CSV, map the columns, set up to 4 customer splits, and generate draft truck tickets.
+                  Upload a Flow-X CSV, map the columns, set up to 4 transporter splits, and generate draft truck tickets.
                 </p>
 
                 <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -6666,13 +6734,13 @@ async function saveUserRole() {
                 </div>
 
                 <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 12 }}>
-                  <input style={input} placeholder="Customer 1" value={flowxCustomer1} onChange={(e) => setFlowxCustomer1(e.target.value)} />
+                  <input style={input} placeholder="Transporter 1" value={flowxTransporter1} onChange={(e) => setFlowxTransporter1(e.target.value)} />
                   <input style={input} placeholder="% 1" value={flowxPercent1} onChange={(e) => setFlowxPercent1(e.target.value)} />
-                  <input style={input} placeholder="Customer 2" value={flowxCustomer2} onChange={(e) => setFlowxCustomer2(e.target.value)} />
+                  <input style={input} placeholder="Transporter 2" value={flowxTransporter2} onChange={(e) => setFlowxTransporter2(e.target.value)} />
                   <input style={input} placeholder="% 2" value={flowxPercent2} onChange={(e) => setFlowxPercent2(e.target.value)} />
-                  <input style={input} placeholder="Customer 3" value={flowxCustomer3} onChange={(e) => setFlowxCustomer3(e.target.value)} />
+                  <input style={input} placeholder="Transporter 3" value={flowxTransporter3} onChange={(e) => setFlowxTransporter3(e.target.value)} />
                   <input style={input} placeholder="% 3" value={flowxPercent3} onChange={(e) => setFlowxPercent3(e.target.value)} />
-                  <input style={input} placeholder="Customer 4" value={flowxCustomer4} onChange={(e) => setFlowxCustomer4(e.target.value)} />
+                  <input style={input} placeholder="Transporter 4" value={flowxTransporter4} onChange={(e) => setFlowxTransporter4(e.target.value)} />
                   <input style={input} placeholder="% 4" value={flowxPercent4} onChange={(e) => setFlowxPercent4(e.target.value)} />
                 </div>
 
@@ -6697,6 +6765,7 @@ async function saveUserRole() {
                         ['truck_number', 'Truck Number'],
                         ['driver_name', 'Driver Name'],
                         ['producer_name', 'Producer'],
+                        ['transporter_name', 'Transporter'],
                         ['lease_name', 'Lease'],
                         ['meter_number', 'Meter Number'],
                         ['segment_name', 'Segment'],

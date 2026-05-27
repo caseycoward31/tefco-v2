@@ -2396,7 +2396,7 @@ function getCompanyDisplayName() {
     }
 
     setCompanySettings(data as any)
-    setCompanyLogoFile(null)
+    logo_url: logoUrl || companySettings?.logo_url || '',
     setCompanyNameInput((data as any).company_name || '')
     setCompanyAddress1Input((data as any).address_line1 || '')
     setCompanyAddress2Input((data as any).address_line2 || '')

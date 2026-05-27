@@ -581,6 +581,8 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
+  const [systemHealthChecks, setSystemHealthChecks] = useState<any[]>([])
+  const [systemHealthRunning, setSystemHealthRunning] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [meterCsvFile, setMeterCsvFile] = useState<File | null>(null)
   const [strappingCsvFile, setStrappingCsvFile] = useState<File | null>(null)
@@ -4653,6 +4655,7 @@ async function saveUserRole() {
     { key: 'pot', label: 'POT', description: 'Quality and S&W' },
     { key: 'provings', label: 'Provings', description: 'Meter proving records' },
     { key: 'reports', label: 'Reports', description: 'Reports Center' },
+    { key: 'system_health', label: 'System Health', description: 'Setup checks' },
     ...(canViewAdmin ? [{ key: 'admin', label: 'Admin', description: 'Company setup and imports' }] : []),
     { key: 'operations', label: 'Operations', description: 'Over / short and alerts' },
   ]
@@ -4661,6 +4664,107 @@ async function saveUserRole() {
     setPage(moduleKey)
     setMobileMenuOpen(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+
+  async function runSystemHealthCheck() {
+    setSystemHealthRunning(true)
+
+    const checks: any[] = []
+    const addCheck = (name: string, ok: boolean, detail: string, severity: 'ok' | 'warning' | 'error' = ok ? 'ok' : 'error') => {
+      checks.push({ name, ok, detail, severity })
+    }
+
+    const targetCompanyId =
+      userIsSuperAdmin && selectedAdminCompanyId
+        ? selectedAdminCompanyId
+        : companyId
+
+    try {
+      addCheck('Company selected', !!targetCompanyId, targetCompanyId ? `Company ID: ${targetCompanyId}` : 'No company is selected.')
+
+      const requiredTables = [
+        'companies',
+        'company_settings',
+        'areas',
+        'segments',
+        'producers',
+        'leases',
+        'meters',
+        'readings',
+        'tickets',
+        'pot_quality',
+        'provings',
+        'tanks',
+        'tank_calibration_versions',
+        'tank_strapping_rows',
+        'tank_deadwood_rules',
+        'line_fills',
+      ]
+
+      for (const tableName of requiredTables) {
+        const { error } = await supabase.from(tableName).select('*').limit(1)
+        addCheck(`Table: ${tableName}`, !error, error ? error.message : 'Available')
+      }
+
+      const { data: buckets, error: bucketError } = await supabase.storage.listBuckets()
+      const hasLogoBucket = !!buckets?.some((bucket: any) => bucket.name === 'company-logos')
+      addCheck('Storage bucket: company-logos', !bucketError && hasLogoBucket, bucketError ? bucketError.message : hasLogoBucket ? 'Available' : 'Bucket missing')
+
+      const companySettingsOk = !!companySettings?.company_name || !!companySettings?.accent_color || !!companySettings?.logo_url
+      addCheck('Company branding configured', companySettingsOk, companySettingsOk ? 'Branding row is loaded.' : 'No company branding loaded.', companySettingsOk ? 'ok' : 'warning')
+
+      const missingMeterDirections = meters.filter((meter: any) => !meter.direction && !meter.meter_direction && !meter.meter_role)
+      addCheck(
+        'Meter receipt/delivery roles',
+        missingMeterDirections.length === 0,
+        missingMeterDirections.length === 0 ? 'All meters have role/direction fields.' : `${missingMeterDirections.length} meter(s) missing receipt/delivery role.`,
+        missingMeterDirections.length === 0 ? 'ok' : 'warning'
+      )
+
+      const tanksMissingCharts = tanks.filter((tank: any) =>
+        !tankCalibrationVersions.some((version: any) => version.tank_id === tank.id)
+      )
+      addCheck(
+        'Tank strapping charts',
+        tanksMissingCharts.length === 0,
+        tanks.length === 0 ? 'No tanks configured yet.' : tanksMissingCharts.length === 0 ? 'All tanks have calibration versions.' : `${tanksMissingCharts.length} tank(s) missing strapping chart calibration.`,
+        tanksMissingCharts.length === 0 ? 'ok' : 'warning'
+      )
+
+      const pendingTickets = tickets.filter((ticket: any) => !['approved', 'voided'].includes(String(ticket.status || 'draft').toLowerCase()))
+      addCheck(
+        'Pending ticket workflow',
+        true,
+        `${pendingTickets.length} draft/submitted ticket(s) pending.`,
+        pendingTickets.length > 0 ? 'warning' : 'ok'
+      )
+
+      const approvedUnposted = tickets.filter((ticket: any) =>
+        ticket.status === 'approved' && ticket.observed_inputs?.inventory_posted !== true
+      )
+      addCheck(
+        'Inventory posting status',
+        approvedUnposted.length === 0,
+        approvedUnposted.length === 0 ? 'Approved tickets appear posted or inventory posting not required.' : `${approvedUnposted.length} approved ticket(s) not marked inventory_posted.`,
+        approvedUnposted.length === 0 ? 'ok' : 'warning'
+      )
+
+      const flowxReady = !!flowxCustomer1 || !!flowxCustomer2 || !!flowxCustomer3 || !!flowxCustomer4
+      addCheck(
+        'Flow-X split setup',
+        flowxReady,
+        flowxReady ? 'At least one Flow-X customer split is configured in the current form.' : 'No Flow-X customer split is currently configured.',
+        flowxReady ? 'ok' : 'warning'
+      )
+
+      setSystemHealthChecks(checks)
+    } catch (error: any) {
+      addCheck('System health check failed', false, error?.message || 'Unknown error')
+      setSystemHealthChecks(checks)
+    } finally {
+      setSystemHealthRunning(false)
+    }
   }
 
   if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
@@ -6071,6 +6175,51 @@ async function saveUserRole() {
             </div>
 
 </>
+        )}
+
+        {page === 'system_health' && (
+          <>
+            <h1>System Health</h1>
+
+            <div style={box}>
+              <h2>Setup Validation</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Checks Supabase tables, storage, company branding, meter roles, tank charts, pending tickets, inventory posting, and Flow-X setup.
+              </p>
+
+              <button style={button} disabled={systemHealthRunning} onClick={runSystemHealthCheck}>
+                {systemHealthRunning ? 'Running Checks...' : 'Run System Health Check'}
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gap: 10 }}>
+              {systemHealthChecks.length === 0 && (
+                <div style={card}>
+                  No checks have been run yet.
+                </div>
+              )}
+
+              {systemHealthChecks.map((check: any, index: number) => (
+                <div
+                  key={`${check.name}-${index}`}
+                  style={{
+                    ...card,
+                    borderColor: check.severity === 'error' ? '#ef4444' : check.severity === 'warning' ? '#f59e0b' : '#22c55e',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                    <strong>{check.name}</strong>
+                    <span>
+                      {check.severity === 'error' ? '❌' : check.severity === 'warning' ? '⚠️' : '✅'}
+                    </span>
+                  </div>
+                  <div style={{ color: '#a8b3bd', marginTop: 6 }}>
+                    {check.detail}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
 
         {page === 'reports' && (

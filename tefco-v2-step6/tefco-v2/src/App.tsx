@@ -2279,11 +2279,15 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   }
 
 function getCompanyDisplayName() {
+    const selectedCompany =
+      companies.find((company: any) => company.id === companyId) ||
+      companies.find((company: any) => company.id === selectedAdminCompanyId)
+
     return (
       companyNameInput ||
       companySettings?.company_name ||
-      companySettings?.name ||
-      'getCompanyDisplayName()'
+      selectedCompany?.name ||
+      'Measurement App'
     )
   }
 
@@ -2376,7 +2380,15 @@ function getCompanyDisplayName() {
       return
     }
 
-    if (data) setCompanySettings(data)
+    if (data) // Company name sync to companies table
+    if (companyNameInput) {
+      await supabase
+        .from('companies')
+        .update({ name: companyNameInput })
+        .eq('id', userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId)
+    }
+
+    setCompanySettings(data)
     setCompanyLogoFile(null)
     alert('Company branding saved.')
   }

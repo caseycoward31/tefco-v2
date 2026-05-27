@@ -4526,7 +4526,7 @@ async function saveUserRole() {
           </div>
         </div>
 
-        {['dashboard', 'admin', 'reports', 'readings', 'pot', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
+        {['dashboard', 'admin', 'operations', 'reports', 'readings', 'pot', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
           <button key={p} onClick={() => { setPage(p); setMobileNavOpen(false) }} style={button}>
             {p.toUpperCase()}
           </button>
@@ -5754,6 +5754,30 @@ async function saveUserRole() {
         {page === 'reports' && (
           <>
             <h1>Reports</h1>
+
+            {/* Reports Over / Short Export */}
+            <div style={box}>
+              <h2>Over / Short Export</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Segment-based inventory balance export.
+              </p>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <input style={input} type="date" value={overShortStartDate} onChange={(e) => setOverShortStartDate(e.target.value)} />
+                <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
+                <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
+                  <option value="">All Segments</option>
+                  {segments.map((segment: any) => (
+                    <option key={segment.id} value={segment.id}>{segment.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <button style={button} onClick={exportOverShortCsv}>Export O/S CSV</button>
+                <button style={button} onClick={exportOverShortExcel}>Export O/S Excel</button>
+              </div>
+            </div>
 
             <div style={reportGrid}>
               <div style={kpiCard}>

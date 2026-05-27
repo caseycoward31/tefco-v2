@@ -594,6 +594,26 @@ function App() {
   const [newLineFillSegmentId, setNewLineFillSegmentId] = useState('')
   const [newLineFillCapacity, setNewLineFillCapacity] = useState('')
   const [flowxCsvFile, setFlowxCsvFile] = useState<File | null>(null)
+  const [flowxMappingRows, setFlowxMappingRows] = useState<any[]>([])
+  const [flowxMappingHeaders, setFlowxMappingHeaders] = useState<string[]>([])
+  const [flowxColumnMap, setFlowxColumnMap] = useState<any>({
+    ticket_number: '',
+    batch_number: '',
+    truck_number: '',
+    driver_name: '',
+    customer_name: '',
+    producer_name: '',
+    lease_name: '',
+    meter_number: '',
+    segment_name: '',
+    gross_volume_bbl: '',
+    net_volume_bbl: '',
+    api_gravity: '',
+    observed_temperature: '',
+    bsw_percent: '',
+    open_datetime: '',
+    close_datetime: '',
+  })
   const [flowxLactName, setFlowxLactName] = useState('')
   const [flowxDefaultSegmentId, setFlowxDefaultSegmentId] = useState('')
   const [flowxCustomer1, setFlowxCustomer1] = useState('')
@@ -3057,6 +3077,323 @@ async function createCompany() {
       ...split,
       normalizedPercent: total > 0 ? split.percent / total : 0,
     }))
+  }
+
+
+  function parseFlowXCsvForMapping(csvText: string) {
+    const rows: string[][] = []
+    let current = ''
+    let row: string[] = []
+    let inQuotes = false
+
+    for (let i = 0; i < csvText.length; i += 1) {
+      const char = csvText[i]
+      const next = csvText[i + 1]
+
+      if (char === '"' && inQuotes && next === '"') {
+        current += '"'
+        i += 1
+      } else if (char === '"') {
+        inQuotes = !inQuotes
+      } else if (char === ',' && !inQuotes) {
+        row.push(current.trim())
+        current = ''
+      } else if ((char === '
+' || char === '') && !inQuotes) {
+        if (current || row.length) {
+          row.push(current.trim())
+          rows.push(row)
+          row = []
+          current = ''
+        }
+        if (char === '' && next === '
+') i += 1
+      } else {
+        current += char
+      }
+    }
+
+    if (current || row.length) {
+      row.push(current.trim())
+      rows.push(row)
+    }
+
+    if (rows.length === 0) return { headers: [], data: [] }
+
+    const normalize = (value: any) => String(value || '').trim().toLowerCase()
+
+    // Flow-X daily ticket files often have report title / total rows / blank lines first.
+    // Find the real header row by looking for known fields.
+    let headerIndex = rows.findIndex((candidate) => {
+      const joined = candidate.map(normalize).join('|')
+      return (
+        joined.includes('start time') &&
+        joined.includes('stop time') &&
+        (joined.includes('ticket nr') || joined.includes('ticket no') || joined.includes('ticket number')) &&
+        (joined.includes('batch nr') || joined.includes('batch no') || joined.includes('batch number'))
+      )
+    })
+
+    if (headerIndex < 0) {
+      headerIndex = rows.findIndex((candidate) => {
+        const joined = candidate.map(normalize).join('|')
+        return joined.includes('ticket') && joined.includes('truck') && (joined.includes('gsv') || joined.includes('nsv') || joined.includes('gross'))
+      })
+    }
+
+    if (headerIndex < 0) headerIndex = 0
+
+    const headers = rows[headerIndex].map((header) => String(header || '').trim())
+    const data = rows
+      .slice(headerIndex + 1)
+      .filter((values) => values.some((value) => String(value || '').trim()))
+      .filter((values) => {
+        // Skip separator/blank rows directly below header.
+        const joined = values.map(normalize).join('|')
+        if (!joined.replace(/\|/g, '').trim()) return false
+        if (joined.includes('start time') && joined.includes('stop time')) return false
+        return true
+      })
+      .map((values) => {
+        const output: any = {}
+        headers.forEach((header, index) => {
+          output[header] = values[index] || ''
+        })
+        return output
+      })
+
+    return { headers, data }
+  }
+
+  function guessFlowXColumn(headers: string[], options: string[]) {
+    const normalized = headers.map((header) => ({
+      raw: header,
+      key: String(header || '').toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+    }))
+
+    for (const option of options) {
+      const optionKey = option.toLowerCase().replace(/[^a-z0-9]+/g, '_')
+      const match = normalized.find((header) => header.key === optionKey || header.key.includes(optionKey))
+      if (match) return match.raw
+    }
+
+    return ''
+  }
+
+  async function previewFlowXCsv(file?: File | null) {
+    const selectedFile = file || flowxCsvFile
+
+    if (!selectedFile) {
+      alert('Choose a Flow-X CSV first.')
+      return
+    }
+
+    const csvText = await selectedFile.text()
+    const parsed = parseFlowXCsvForMapping(csvText)
+    setFlowxMappingHeaders(parsed.headers)
+    setFlowxMappingRows(parsed.data.slice(0, 10))
+
+    setFlowxColumnMap({
+      ticket_number: guessFlowXColumn(parsed.headers, ['ticket nr', 'ticket_number', 'ticket no', 'ticket']),
+      batch_number: guessFlowXColumn(parsed.headers, ['batch nr', 'batch_number', 'batch no', 'batch', 'load_number']),
+      truck_number: guessFlowXColumn(parsed.headers, ['truck nr', 'truck_number', 'truck no', 'truck']),
+      driver_name: guessFlowXColumn(parsed.headers, ['driver name', 'driver_name', 'driver']),
+      customer_name: guessFlowXColumn(parsed.headers, ['customer', 'customer_name']),
+      producer_name: guessFlowXColumn(parsed.headers, ['transporter', 'producer_name', 'producer']),
+      lease_name: guessFlowXColumn(parsed.headers, ['lease_name', 'lease']),
+      meter_number: guessFlowXColumn(parsed.headers, ['rack nr', 'meter_number', 'meter']),
+      segment_name: guessFlowXColumn(parsed.headers, ['site', 'segment_name', 'segment']),
+      gross_volume_bbl: guessFlowXColumn(parsed.headers, ['gsv batch', 'iv batch', 'driver obs gross bbls', 'gross_volume_bbl', 'gross volume', 'gross', 'gov', 'gsv']),
+      net_volume_bbl: guessFlowXColumn(parsed.headers, ['nsv batch', 'net_volume_bbl', 'net volume', 'net', 'nsv']),
+      api_gravity: guessFlowXColumn(parsed.headers, ['api 60f', 'driver obs api', 'api_gravity', 'api', 'gravity']),
+      observed_temperature: guessFlowXColumn(parsed.headers, ['temperature', 'driver obs temp', 'observed_temperature', 'observed temp', 'obs_temp']),
+      bsw_percent: guessFlowXColumn(parsed.headers, ['bs&w', 'driver obs bs&w', 'bsw_percent', 'bsw', 's&w', 'sw']),
+      open_datetime: guessFlowXColumn(parsed.headers, ['start time', 'open_datetime', 'open time', 'start_time']),
+      close_datetime: guessFlowXColumn(parsed.headers, ['stop time', 'close_datetime', 'close time', 'end_time']),
+    })
+  }
+
+  function getMappedFlowXValue(row: any, field: string) {
+    const header = flowxColumnMap[field]
+    return header ? row[header] : ''
+  }
+
+  function getMappedFlowXNumber(row: any, field: string) {
+    const raw = getMappedFlowXValue(row, field)
+    const value = Number(String(raw || '').replace(/,/g, ''))
+    return Number.isFinite(value) ? value : 0
+  }
+
+  function getMappedFlowXDate(row: any, field: string) {
+    const raw = getMappedFlowXValue(row, field)
+    if (!raw) return null
+    const date = new Date(raw)
+    return Number.isNaN(date.getTime()) ? null : date.toISOString()
+  }
+
+  function updateFlowXColumnMap(field: string, value: string) {
+    setFlowxColumnMap((prev: any) => ({ ...prev, [field]: value }))
+  }
+
+  function getFlowXSplitsFromForm() {
+    const splits = [
+      { customer: flowxCustomer1, percent: Number(flowxPercent1 || 0) },
+      { customer: flowxCustomer2, percent: Number(flowxPercent2 || 0) },
+      { customer: flowxCustomer3, percent: Number(flowxPercent3 || 0) },
+      { customer: flowxCustomer4, percent: Number(flowxPercent4 || 0) },
+    ].filter((split) => split.customer && split.percent > 0)
+
+    const total = splits.reduce((sum, split) => sum + split.percent, 0)
+
+    return splits.map((split) => ({
+      ...split,
+      normalizedPercent: total ? split.percent / total : 0,
+    }))
+  }
+
+  async function importMappedFlowXTruckTickets() {
+    if (!flowxCsvFile) {
+      alert('Choose a Flow-X CSV file first.')
+      return
+    }
+
+    const splits = getFlowXSplitsFromForm()
+
+    if (splits.length === 0) {
+      alert('Enter at least one customer split.')
+      return
+    }
+
+    const csvText = await flowxCsvFile.text()
+    const parsed = parseFlowXCsvForMapping(csvText)
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    if (!targetCompanyId) {
+      alert('No company selected.')
+      return
+    }
+
+    const { data: batch, error: batchError } = await supabase
+      .from('flowx_import_batches')
+      .insert({
+        company_id: targetCompanyId,
+        lact_name: flowxLactName || null,
+        source_file_name: flowxCsvFile.name,
+        imported_count: parsed.data.length,
+      })
+      .select()
+      .single()
+
+    if (batchError || !batch) {
+      alert('Could not create import batch: ' + (batchError?.message || 'unknown error'))
+      return
+    }
+
+    let createdTickets = 0
+
+    for (const row of parsed.data) {
+      const sourceTicketNumber = getMappedFlowXValue(row, 'ticket_number')
+      const batchNumber = getMappedFlowXValue(row, 'batch_number')
+      const truckNumber = getMappedFlowXValue(row, 'truck_number')
+      const driverName = getMappedFlowXValue(row, 'driver_name')
+      const fileCustomerName = getMappedFlowXValue(row, 'customer_name')
+      const producerName = getMappedFlowXValue(row, 'producer_name')
+      const leaseName = getMappedFlowXValue(row, 'lease_name')
+      const meterNumber = getMappedFlowXValue(row, 'meter_number')
+      const segmentName = getMappedFlowXValue(row, 'segment_name')
+      const grossVolume = getMappedFlowXNumber(row, 'gross_volume_bbl')
+      const netVolume = getMappedFlowXNumber(row, 'net_volume_bbl') || grossVolume
+      const apiGravity = getMappedFlowXNumber(row, 'api_gravity')
+      const observedTemp = getMappedFlowXNumber(row, 'observed_temperature')
+      const bswPercent = getMappedFlowXNumber(row, 'bsw_percent')
+
+      const { data: flowxRow } = await supabase
+        .from('flowx_truck_import_rows')
+        .insert({
+          company_id: targetCompanyId,
+          import_batch_id: batch.id,
+          lact_name: flowxLactName || null,
+          batch_number: batchNumber || null,
+          ticket_number: sourceTicketNumber || null,
+          truck_number: truckNumber || null,
+          driver_name: driverName || null,
+          producer_name: producerName || null,
+          lease_name: leaseName || null,
+          meter_number: meterNumber || null,
+          segment_name: segmentName || null,
+          open_datetime: getMappedFlowXDate(row, 'open_datetime'),
+          close_datetime: getMappedFlowXDate(row, 'close_datetime'),
+          gross_volume_bbl: grossVolume || null,
+          net_volume_bbl: netVolume || null,
+          api_gravity: apiGravity || null,
+          observed_temperature: observedTemp || null,
+          bsw_percent: bswPercent || null,
+          raw_row: row,
+        })
+        .select()
+        .single()
+
+      for (const split of splits) {
+        const { data: generatedNumber } = await supabase.rpc('generate_ticket_number', {
+          p_company_id: targetCompanyId,
+        })
+
+        const splitGross = grossVolume * split.normalizedPercent
+        const splitNet = netVolume * split.normalizedPercent
+
+        const ticketPayload: any = {
+          company_id: targetCompanyId,
+          ticket_number: generatedNumber || `${sourceTicketNumber || batchNumber}-${split.customer}`,
+          ticket_type: 'truck',
+          status: 'draft',
+          segment_id: flowxDefaultSegmentId || null,
+          import_batch_id: batch.id,
+          flowx_row_id: flowxRow?.id || null,
+          truck_number: truckNumber || null,
+          driver_name: driverName || null,
+          customer_name: split.customer || fileCustomerName,
+          split_parent_ticket: sourceTicketNumber || batchNumber || null,
+          split_percent: split.percent,
+          lact_name: flowxLactName || null,
+          observed_inputs: {
+            source: 'flowx_csv_mapped',
+            lact_name: flowxLactName || null,
+            source_ticket_number: sourceTicketNumber || null,
+            batch_number: batchNumber || null,
+            truck_number: truckNumber || null,
+            driver_name: driverName || null,
+            producer_name: producerName || null,
+            lease_name: leaseName || null,
+            meter_number: meterNumber || null,
+            customer_name: split.customer,
+            split_percent: split.percent,
+            gross_volume_bbl: splitGross,
+            net_volume_bbl: splitNet,
+            api_gravity: apiGravity || null,
+            observed_temperature: observedTemp || null,
+            bsw_percent: bswPercent || null,
+          },
+          calculation_results: {
+            gov: splitGross,
+            gsv: splitGross,
+            nsv: splitNet,
+            split_percent: split.percent,
+          },
+        }
+
+        const { error } = await supabase.from('tickets').insert(ticketPayload)
+
+        if (!error) createdTickets += 1
+        else console.error('Flow-X mapped ticket insert failed:', error)
+      }
+    }
+
+    alert(`Flow-X import complete. Created ${createdTickets} draft truck tickets.`)
+    setFlowxCsvFile(null)
+    setFlowxMappingRows([])
+    setFlowxMappingHeaders([])
+    await loadAll()
+    setPage('tickets')
   }
 
   async function importFlowXTruckTickets() {
@@ -6317,10 +6654,105 @@ async function saveUserRole() {
 
             {reportCenterSection === 'flowx' && (
               <div style={box}>
-                <h2>Flow-X Imports</h2>
-                <p style={{ color: '#a8b3bd' }}>Review/export Flow-X imported truck tickets and customer splits.</p>
-                <button style={button} onClick={exportFlowXImportedTicketsExcel}>Export Flow-X Truck Excel</button>
-                <div style={card}>Imported Truck Tickets: {getFlowXImportedTickets().length}</div>
+                <h2>Flow-X Mapping Import</h2>
+                <p style={{ color: '#a8b3bd' }}>
+                  Upload a Flow-X CSV, map the columns, set up to 4 customer splits, and generate draft truck tickets.
+                </p>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <input style={input} placeholder="LACT Name" value={flowxLactName} onChange={(e) => setFlowxLactName(e.target.value)} />
+                  <select style={input} value={flowxDefaultSegmentId} onChange={(e) => setFlowxDefaultSegmentId(e.target.value)}>
+                    <option value="">Default Segment</option>
+                    {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                  </select>
+                </div>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 12 }}>
+                  <input style={input} placeholder="Customer 1" value={flowxCustomer1} onChange={(e) => setFlowxCustomer1(e.target.value)} />
+                  <input style={input} placeholder="% 1" value={flowxPercent1} onChange={(e) => setFlowxPercent1(e.target.value)} />
+                  <input style={input} placeholder="Customer 2" value={flowxCustomer2} onChange={(e) => setFlowxCustomer2(e.target.value)} />
+                  <input style={input} placeholder="% 2" value={flowxPercent2} onChange={(e) => setFlowxPercent2(e.target.value)} />
+                  <input style={input} placeholder="Customer 3" value={flowxCustomer3} onChange={(e) => setFlowxCustomer3(e.target.value)} />
+                  <input style={input} placeholder="% 3" value={flowxPercent3} onChange={(e) => setFlowxPercent3(e.target.value)} />
+                  <input style={input} placeholder="Customer 4" value={flowxCustomer4} onChange={(e) => setFlowxCustomer4(e.target.value)} />
+                  <input style={input} placeholder="% 4" value={flowxPercent4} onChange={(e) => setFlowxPercent4(e.target.value)} />
+                </div>
+
+                <input
+                  style={input}
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFlowxCsvFile(file)
+                    if (file) previewFlowXCsv(file)
+                  }}
+                />
+
+                {flowxMappingHeaders.length > 0 && (
+                  <div style={card}>
+                    <h3>Column Mapping</h3>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                      {[
+                        ['ticket_number', 'Ticket Number'],
+                        ['batch_number', 'Batch Number'],
+                        ['truck_number', 'Truck Number'],
+                        ['driver_name', 'Driver Name'],
+                        ['producer_name', 'Producer'],
+                        ['lease_name', 'Lease'],
+                        ['meter_number', 'Meter Number'],
+                        ['segment_name', 'Segment'],
+                        ['gross_volume_bbl', 'Gross Volume'],
+                        ['net_volume_bbl', 'Net Volume'],
+                        ['api_gravity', 'API Gravity'],
+                        ['observed_temperature', 'Observed Temp'],
+                        ['bsw_percent', 'BSW / S&W %'],
+                        ['open_datetime', 'Open Date/Time'],
+                        ['close_datetime', 'Close Date/Time'],
+                      ].map(([field, label]) => (
+                        <label key={field} style={{ display: 'grid', gap: 4 }}>
+                          <span>{label}</span>
+                          <select style={input} value={flowxColumnMap[field] || ''} onChange={(e) => updateFlowXColumnMap(field, e.target.value)}>
+                            <option value="">Not mapped</option>
+                            {flowxMappingHeaders.map((header) => (
+                              <option key={header} value={header}>{header}</option>
+                            ))}
+                          </select>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {flowxMappingRows.length > 0 && (
+                  <div style={card}>
+                    <h3>Preview First 10 Rows</h3>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                        <thead>
+                          <tr>
+                            {flowxMappingHeaders.slice(0, 8).map((header) => (
+                              <th key={header} style={{ textAlign: 'left', borderBottom: '1px solid #374151', padding: 6 }}>{header}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {flowxMappingRows.map((row: any, index: number) => (
+                            <tr key={index}>
+                              {flowxMappingHeaders.slice(0, 8).map((header) => (
+                                <td key={header} style={{ borderBottom: '1px solid #1f2937', padding: 6 }}>{row[header]}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Importing mapped Flow-X tickets', importMappedFlowXTruckTickets)}>
+                  Generate Split Truck Tickets
+                </button>
               </div>
             )}
 

@@ -4814,8 +4814,8 @@ async function saveUserRole() {
             )}
           </div>
 
-          <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 0.3 }}>
-            getCompanyDisplayName()
+         <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 0.3 }}>
+  {getCompanyDisplayName()}
           </div>
           <div style={{ fontSize: 12, color: '#a8b3bd', marginTop: 4 }}>
             Measurement Platform

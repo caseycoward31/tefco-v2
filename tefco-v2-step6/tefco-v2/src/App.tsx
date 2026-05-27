@@ -6673,6 +6673,5 @@ async function saveUserRole() {
     </div>
     </>
   )
-}
 
 export default App

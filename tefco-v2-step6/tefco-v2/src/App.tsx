@@ -3098,16 +3098,14 @@ async function createCompany() {
       } else if (char === ',' && !inQuotes) {
         row.push(current.trim())
         current = ''
-      } else if ((char === '
-' || char === '') && !inQuotes) {
+      } else if ((char === '\n' || char === '\n') && !inQuotes) {
         if (current || row.length) {
           row.push(current.trim())
           rows.push(row)
           row = []
           current = ''
         }
-        if (char === '' && next === '
-') i += 1
+        if (char === '\n' && next === '\n') i += 1
       } else {
         current += char
       }

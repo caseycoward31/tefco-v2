@@ -3154,6 +3154,123 @@ async function createCompany() {
       })
   }
 
+
+  function xmlEscape(value: any) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+  }
+
+  function excelCell(value: any, type: 'String' | 'Number' = 'String') {
+    const numeric = type === 'Number' && value !== '' && value !== null && value !== undefined && Number.isFinite(Number(value))
+
+    return `<Cell><Data ss:Type="${numeric ? 'Number' : 'String'}">${xmlEscape(numeric ? Number(value) : value)}</Data></Cell>`
+  }
+
+  function excelRow(values: any[], numericIndexes: number[] = []) {
+    return `<Row>${values.map((value, index) => excelCell(value, numericIndexes.includes(index) ? 'Number' : 'String')).join('')}</Row>`
+  }
+
+  function downloadExcelXml(filename: string, sheets: { name: string; rows: any[][]; numericIndexes?: number[] }[]) {
+    const workbook = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="header">
+   <Font ss:Bold="1"/>
+   <Interior ss:Color="#D9EAF7" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+ ${sheets.map((sheet) => `
+ <Worksheet ss:Name="${xmlEscape(sheet.name.slice(0, 31))}">
+  <Table>
+   ${sheet.rows.map((row, rowIndex) => {
+     const xmlRow = excelRow(row, rowIndex === 0 ? [] : (sheet.numericIndexes || []))
+     return rowIndex === 0 ? xmlRow.replace(/<Cell>/g, '<Cell ss:StyleID="header">') : xmlRow
+   }).join('\n')}
+  </Table>
+ </Worksheet>`).join('\n')}
+</Workbook>`
+
+    const blob = new Blob([workbook], { type: 'application/vnd.ms-excel;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  function exportOverShortExcel() {
+    const rows = getOverShortRows()
+
+    const summaryRows = [
+      [
+        'Segment',
+        'Receipts',
+        'Deliveries',
+        'Truck Tickets',
+        'Tank Change',
+        'Line Fill Change',
+        'Book Inventory',
+        'Actual Inventory',
+        'Over / Short',
+        'Over / Short %',
+      ],
+      ...rows.map((row: any) => [
+        row.segment.name,
+        row.receipts.toFixed(2),
+        row.deliveries.toFixed(2),
+        row.truckTickets.toFixed(2),
+        row.tankChange.toFixed(2),
+        row.lineFillChange.toFixed(2),
+        row.bookInventory.toFixed(2),
+        row.actualInventory.toFixed(2),
+        row.overShort.toFixed(2),
+        row.overShortPercent.toFixed(4),
+      ]),
+    ]
+
+    const segmentSheets = rows.map((row: any) => {
+      const segmentTickets = tickets
+        .filter((ticket: any) =>
+          ticket.status === 'approved' &&
+          ticket.segment_id === row.segment.id &&
+          isTicketInOverShortRange(ticket)
+        )
+
+      return {
+        name: row.segment.name || 'Segment',
+        numericIndexes: [4, 5, 6, 7],
+        rows: [
+          ['Ticket #', 'Type', 'Status', 'Meter Role', 'Volume', 'Tank Change', 'Date', 'Customer'],
+          ...segmentTickets.map((ticket: any) => [
+            ticket.ticket_number || ticket.id,
+            ticket.ticket_type || '',
+            ticket.status || '',
+            getMeterBalanceRole(ticket) || ticket.observed_inputs?.tank_movement_direction || '',
+            getTicketVolumeForBalance(ticket).toFixed(2),
+            ticket.ticket_type === 'tank' ? getTankSignedMovement(ticket).toFixed(2) : '',
+            getTicketDateForBalance(ticket),
+            ticket.customer_name || ticket.observed_inputs?.customer_name || '',
+          ]),
+        ],
+      }
+    })
+
+    downloadExcelXml(`segment-over-short-${overShortStartDate || 'all'}-to-${overShortEndDate || 'all'}.xls`, [
+      { name: 'Segment Summary', rows: summaryRows, numericIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9] },
+      ...segmentSheets,
+    ])
+  }
+
   function exportOverShortCsv() {
     const rows = getOverShortRows()
     const header = [
@@ -5432,7 +5549,7 @@ async function saveUserRole() {
 
             {/* Phase 24 Inventory / Over-Short */}
             <div style={box}>
-              <h2>Over / Short Detail Engine</h2>
+              <h2>Segment-Based Over / Short Detail Engine</h2>
               <p style={{ color: '#a8b3bd' }}>
                 Approved tickets only. Uses meter receipt/delivery role, tank movements, truck tickets, and latest tank inventory.
               </p>
@@ -5448,9 +5565,14 @@ async function saveUserRole() {
                 </select>
               </div>
 
-              <button style={button} onClick={exportOverShortCsv}>
-                Export Over / Short CSV
-              </button>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <button style={button} onClick={exportOverShortCsv}>
+                  Export CSV
+                </button>
+                <button style={button} onClick={exportOverShortExcel}>
+                  Export Excel Spreadsheet
+                </button>
+              </div>
 
               <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
                 {getOverShortRows().map((row: any) => (

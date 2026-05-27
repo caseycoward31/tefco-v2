@@ -605,6 +605,9 @@ function App() {
   const [inventoryStartDate, setInventoryStartDate] = useState('')
   const [inventoryEndDate, setInventoryEndDate] = useState('')
   const [inventorySegmentId, setInventorySegmentId] = useState('')
+  const [overShortStartDate, setOverShortStartDate] = useState('')
+  const [overShortEndDate, setOverShortEndDate] = useState('')
+  const [overShortSegmentId, setOverShortSegmentId] = useState('')
   const [deadwoodTankId, setDeadwoodTankId] = useState('')
   const [deadwoodStartGauge, setDeadwoodStartGauge] = useState('')
   const [deadwoodEndGauge, setDeadwoodEndGauge] = useState('')
@@ -3020,6 +3023,168 @@ async function createCompany() {
     setPage('tickets')
   }
 
+
+  function getTicketDateForBalance(ticket: any) {
+    return ticket.approved_at || ticket.ticket_date || ticket.created_at || ticket.updated_at || ''
+  }
+
+  function isTicketInOverShortRange(ticket: any) {
+    const ticketDateRaw = getTicketDateForBalance(ticket)
+    if (!ticketDateRaw) return true
+
+    const ticketDate = new Date(ticketDateRaw)
+
+    if (overShortStartDate && ticketDate < new Date(`${overShortStartDate}T00:00:00`)) return false
+    if (overShortEndDate && ticketDate > new Date(`${overShortEndDate}T23:59:59`)) return false
+
+    return true
+  }
+
+  function getTicketVolumeForBalance(ticket: any) {
+    return Number(
+      ticket.calculation_results?.nsv ??
+      ticket.calculation_results?.tank_nsv ??
+      ticket.calculation_results?.gsv ??
+      ticket.calculation_results?.tank_gsv ??
+      ticket.calculation_results?.gov ??
+      ticket.calculation_results?.tank_gov ??
+      0
+    )
+  }
+
+  function getMeterBalanceRole(ticket: any) {
+    const meter = meters.find((m: any) => m.id === ticket.meter_id)
+    return String(
+      ticket.meter_direction ||
+      ticket.observed_inputs?.meter_direction ||
+      (meter as any)?.meter_role ||
+      (meter as any)?.meter_direction ||
+      (meter as any)?.direction ||
+      ''
+    ).toLowerCase()
+  }
+
+  function getTankSignedMovement(ticket: any) {
+    const direction = String(ticket.movement_direction || ticket.observed_inputs?.tank_movement_direction || '').toLowerCase()
+    const volume = Number(
+      ticket.calculation_results?.tank_nsv ??
+      ticket.calculation_results?.tank_movement_bbl ??
+      ticket.calculation_results?.nsv ??
+      0
+    )
+
+    if (direction === 'receipt') return volume
+    if (direction === 'delivery') return -volume
+
+    return volume
+  }
+
+  function getActualTankInventoryForSegment(segmentId: string) {
+    const segmentTanks = tanks.filter((tank: any) => tank.segment_id === segmentId)
+
+    return segmentTanks.reduce((sum: number, tank: any) => {
+      const latestTankTicket = tickets
+        .filter((ticket: any) =>
+          ticket.status === 'approved' &&
+          ticket.ticket_type === 'tank' &&
+          (ticket.tank_id === tank.id || ticket.observed_inputs?.tank_id === tank.id) &&
+          isTicketInOverShortRange(ticket)
+        )
+        .sort((a: any, b: any) =>
+          new Date(getTicketDateForBalance(b) || 0).getTime() -
+          new Date(getTicketDateForBalance(a) || 0).getTime()
+        )[0]
+
+      return sum + Number(
+        latestTankTicket?.calculation_results?.tank_closing_bbl ??
+        latestTankTicket?.observed_inputs?.tank_closing_bbl ??
+        latestTankTicket?.calculation_results?.tank_gsv ??
+        0
+      )
+    }, 0)
+  }
+
+  function getOverShortRows() {
+    return segments
+      .filter((segment: any) => !overShortSegmentId || segment.id === overShortSegmentId)
+      .map((segment: any) => {
+        const segmentTickets = tickets.filter((ticket: any) =>
+          ticket.status === 'approved' &&
+          ticket.segment_id === segment.id &&
+          isTicketInOverShortRange(ticket)
+        )
+
+        const receipts = segmentTickets
+          .filter((ticket: any) => ticket.ticket_type !== 'tank' && getMeterBalanceRole(ticket) === 'receipt')
+          .reduce((sum: number, ticket: any) => sum + getTicketVolumeForBalance(ticket), 0)
+
+        const deliveries = segmentTickets
+          .filter((ticket: any) => ticket.ticket_type !== 'tank' && getMeterBalanceRole(ticket) === 'delivery')
+          .reduce((sum: number, ticket: any) => sum + getTicketVolumeForBalance(ticket), 0)
+
+        const truckTickets = segmentTickets
+          .filter((ticket: any) => ticket.ticket_type === 'truck')
+          .reduce((sum: number, ticket: any) => sum + getTicketVolumeForBalance(ticket), 0)
+
+        const tankChange = segmentTickets
+          .filter((ticket: any) => ticket.ticket_type === 'tank')
+          .reduce((sum: number, ticket: any) => sum + getTankSignedMovement(ticket), 0)
+
+        const lineFillChange = segmentTickets
+          .filter((ticket: any) => ticket.ticket_type === 'line_fill')
+          .reduce((sum: number, ticket: any) => sum + getTicketVolumeForBalance(ticket), 0)
+
+        const bookInventory = receipts - deliveries - truckTickets + tankChange + lineFillChange
+        const actualInventory = getActualTankInventoryForSegment(segment.id)
+        const overShort = actualInventory - bookInventory
+        const overShortPercent = bookInventory !== 0 ? (overShort / Math.abs(bookInventory)) * 100 : 0
+
+        return {
+          segment,
+          receipts,
+          deliveries,
+          truckTickets,
+          tankChange,
+          lineFillChange,
+          bookInventory,
+          actualInventory,
+          overShort,
+          overShortPercent,
+        }
+      })
+  }
+
+  function exportOverShortCsv() {
+    const rows = getOverShortRows()
+    const header = [
+      'Segment',
+      'Receipts',
+      'Deliveries',
+      'Truck Tickets',
+      'Tank Change',
+      'Line Fill Change',
+      'Book Inventory',
+      'Actual Inventory',
+      'Over Short',
+      'Over Short Percent',
+    ]
+
+    const csvRows = rows.map((row: any) => [
+      row.segment.name,
+      row.receipts.toFixed(2),
+      row.deliveries.toFixed(2),
+      row.truckTickets.toFixed(2),
+      row.tankChange.toFixed(2),
+      row.lineFillChange.toFixed(2),
+      row.bookInventory.toFixed(2),
+      row.actualInventory.toFixed(2),
+      row.overShort.toFixed(2),
+      row.overShortPercent.toFixed(4),
+    ])
+
+    downloadCsv(`over-short-${overShortStartDate || 'all'}-to-${overShortEndDate || 'all'}.csv`, [header, ...csvRows])
+  }
+
   function getSegmentInventoryRows() {
     return segments.map((segment: any) => {
       const segmentTickets = tickets.filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
@@ -4389,6 +4554,21 @@ async function saveUserRole() {
         {page === 'dashboard' && (
           <>
             <h1>Dashboard</h1>
+            <div style={box}>
+              <h2>Over / Short Summary</h2>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                {getOverShortRows().slice(0, 4).map((row: any) => (
+                  <div key={row.segment.id} style={card}>
+                    <strong>{row.segment.name}</strong>
+                    <div>Book: {row.bookInventory.toFixed(2)}</div>
+                    <div>Actual: {row.actualInventory.toFixed(2)}</div>
+                    <div style={{ color: Math.abs(row.overShort) > 0.01 ? '#fca5a5' : '#86efac' }}>
+                      O/S: {row.overShort.toFixed(2)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
             {/* Phase 3 Dashboard KPIs */}
             <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
               <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Total Tickets</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.length}</div></div>
@@ -5252,7 +5432,44 @@ async function saveUserRole() {
 
             {/* Phase 24 Inventory / Over-Short */}
             <div style={box}>
-              <h2>Inventory / Over & Short</h2>
+              <h2>Over / Short Detail Engine</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Approved tickets only. Uses meter receipt/delivery role, tank movements, truck tickets, and latest tank inventory.
+              </p>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <input style={input} type="date" value={overShortStartDate} onChange={(e) => setOverShortStartDate(e.target.value)} />
+                <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
+                <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
+                  <option value="">All Segments</option>
+                  {segments.map((segment: any) => (
+                    <option key={segment.id} value={segment.id}>{segment.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <button style={button} onClick={exportOverShortCsv}>
+                Export Over / Short CSV
+              </button>
+
+              <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+                {getOverShortRows().map((row: any) => (
+                  <div key={row.segment.id} style={card}>
+                    <h3>{row.segment.name}</h3>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+                      <div>Receipts: <strong>{row.receipts.toFixed(2)}</strong></div>
+                      <div>Deliveries: <strong>{row.deliveries.toFixed(2)}</strong></div>
+                      <div>Truck Tickets: <strong>{row.truckTickets.toFixed(2)}</strong></div>
+                      <div>Tank Change: <strong>{row.tankChange.toFixed(2)}</strong></div>
+                      <div>Line Fill: <strong>{row.lineFillChange.toFixed(2)}</strong></div>
+                      <div>Book Inv: <strong>{row.bookInventory.toFixed(2)}</strong></div>
+                      <div>Actual Inv: <strong>{row.actualInventory.toFixed(2)}</strong></div>
+                      <div>O/S: <strong style={{ color: Math.abs(row.overShort) > 0.01 ? '#fca5a5' : '#86efac' }}>{row.overShort.toFixed(2)}</strong></div>
+                      <div>O/S %: <strong>{row.overShortPercent.toFixed(4)}%</strong></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
               <p style={{ color: '#a8b3bd' }}>
                 Uses approved tickets, meter receipt/delivery roles, tank movements, and truck tickets to calculate segment balance.
               </p>

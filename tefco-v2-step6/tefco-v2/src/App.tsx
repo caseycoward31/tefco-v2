@@ -754,6 +754,13 @@ function App() {
 
 
 
+
+  useEffect(() => {
+    if (companyId || selectedAdminCompanyId) {
+      loadCompanySettings()
+    }
+  }, [companyId, selectedAdminCompanyId, userIsSuperAdmin])
+
   useEffect(() => {
     function handleMobileResize() {
       if (typeof window !== 'undefined' && window.innerWidth <= 768) {
@@ -2279,11 +2286,15 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   }
 
 function getCompanyDisplayName() {
+    const selectedCompany =
+      companies.find((company: any) => company.id === companyId) ||
+      companies.find((company: any) => company.id === selectedAdminCompanyId)
+
     return (
       companyNameInput ||
       companySettings?.company_name ||
-      companySettings?.name ||
-      'getCompanyDisplayName()'
+      selectedCompany?.name ||
+      'Measurement App'
     )
   }
 
@@ -2328,10 +2339,70 @@ function getCompanyDisplayName() {
   }
 
   async function saveCompanySettings() {
-    if (!companyId && !userIsSuperAdmin) {
-      alert('Company not loaded.')
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    if (!targetCompanyId) {
+      alert('No company selected.')
       return
     }
+
+    let logoUrl = companySettings?.logo_url || ''
+
+    if (companyLogoFile) {
+      const fileExt = companyLogoFile.name.split('.').pop()
+      const filePath = `${targetCompanyId}/logo-${Date.now()}.${fileExt}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('company-logos')
+        .upload(filePath, companyLogoFile, { upsert: true })
+
+      if (uploadError) {
+        alert('Logo upload failed: ' + uploadError.message)
+        return
+      }
+
+      const { data: publicUrl } = supabase.storage
+        .from('company-logos')
+        .getPublicUrl(filePath)
+
+      logoUrl = publicUrl.publicUrl
+    }
+
+    const payload = {
+      company_id: targetCompanyId,
+      company_name: companyNameInput || '',
+      address_line1: companyAddress1Input || '',
+      address_line2: companyAddress2Input || '',
+      phone: companyPhoneInput || '',
+      logo_url: logoUrl || '',
+      accent_color: companyAccentInput || '#c46a2b',
+      updated_at: new Date().toISOString(),
+    }
+
+    const { data, error } = await supabase
+      .from('company_settings')
+      .upsert(payload, { onConflict: 'company_id' })
+      .select()
+      .single()
+
+    if (error) {
+      alert('Could not save company branding: ' + error.message)
+      return
+    }
+
+    if (companyNameInput) {
+      await supabase
+        .from('companies')
+        .update({ name: companyNameInput })
+        .eq('id', targetCompanyId)
+    }
+
+    setCompanySettings(data as any)
+    setCompanyLogoFile(null)
+    await loadAll()
+    await loadCompanySettings()
+    alert('Company branding saved.')
+  }
 
     let logoUrl = companySettings?.logo_url || null
 

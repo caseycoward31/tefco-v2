@@ -755,6 +755,12 @@ function App() {
 
 
   useEffect(() => {
+    if (companyId || selectedAdminCompanyId) {
+      loadCompanySettings()
+    }
+  }, [companyId, selectedAdminCompanyId, userIsSuperAdmin])
+
+  useEffect(() => {
     function handleMobileResize() {
       if (typeof window !== 'undefined' && window.innerWidth <= 768) {
         setMobileMenuOpen(true)
@@ -2279,20 +2285,23 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   }
 
 function getCompanyDisplayName() {
-    const selectedCompany =
-      companies.find((company: any) => company.id === companyId) ||
-      companies.find((company: any) => company.id === selectedAdminCompanyId)
+    const targetCompanyId =
+      userIsSuperAdmin && selectedAdminCompanyId
+        ? selectedAdminCompanyId
+        : companyId
+
+    const selectedCompany = companies.find((company: any) => company.id === targetCompanyId)
 
     return (
-      companyNameInput ||
       companySettings?.company_name ||
+      companyNameInput ||
       selectedCompany?.name ||
       'Measurement App'
     )
   }
 
   function getCompanyAccentColor() {
-    return companyAccentInput || companySettings?.accent_color || '#c46a2b'
+    return companySettings?.accent_color || companyAccentInput || '#c46a2b'
   }
 
   function hexToRgb(hex: string) {
@@ -2324,77 +2333,83 @@ function getCompanyDisplayName() {
   }
 
   function getCompanyLogoUrl() {
-    if (companyLogoFile) {
-      return URL.createObjectURL(companyLogoFile)
-    }
-
     return companySettings?.logo_url || ''
   }
 
   async function saveCompanySettings() {
-    if (!companyId && !userIsSuperAdmin) {
-      alert('Company not loaded.')
+    const targetCompanyId =
+      userIsSuperAdmin && selectedAdminCompanyId
+        ? selectedAdminCompanyId
+        : companyId
+
+    if (!targetCompanyId) {
+      alert('No company selected.')
       return
     }
 
-    let logoUrl = companySettings?.logo_url || null
+    let logoUrl = companySettings?.logo_url || ''
 
-    if (companyLogoFile && companyId) {
-      const ext = companyLogoFile.name.split('.').pop() || 'png'
-      const logoPath = `${companyId}/company-logo.${ext}`
+    if (companyLogoFile) {
+      const fileExt = companyLogoFile.name.split('.').pop() || 'png'
+      const filePath = `${targetCompanyId}/logo-${Date.now()}.${fileExt}`
 
       const { error: uploadError } = await supabase.storage
         .from('company-logos')
-        .upload(logoPath, companyLogoFile, {
+        .upload(filePath, companyLogoFile, {
+          cacheControl: '3600',
           upsert: true,
-          contentType: companyLogoFile.type || 'image/png',
         })
 
       if (uploadError) {
-        alert('Could not upload logo: ' + uploadError.message)
+        alert('Logo upload failed: ' + uploadError.message)
         return
       }
 
-      const { data } = supabase.storage.from('company-logos').getPublicUrl(logoPath)
-      logoUrl = data?.publicUrl || null
+      const { data: publicUrlData } = supabase.storage
+        .from('company-logos')
+        .getPublicUrl(filePath)
+
+      logoUrl = publicUrlData.publicUrl
     }
 
-    const targetCompanyId =
-  userIsSuperAdmin && selectedAdminCompanyId
-    ? selectedAdminCompanyId
-    : companyId
-    
     const payload = {
-      company_id: targetCompanyId || null,
-      company_name: companyNameInput || null,
-      address_line1: companyAddress1Input || null,
-      address_line2: companyAddress2Input || null,
-      phone: companyPhoneInput || null,
+      company_id: targetCompanyId,
+      company_name: companyNameInput || '',
+      address_line1: companyAddress1Input || '',
+      address_line2: companyAddress2Input || '',
+      phone: companyPhoneInput || '',
       accent_color: companyAccentInput || '#c46a2b',
-      logo_url: logoUrl || companySettings?.logo_url || null,
+      logo_url: logoUrl || companySettings?.logo_url || '',
+      updated_at: new Date().toISOString(),
     }
 
     const { data, error } = await supabase
       .from('company_settings')
       .upsert(payload, { onConflict: 'company_id' })
       .select()
-      .maybeSingle()
+      .single()
 
     if (error) {
       alert('Could not save company branding: ' + error.message)
       return
     }
 
-    if (data) // Company name sync to companies table
     if (companyNameInput) {
       await supabase
         .from('companies')
         .update({ name: companyNameInput })
-        .eq('id', userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId)
+        .eq('id', targetCompanyId)
     }
 
-    setCompanySettings(data)
+    setCompanySettings(data as any)
     setCompanyLogoFile(null)
+    setCompanyNameInput((data as any).company_name || '')
+    setCompanyAddress1Input((data as any).address_line1 || '')
+    setCompanyAddress2Input((data as any).address_line2 || '')
+    setCompanyPhoneInput((data as any).phone || '')
+    setCompanyAccentInput((data as any).accent_color || '#c46a2b')
+
+    await loadAll()
     alert('Company branding saved.')
   }
 
@@ -4178,7 +4193,7 @@ async function saveUserRole() {
             <div class="page">
               <div class="brand-header">
                 <div>
-                  <div class="brand-name">{getCompanyDisplayName()}</div>
+                  <div class="brand-name">${getCompanyDisplayName()}</div>
                   <div class="brand-subtitle">Custody Transfer Ticket</div>
                 </div>
                 ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}
@@ -4806,7 +4821,7 @@ async function saveUserRole() {
           </div>
 
           <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 0.3 }}>
-  {getCompanyDisplayName()}
+            getCompanyDisplayName()
           </div>
           <div style={{ fontSize: 12, color: '#a8b3bd', marginTop: 4 }}>
             Measurement Platform

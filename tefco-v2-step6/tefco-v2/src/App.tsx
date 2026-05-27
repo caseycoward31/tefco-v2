@@ -608,6 +608,11 @@ function App() {
   const [overShortStartDate, setOverShortStartDate] = useState('')
   const [overShortEndDate, setOverShortEndDate] = useState('')
   const [overShortSegmentId, setOverShortSegmentId] = useState('')
+  const [reportCenterSection, setReportCenterSection] = useState('tickets')
+  const [reportStartDate, setReportStartDate] = useState('')
+  const [reportEndDate, setReportEndDate] = useState('')
+  const [reportProducerId, setReportProducerId] = useState('')
+  const [reportSegmentId, setReportSegmentId] = useState('')
   const [deadwoodTankId, setDeadwoodTankId] = useState('')
   const [deadwoodStartGauge, setDeadwoodStartGauge] = useState('')
   const [deadwoodEndGauge, setDeadwoodEndGauge] = useState('')
@@ -3208,6 +3213,126 @@ async function createCompany() {
     URL.revokeObjectURL(url)
   }
 
+
+  function isDateInReportRange(value?: string | null) {
+    if (!value) return true
+
+    const date = new Date(value)
+
+    if (Number.isNaN(date.getTime())) return true
+
+    if (reportStartDate && date < new Date(`${reportStartDate}T00:00:00`)) return false
+    if (reportEndDate && date > new Date(`${reportEndDate}T23:59:59`)) return false
+
+    return true
+  }
+
+  function getTicketReportDate(ticket: any) {
+    return ticket.approved_at || ticket.ticket_date || ticket.created_at || ticket.updated_at || ''
+  }
+
+  function getReportFilteredTickets(type?: string) {
+    return tickets.filter((ticket: any) => {
+      const typeOk = type ? ticket.ticket_type === type : true
+      const producerOk = reportProducerId ? ticket.producer_id === reportProducerId : true
+      const segmentOk = reportSegmentId ? ticket.segment_id === reportSegmentId : true
+      const dateOk = isDateInReportRange(getTicketReportDate(ticket))
+
+      return typeOk && producerOk && segmentOk && dateOk
+    })
+  }
+
+  function exportReportTicketsCsv(type?: string) {
+    const rows = getReportFilteredTickets(type)
+    const header = [
+      'Ticket #',
+      'Type',
+      'Status',
+      'Producer',
+      'Segment',
+      'Meter',
+      'GSV',
+      'NSV',
+      'Date',
+    ]
+
+    const csvRows = rows.map((ticket: any) => {
+      const producer = producers.find((p: any) => p.id === ticket.producer_id)
+      const segment = segments.find((s: any) => s.id === ticket.segment_id)
+      const meter = meters.find((m: any) => m.id === ticket.meter_id)
+
+      return [
+        ticket.ticket_number || ticket.id,
+        ticket.ticket_type || '',
+        ticket.status || '',
+        producer?.name || '',
+        segment?.name || '',
+        meter?.meter_number || '',
+        ticket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? '',
+        ticket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? '',
+        getTicketReportDate(ticket),
+      ]
+    })
+
+    downloadCsv(`${type || 'all'}-tickets-${reportStartDate || 'all'}-to-${reportEndDate || 'all'}.csv`, [header, ...csvRows])
+  }
+
+  function exportReportTicketsExcel(type?: string) {
+    const rows = getReportFilteredTickets(type)
+    const sheetRows = [
+      ['Ticket #', 'Type', 'Status', 'Producer', 'Segment', 'Meter', 'GSV', 'NSV', 'Date'],
+      ...rows.map((ticket: any) => {
+        const producer = producers.find((p: any) => p.id === ticket.producer_id)
+        const segment = segments.find((s: any) => s.id === ticket.segment_id)
+        const meter = meters.find((m: any) => m.id === ticket.meter_id)
+
+        return [
+          ticket.ticket_number || ticket.id,
+          ticket.ticket_type || '',
+          ticket.status || '',
+          producer?.name || '',
+          segment?.name || '',
+          meter?.meter_number || '',
+          Number(ticket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? 0).toFixed(2),
+          Number(ticket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? 0).toFixed(2),
+          getTicketReportDate(ticket),
+        ]
+      }),
+    ]
+
+    downloadExcelXml(`${type || 'all'}-tickets-${reportStartDate || 'all'}-to-${reportEndDate || 'all'}.xls`, [
+      { name: `${type || 'All'} Tickets`, rows: sheetRows, numericIndexes: [6, 7] },
+    ])
+  }
+
+  function getFlowXImportedTickets() {
+    return getReportFilteredTickets('truck').filter((ticket: any) =>
+      ticket.import_batch_id || ticket.flowx_row_id || ticket.observed_inputs?.source === 'flowx_csv'
+    )
+  }
+
+  function exportFlowXImportedTicketsExcel() {
+    const rows = getFlowXImportedTickets()
+    const sheetRows = [
+      ['Ticket #', 'Truck #', 'Driver', 'Customer', 'Split %', 'GSV', 'NSV', 'LACT', 'Date'],
+      ...rows.map((ticket: any) => [
+        ticket.ticket_number || ticket.id,
+        ticket.truck_number || ticket.observed_inputs?.truck_number || '',
+        ticket.driver_name || ticket.observed_inputs?.driver_name || '',
+        ticket.customer_name || ticket.observed_inputs?.customer_name || '',
+        ticket.split_percent || ticket.observed_inputs?.split_percent || '',
+        Number(ticket.calculation_results?.gsv ?? 0).toFixed(2),
+        Number(ticket.calculation_results?.nsv ?? 0).toFixed(2),
+        ticket.lact_name || ticket.observed_inputs?.lact_name || '',
+        getTicketReportDate(ticket),
+      ]),
+    ]
+
+    downloadExcelXml(`flowx-truck-tickets-${reportStartDate || 'all'}-to-${reportEndDate || 'all'}.xls`, [
+      { name: 'FlowX Truck Tickets', rows: sheetRows, numericIndexes: [4, 5, 6] },
+    ])
+  }
+
   function exportOverShortExcel() {
     const rows = getOverShortRows()
 
@@ -4330,7 +4455,7 @@ async function saveUserRole() {
     { key: 'readings', label: 'Readings', description: 'Operator readings' },
     { key: 'pot', label: 'POT', description: 'Quality and S&W' },
     { key: 'provings', label: 'Provings', description: 'Meter proving records' },
-    { key: 'reports', label: 'Reports', description: 'Exports and PDF bundles' },
+    { key: 'reports', label: 'Reports', description: 'Reports Center' },
     ...(canViewAdmin ? [{ key: 'admin', label: 'Admin', description: 'Company setup and imports' }] : []),
     { key: 'operations', label: 'Operations', description: 'Over / short and alerts' },
   ]
@@ -5753,249 +5878,154 @@ async function saveUserRole() {
 
         {page === 'reports' && (
           <>
-            <h1>Reports</h1>
+            <h1>Reports Center</h1>
 
-            {/* Reports Over / Short Export */}
             <div style={box}>
-              <h2>Over / Short Export</h2>
-              <p style={{ color: '#a8b3bd' }}>
-                Segment-based inventory balance export.
-              </p>
+              <h2>Report Filters</h2>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                <input style={input} type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} />
+                <input style={input} type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} />
 
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                <input style={input} type="date" value={overShortStartDate} onChange={(e) => setOverShortStartDate(e.target.value)} />
-                <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
-                <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
+                <select style={input} value={reportProducerId} onChange={(e) => setReportProducerId(e.target.value)}>
+                  <option value="">All Producers</option>
+                  {producers.map((producer: any) => (
+                    <option key={producer.id} value={producer.id}>{producer.name}</option>
+                  ))}
+                </select>
+
+                <select style={input} value={reportSegmentId} onChange={(e) => setReportSegmentId(e.target.value)}>
                   <option value="">All Segments</option>
                   {segments.map((segment: any) => (
                     <option key={segment.id} value={segment.id}>{segment.name}</option>
                   ))}
                 </select>
               </div>
-
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <button style={button} onClick={exportOverShortCsv}>Export O/S CSV</button>
-                <button style={button} onClick={exportOverShortExcel}>Export O/S Excel</button>
-              </div>
             </div>
 
-            <div style={reportGrid}>
-              <div style={kpiCard}>
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Total Tickets</div>
-                <div style={{ fontSize: 32, fontWeight: 900 }}>{tickets.length}</div>
-                <div style={{ color: '#a8b3bd', fontSize: 12 }}>All statuses</div>
-              </div>
-
-              <div style={kpiCard}>
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Approved Tickets</div>
-                <div style={{ fontSize: 32, fontWeight: 900 }}>
-                  {tickets.filter((t) => t.status === 'approved').length}
-                </div>
-                <span style={getTicketStatusStyle('approved')}>Approved</span>
-              </div>
-
-              <div style={kpiCard}>
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Submitted</div>
-                <div style={{ fontSize: 32, fontWeight: 900 }}>
-                  {tickets.filter((t) => t.status === 'submitted').length}
-                </div>
-                <span style={getTicketStatusStyle('submitted')}>Pending</span>
-              </div>
-
-              <div style={kpiCard}>
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Draft / Working</div>
-                <div style={{ fontSize: 32, fontWeight: 900 }}>
-                  {tickets.filter((t) => !t.status || t.status === 'draft').length}
-                </div>
-                <span style={getTicketStatusStyle('draft')}>Draft</span>
-              </div>
-            </div>
-
-            <div style={reportPanel}>
-              <h2>Producer PDF Export</h2>
-              <p style={{ color: '#a8b3bd' }}>
-                Bundle approved producer ticket PDFs by date range. This keeps monthly statement packages clean and easy to send.
-              </p>
-
-              <div style={reportGrid}>
-                <div style={compactMetric}>
-                  <strong>Approved Ready</strong>
-                  <div style={{ fontSize: 26, fontWeight: 900, marginTop: 8 }}>
-                    {tickets.filter((t) => t.status === 'approved').length}
-                  </div>
-                </div>
-
-                <div style={compactMetric}>
-                  <strong>Voided</strong>
-                  <div style={{ fontSize: 26, fontWeight: 900, marginTop: 8 }}>
-                    {tickets.filter((t) => t.status === 'voided').length}
-                  </div>
-                </div>
-
-                <div style={compactMetric}>
-                  <strong>Provings</strong>
-                  <div style={{ fontSize: 26, fontWeight: 900, marginTop: 8 }}>
-                    {provings.length}
-                  </div>
-                </div>
-
-                <div style={compactMetric}>
-                  <strong>Readings</strong>
-                  <div style={{ fontSize: 26, fontWeight: 900, marginTop: 8 }}>
-                    {readings.length}
-                  </div>
-                </div>
-              </div>
-
-              <div style={card}>
-                <h3>Export Producer PDFs</h3>
-                <p style={{ color: '#a8b3bd' }}>
-                  Select a producer and date range to download approved ticket PDFs as one ZIP bundle.
-                </p>
-
-                <select
-                  style={input}
-                  value={pdfBundleProducerId}
-                  onChange={(e) => setPdfBundleProducerId(e.target.value)}
+            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 14 }}>
+              {[
+                ['tickets', 'Custody Tickets'],
+                ['tank', 'Tank Tickets'],
+                ['pot', 'POT Exports'],
+                ['flowx', 'Flow-X Imports'],
+                ['over_short', 'Over & Short'],
+                ['inventory', 'Inventory Balances'],
+                ['daily', 'Daily Reports'],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  style={{
+                    ...button,
+                    background: reportCenterSection === key ? accentGradient() : '#1f2937',
+                    borderColor: reportCenterSection === key ? accentRgba(0.75) : '#374151',
+                  }}
+                  onClick={() => setReportCenterSection(key)}
                 >
-                  <option value="">All Producers</option>
-                  {producers.map((producer) => (
-                    <option key={producer.id} value={producer.id}>
-                      {producer.name}
-                    </option>
-                  ))}
-                </select>
+                  {label}
+                </button>
+              ))}
+            </div>
 
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <input
-                    style={input}
-                    type="date"
-                    value={pdfBundleStartDate}
-                    onChange={(e) => setPdfBundleStartDate(e.target.value)}
-                  />
-
-                  <input
-                    style={input}
-                    type="date"
-                    value={pdfBundleEndDate}
-                    onChange={(e) => setPdfBundleEndDate(e.target.value)}
-                  />
+            {reportCenterSection === 'tickets' && (
+              <div style={box}>
+                <h2>Custody Transfer Tickets</h2>
+                <p style={{ color: '#a8b3bd' }}>Export meter/custody tickets by date, producer, and segment.</p>
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  <button style={button} onClick={() => exportReportTicketsCsv('meter')}>Export Meter CSV</button>
+                  <button style={button} onClick={() => exportReportTicketsExcel('meter')}>Export Meter Excel</button>
+                  <button style={button} onClick={() => runSafeAction('Exporting producer PDF bundle', exportProducerPdfBundle)}>Producer PDF Bundle</button>
                 </div>
+                <div style={card}>Matching Tickets: {getReportFilteredTickets('meter').length}</div>
+              </div>
+            )}
 
-                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Exporting producer PDF bundle', exportProducerPdfBundle)}>
-                  Export Producer PDFs Bundle
+            {reportCenterSection === 'tank' && (
+              <div style={box}>
+                <h2>Tank Tickets</h2>
+                <p style={{ color: '#a8b3bd' }}>Tank ticket exports with opening/closing gauge, GOV, GSV, NSV, and corrections.</p>
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <button style={button} onClick={() => exportReportTicketsCsv('tank')}>Export Tank CSV</button>
+                  <button style={button} onClick={() => exportReportTicketsExcel('tank')}>Export Tank Excel</button>
+                </div>
+                <div style={card}>Matching Tank Tickets: {getReportFilteredTickets('tank').length}</div>
+              </div>
+            )}
+
+            {reportCenterSection === 'pot' && (
+              <div style={box}>
+                <h2>POT Exports</h2>
+                <p style={{ color: '#a8b3bd' }}>GQ liquid import format and POT quality exports.</p>
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  <input style={input} type="date" value={potCsvStartDate} onChange={(e) => setPotCsvStartDate(e.target.value)} />
+                  <input style={input} type="date" value={potCsvEndDate} onChange={(e) => setPotCsvEndDate(e.target.value)} />
+                  <select style={input} value={potCsvProducerId} onChange={(e) => setPotCsvProducerId(e.target.value)}>
+                    <option value="">All Producers</option>
+                    {producers.map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
+                  </select>
+                </div>
+                <button style={button} onClick={() => runSafeAction('Exporting POT workings CSV', exportPotWorkingsCsv)}>
+                  Export GQ POT CSV
                 </button>
               </div>
+            )}
 
-              <div style={card}>
-                <h3>Export POT Workings CSV</h3>
-                <p style={{ color: '#a8b3bd' }}>
-                  Exports POT workings into the exact GQ liquid import header layout.
-                </p>
+            {reportCenterSection === 'flowx' && (
+              <div style={box}>
+                <h2>Flow-X Imports</h2>
+                <p style={{ color: '#a8b3bd' }}>Review/export Flow-X imported truck tickets and customer splits.</p>
+                <button style={button} onClick={exportFlowXImportedTicketsExcel}>Export Flow-X Truck Excel</button>
+                <div style={card}>Imported Truck Tickets: {getFlowXImportedTickets().length}</div>
+              </div>
+            )}
 
-                <select
-                  style={input}
-                  value={potCsvProducerId}
-                  onChange={(e) => setPotCsvProducerId(e.target.value)}
-                >
-                  <option value="">All Producers</option>
-                  {producers.map((producer) => (
-                    <option key={producer.id} value={producer.id}>
-                      {producer.name}
-                    </option>
-                  ))}
-                </select>
+            {reportCenterSection === 'over_short' && (
+              <div style={box}>
+                <h2>Over & Short</h2>
+                <p style={{ color: '#a8b3bd' }}>Segment-based inventory balance export.</p>
 
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <input
-                    style={input}
-                    type="date"
-                    value={potCsvStartDate}
-                    onChange={(e) => setPotCsvStartDate(e.target.value)}
-                  />
-
-                  <input
-                    style={input}
-                    type="date"
-                    value={potCsvEndDate}
-                    onChange={(e) => setPotCsvEndDate(e.target.value)}
-                  />
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  <input style={input} type="date" value={overShortStartDate} onChange={(e) => setOverShortStartDate(e.target.value)} />
+                  <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
+                  <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
+                    <option value="">All Segments</option>
+                    {segments.map((segment: any) => (
+                      <option key={segment.id} value={segment.id}>{segment.name}</option>
+                    ))}
+                  </select>
                 </div>
 
-                <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Exporting POT workings CSV', exportPotWorkingsCsv)}>
-                  Export POT Workings CSV
-                </button>
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <button style={button} onClick={exportOverShortCsv}>Export O/S CSV</button>
+                  <button style={button} onClick={exportOverShortExcel}>Export O/S Excel</button>
+                </div>
               </div>
-            </div>
+            )}
 
-            <div style={reportPanel}>
-              <h2>Status Breakdown</h2>
-              <div style={{ display: 'grid', gap: 10 }}>
-                {['draft', 'submitted', 'approved', 'voided'].map((status) => (
-                  <div
-                    key={status}
-                    style={{
-                      ...card,
-                      display: 'grid',
-                      gridTemplateColumns: '160px 1fr auto',
-                      alignItems: 'center',
-                      gap: 12,
-                    }}
-                  >
-                    <span style={getTicketStatusStyle(status)}>{status}</span>
-                    <div
-                      style={{
-                        height: 10,
-                        borderRadius: 999,
-                        background: 'rgba(255,255,255,0.08)',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <div
-                        style={{
-                          height: '100%',
-                          width: `${tickets.length ? Math.round((tickets.filter((t) => (t.status || 'draft') === status).length / tickets.length) * 100) : 0}%`,
-                          background: `linear-gradient(90deg, ${getCompanyAccentColor()}, ${accentRgba(0.55)})`,
-                        }}
-                      />
-                    </div>
-                    <strong>{tickets.filter((t) => (t.status || 'draft') === status).length}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={reportPanel}>
-              <h2>Recent Approved Tickets</h2>
-              <div style={{ display: 'grid', gap: 10 }}>
-                {tickets
-                  .filter((ticket) => ticket.status === 'approved')
-                  .slice(0, 10)
-                  .map((ticket) => (
-                    <div
-                      key={ticket.id}
-                      style={{
-                        ...card,
-                        display: 'grid',
-                        gridTemplateColumns: '1fr auto auto',
-                        gap: 12,
-                        alignItems: 'center',
-                      }}
-                    >
-                      <div>
-                        <strong>{ticket.ticket_number || ticket.id}</strong>
-                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                          {(ticket as any).created_at ? new Date((ticket as any).created_at).toLocaleDateString() : 'No date'}
-                        </div>
-                      </div>
-                      <span style={getTicketStatusStyle(ticket.status)}>{ticket.status}</span>
-                      <button style={button} onClick={() => { setSelectedTicket(ticket); setPage('tickets') }}>
-                        Open
-                      </button>
+            {reportCenterSection === 'inventory' && (
+              <div style={box}>
+                <h2>Inventory Balances</h2>
+                <p style={{ color: '#a8b3bd' }}>Inventory roll-forward and segment balance report foundation.</p>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {getOverShortRows().map((row: any) => (
+                    <div key={row.segment.id} style={card}>
+                      <strong>{row.segment.name}</strong>
+                      <div>Book Inventory: {row.bookInventory.toFixed(2)}</div>
+                      <div>Actual Inventory: {row.actualInventory.toFixed(2)}</div>
+                      <div>Over / Short: {row.overShort.toFixed(2)}</div>
                     </div>
                   ))}
+                </div>
               </div>
-            </div>
+            )}
+
+            {reportCenterSection === 'daily' && (
+              <div style={box}>
+                <h2>Daily Reports</h2>
+                <p style={{ color: '#a8b3bd' }}>
+                  Daily balance exports will use the same segment inventory engine. Next phase will add save-to-database daily balance snapshots.
+                </p>
+              </div>
+            )}
           </>
         )}
 

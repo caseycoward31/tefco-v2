@@ -755,12 +755,6 @@ function App() {
 
 
   useEffect(() => {
-    if (companyId || selectedAdminCompanyId) {
-      loadCompanySettings()
-    }
-  }, [companyId, selectedAdminCompanyId, userIsSuperAdmin])
-
-  useEffect(() => {
     function handleMobileResize() {
       if (typeof window !== 'undefined' && window.innerWidth <= 768) {
         setMobileMenuOpen(true)

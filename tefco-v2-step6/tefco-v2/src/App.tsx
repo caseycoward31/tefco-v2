@@ -1983,7 +1983,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     await supabase.from('tickets').update(updateData).eq('id', ticket.id)
 
     setSelectedTicket({ ...ticket, ...updateData })
-    if (newStatus === 'approved') {
+    if (status === 'approved') {
       const approvedTicket = { ...ticket, status: 'approved', approved_at: new Date().toISOString() }
       await postInventoryLedgerForTicket(approvedTicket)
     }

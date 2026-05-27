@@ -825,7 +825,33 @@ function App() {
   const userIsCompanyAdmin = currentUserRole === 'admin'
   const userCanManageCompanySetup = userIsSuperAdmin || userIsCompanyAdmin
   const userCanCreateCompanyScopedUsers = userIsSuperAdmin || userIsCompanyAdmin
+useEffect(() => {
+  const loadBranding = async () => {
+    const targetCompanyId =
+      userIsSuperAdmin && selectedAdminCompanyId
+        ? selectedAdminCompanyId
+        : companyId
 
+    if (!targetCompanyId) return
+
+    const { data } = await supabase
+      .from('company_settings')
+      .select('*')
+      .eq('company_id', targetCompanyId)
+      .maybeSingle()
+
+    if (data) {
+      setCompanySettings(data)
+      setCompanyNameInput(data.company_name || '')
+      setCompanyAddress1Input(data.address_line1 || '')
+      setCompanyAddress2Input(data.address_line2 || '')
+      setCompanyPhoneInput(data.phone || '')
+      setCompanyAccentInput(data.accent_color || '#c46a2b')
+    }
+  }
+
+  loadBranding()
+}, [companyId, selectedAdminCompanyId, userIsSuperAdmin])
   async function runSafeAction(label: string, action: () => Promise<void> | void) {
     if (isActionRunning) return
 

@@ -3718,6 +3718,38 @@ async function createCompany() {
     await loadTransporterPotRules()
   }
 
+
+  function getPotNumberLabel(pot: any) {
+    if (!pot) return ''
+    return (
+      (pot as any).pot_number ||
+      (pot as any).sample_id ||
+      (pot as any).sample_number ||
+      (pot as any).id ||
+      ''
+    )
+  }
+
+  function getPotApiGravity(pot: any, fallback = 0) {
+    return Number(
+      (pot as any)?.api_gravity_60 ||
+      (pot as any)?.api_gravity ||
+      (pot as any)?.observed_api_gravity ||
+      fallback ||
+      0
+    )
+  }
+
+  function getPotBswPercent(pot: any, fallback = 0) {
+    return Number(
+      (pot as any)?.bsw_percent ||
+      (pot as any)?.bsw ||
+      (pot as any)?.sw_percent ||
+      fallback ||
+      0
+    )
+  }
+
   async function importFlowXTransporterSummaryTickets() {
     if (!flowxCsvFile) {
       alert('Choose a Flow-X CSV file first.')

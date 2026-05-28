@@ -3557,20 +3557,63 @@ async function createCompany() {
       return
     }
 
-    const splits = getFlowXSplits()
+    const csvText = await flowxCsvFile.text()
+    const parsed = parseFlowXCsvForMapping(csvText)
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
-    if (splits.length === 0) {
-      alert('No transporter allocations were detected from the CSV. Check Transporter and NSV/GSV mapping, or enable manual override.')
+    if (!targetCompanyId) {
+      alert('No company selected.')
       return
     }
 
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
-    const { data: userData } = await supabase.auth.getUser()
-    const csvText = await flowxCsvFile.text()
-    const rows = parseGenericCsv(csvText)
+    const rows = parsed.data || []
 
-    if (rows.length === 0) {
-      alert('No Flow-X rows found.')
+    const transporterTotals: Record<string, { gross: number; net: number; rows: any[] }> = {}
+
+    rows.forEach((row: any) => {
+      const transporter = String(
+        row['Transporter'] ||
+        row['Transporter Name'] ||
+        getMappedFlowXValue(row, 'transporter_name') ||
+        row['Customer'] ||
+        'Unknown Transporter'
+      ).trim()
+
+      const gross = Number(String(
+        row['GSV Batch'] ||
+        row['IV Batch'] ||
+        row['Driver Obs Gross Bbls.'] ||
+        getMappedFlowXValue(row, 'gross_volume_bbl') ||
+        0
+      ).replace(/,/g, ''))
+
+      const net = Number(String(
+        row['NSV Batch'] ||
+        getMappedFlowXValue(row, 'net_volume_bbl') ||
+        gross ||
+        0
+      ).replace(/,/g, ''))
+
+      if (!transporter || (!net && !gross)) return
+
+      if (!transporterTotals[transporter]) transporterTotals[transporter] = { gross: 0, net: 0, rows: [] }
+      transporterTotals[transporter].gross += gross || 0
+      transporterTotals[transporter].net += net || gross || 0
+      transporterTotals[transporter].rows.push(row)
+    })
+
+    const splits = Object.entries(transporterTotals).map(([transporter, totals]) => ({
+      transporter,
+      customer: transporter,
+      gross: totals.gross,
+      net: totals.net,
+      percent: 100,
+      normalizedPercent: 1,
+      rows: totals.rows,
+    }))
+
+    if (splits.length === 0) {
+      alert('No transporter allocations were detected from the CSV. The file must have Transporter and NSV Batch/GSV Batch columns.')
       return
     }
 
@@ -3578,10 +3621,10 @@ async function createCompany() {
       .from('flowx_import_batches')
       .insert({
         company_id: targetCompanyId,
-        imported_by: userData.user?.id || null,
         lact_name: flowxLactName || null,
         source_file_name: flowxCsvFile.name,
         imported_count: rows.length,
+        imported_by: userEmail || null,
       })
       .select()
       .single()
@@ -3593,129 +3636,65 @@ async function createCompany() {
 
     let createdTickets = 0
 
-    for (const row of rows) {
-      const batchNumber = getFlowXValue(row, ['batch', 'batch_number', 'batch no', 'load_number', 'load no'])
-      const sourceTicketNumber = getFlowXValue(row, ['ticket', 'ticket_number', 'ticket no'])
-      const truckNumber = getFlowXValue(row, ['truck', 'truck_number', 'truck no'])
-      const driverName = getFlowXValue(row, ['driver', 'driver_name'])
-      const leaseName = getFlowXValue(row, ['lease', 'lease_name'])
-      const producerName = getFlowXValue(row, ['producer', 'producer_name'])
-      const meterNumber = getFlowXValue(row, ['meter', 'meter_number'])
-      const segmentName = getFlowXValue(row, ['segment', 'segment_name'])
-      const grossVolume = getFlowXNumber(row, ['gross', 'gross_volume', 'gross_bbl', 'gov', 'gsv'])
-      const netVolume = getFlowXNumber(row, ['net', 'net_volume', 'net_bbl', 'nsv'])
-      const apiGravity = getFlowXNumber(row, ['api', 'api_gravity', 'gravity'])
-      const observedTemp = getFlowXNumber(row, ['temperature', 'observed_temperature', 'obs_temp'])
-      const bswPercent = getFlowXNumber(row, ['bsw', 'bsw_percent', 's_w', 'sw'])
-      const openDate = getFlowXDate(row, ['open_time', 'open_datetime', 'start_time', 'start_datetime'])
-      const closeDate = getFlowXDate(row, ['close_time', 'close_datetime', 'end_time', 'end_datetime'])
+    for (const split of splits) {
+      const firstRow = split.rows[0] || {}
+      const sourceTicketNumber = firstRow['Ticket Nr.'] || firstRow['Ticket Nr'] || firstRow['Ticket Number'] || ''
+      const batchNumber = firstRow['Batch Nr.'] || firstRow['Batch Nr'] || firstRow['Batch Number'] || ''
+      const truckNumber = firstRow['Truck Nr.'] || firstRow['Truck Nr'] || firstRow['Truck Number'] || ''
+      const driverName = firstRow['Driver Name'] || ''
+      const leaseName = firstRow['Lease'] || ''
+      const apiGravity = Number(firstRow['API 60F'] || firstRow['Driver Obs API'] || 0)
+      const observedTemp = Number(firstRow['Temperature'] || firstRow['Driver Obs Temp'] || 0)
+      const bswPercent = Number(firstRow['BS&W'] || firstRow['Driver Obs BS&W'] || 0)
 
-      const { data: flowxRow } = await supabase
-        .from('flowx_truck_import_rows')
-        .insert({
-          company_id: targetCompanyId,
-          import_batch_id: batch.id,
-          lact_name: flowxLactName || getFlowXValue(row, ['lact', 'lact_name']) || null,
+      const { data: generatedNumber } = await supabase.rpc('generate_ticket_number', {
+        p_company_id: targetCompanyId,
+      })
+
+      const ticketPayload: any = {
+        company_id: targetCompanyId,
+        ticket_number: generatedNumber || `FLOWX-${split.transporter}-${Date.now()}`,
+        ticket_type: 'truck',
+        status: 'draft',
+        segment_id: flowxDefaultSegmentId || null,
+        import_batch_id: batch.id,
+        truck_number: truckNumber || null,
+        driver_name: driverName || null,
+        customer_name: split.transporter,
+        transporter_name: split.transporter,
+        split_parent_ticket: sourceTicketNumber || batchNumber || null,
+        split_percent: split.percent,
+        lact_name: flowxLactName || null,
+        observed_inputs: {
+          source: 'flowx_csv_transporter_auto',
+          lact_name: flowxLactName || null,
+          transporter_name: split.transporter,
+          source_ticket_number: sourceTicketNumber || null,
           batch_number: batchNumber || null,
-          ticket_number: sourceTicketNumber || null,
           truck_number: truckNumber || null,
           driver_name: driverName || null,
-          producer_name: producerName || null,
           lease_name: leaseName || null,
-          meter_number: meterNumber || null,
-          segment_name: segmentName || null,
-          open_datetime: openDate,
-          close_datetime: closeDate,
-          gross_volume_bbl: grossVolume || null,
-          net_volume_bbl: netVolume || null,
+          gross_volume_bbl: split.gross,
+          net_volume_bbl: split.net,
           api_gravity: apiGravity || null,
           observed_temperature: observedTemp || null,
           bsw_percent: bswPercent || null,
-          split_customer_1: flowxTransporter1 || null,
-          split_percent_1: flowxPercent1 ? Number(flowxPercent1) : null,
-          split_customer_2: flowxTransporter2 || null,
-          split_percent_2: flowxPercent2 ? Number(flowxPercent2) : null,
-          split_customer_3: flowxTransporter3 || null,
-          split_percent_3: flowxPercent3 ? Number(flowxPercent3) : null,
-          split_customer_4: flowxTransporter4 || null,
-          split_percent_4: flowxPercent4 ? Number(flowxPercent4) : null,
-          raw_row: row,
-        })
-        .select()
-        .single()
-
-      const createdIds: string[] = []
-
-      for (const split of splits) {
-        const { data: generatedNumber } = await supabase.rpc('generate_ticket_number', {
-          p_company_id: targetCompanyId,
-        })
-
-        const splitTransporter = split.customer || 'Unknown Transporter'
-
-        const splitGross = grossVolume * split.normalizedPercent
-        const splitNet = (netVolume || grossVolume) * split.normalizedPercent
-
-        const ticketPayload: any = {
-          company_id: targetCompanyId,
-          ticket_number: generatedNumber || `${sourceTicketNumber || batchNumber}-${splitTransporter}`,
-          ticket_type: 'truck',
-          status: 'draft',
-          segment_id: flowxDefaultSegmentId || null,
-          import_batch_id: batch.id,
-          flowx_row_id: flowxRow?.id || null,
-          truck_number: truckNumber || null,
-          driver_name: driverName || null,
-          customer_name: splitTransporter,
-          split_parent_ticket: sourceTicketNumber || batchNumber || null,
+          source_rows: split.rows.length,
+        },
+        calculation_results: {
+          gov: split.gross,
+          gsv: split.gross,
+          nsv: split.net,
           split_percent: split.percent,
-          lact_name: flowxLactName || null,
-          observed_inputs: {
-            source: 'flowx_csv',
-            lact_name: flowxLactName || null,
-            source_ticket_number: sourceTicketNumber || null,
-            batch_number: batchNumber || null,
-            truck_number: truckNumber || null,
-            driver_name: driverName || null,
-            customer_name: splitTransporter,
-            split_percent: split.percent,
-            gross_volume_bbl: splitGross,
-            net_volume_bbl: splitNet,
-            api_gravity: apiGravity || null,
-            observed_temperature: observedTemp || null,
-            bsw_percent: bswPercent || null,
-          },
-          calculation_results: {
-            gov: splitGross,
-            gsv: splitGross,
-            nsv: splitNet,
-            split_percent: split.percent,
-          },
-        }
-
-        const { data: ticketData, error: ticketError } = await supabase
-          .from('tickets')
-          .insert(ticketPayload)
-          .select()
-          .single()
-
-        if (!ticketError && ticketData?.id) {
-          createdIds.push(ticketData.id)
-          createdTickets += 1
-        } else {
-          console.error('Flow-X split ticket insert failed:', ticketError)
-        }
+        },
       }
 
-      if (flowxRow?.id) {
-        await supabase
-          .from('flowx_truck_import_rows')
-          .update({ created_ticket_ids: createdIds })
-          .eq('id', flowxRow.id)
-      }
+      const { error } = await supabase.from('tickets').insert(ticketPayload)
+      if (!error) createdTickets += 1
+      else console.error('Flow-X transporter ticket insert failed:', error)
     }
 
-    alert(`Flow-X import complete. Created ${createdTickets} draft truck tickets.`)
+    alert(`Flow-X import complete. Created ${createdTickets} transporter draft truck ticket(s).`)
     setFlowxCsvFile(null)
     await loadAll()
     setPage('tickets')

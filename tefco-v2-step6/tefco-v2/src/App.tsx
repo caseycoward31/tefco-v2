@@ -3520,8 +3520,9 @@ async function createCompany() {
     const splits = getFlowXSplits()
 
     if (splits.length === 0) {
-      alert('Enter at least one transporter split percentage.')
-      return
+  alert('No transporter allocations were detected from the CSV.')
+  return
+}
     }
 
     const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId

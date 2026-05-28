@@ -3563,7 +3563,7 @@ async function createCompany() {
           p_company_id: targetCompanyId,
         })
 
-        const splitTransporter = split.transporter || split.customer || transporterName || 'Unknown Transporter'
+        const splitTransporter = split.customer || 'Unknown Transporter'
 
         const splitGross = grossVolume * split.normalizedPercent
         const splitNet = (netVolume || grossVolume) * split.normalizedPercent

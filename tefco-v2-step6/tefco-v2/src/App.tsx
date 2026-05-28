@@ -4845,8 +4845,8 @@ async function saveUserRole() {
     const dataRows = rowsToExport.map((pot: any, index: number) => {
       const row = Array(gqLiquidImportHeaders.length).fill('')
       const sampleDate = pot.sample_date || pot.sampleDate || pot.effective_date || (pot as any).created_at || ''
-      const bsw = pot.bsw ?? pot.bsw_percent ?? pot.bs_w ?? ''
-      const grav = pot.observed_api_gravity ?? pot.api_gravity ?? pot.gravity ?? ''
+      const bsw = (pot as any).bsw ?? (pot as any).bsw_percent ?? pot.bs_w ?? ''
+      const grav = (pot as any).observed_api_gravity ?? (pot as any).api_gravity ?? pot.gravity ?? ''
       const temp = pot.observed_temperature ?? pot.sample_temperature ?? pot.temp ?? ''
 
       // Match uploaded GQ liquid import header structure exactly by column position.
@@ -5907,7 +5907,7 @@ async function saveUserRole() {
                   <option value="">Select POT Quality</option>
                   {potQuality.map((pot: any) => (
                     <option key={pot.id} value={pot.id}>
-                      {(pot.pot_number || pot.sample_id || pot.id)} | API {pot.api_gravity || pot.observed_api_gravity || ''} | BSW {pot.bsw_percent || pot.bsw || ''}
+                      {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
                     </option>
                   ))}
                 </select>
@@ -5930,7 +5930,7 @@ async function saveUserRole() {
                       <div>
                         <strong>{rule.transporter_name}</strong>
                         <div style={{ color: '#a8b3bd' }}>
-                          POT: {pot ? (pot.pot_number || pot.sample_id || pot.id) : rule.pot_quality_id}
+                          POT: {pot ? ((pot as any).pot_number || (pot as any).sample_id || pot.id) : rule.pot_quality_id}
                         </div>
                       </div>
                       <button style={{ ...button, background: '#dc2626', width: 110 }} onClick={() => deleteTransporterPotRule(rule.id)}>

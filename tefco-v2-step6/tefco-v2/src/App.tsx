@@ -3331,10 +3331,6 @@ async function createCompany() {
     }
 
     return calculateFlowXTransporterSplitsFromRows(rows)
-  }))
-    }
-
-    return getFlowXAutoTransporterSplits(rows)
   }
 
   function getLatestPotForTransporter(transporterName: string) {

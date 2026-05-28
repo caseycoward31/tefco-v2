@@ -3517,12 +3517,11 @@ async function createCompany() {
       return
     }
 
-  const splits = getFlowXSplitsForImport(parsed.data)
+    const splits = getFlowXSplits()
 
     if (splits.length === 0) {
-  alert('No transporter allocations were detected from the CSV.')
-  return
-}
+      alert('No transporter allocations were detected from the CSV. Check Transporter and NSV/GSV mapping, or enable manual override.')
+      return
     }
 
     const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
@@ -7393,8 +7392,6 @@ async function saveUserRole() {
               </div>
             )}
           </>
-        )}
-                </>
         )}
       </main>
     </div>

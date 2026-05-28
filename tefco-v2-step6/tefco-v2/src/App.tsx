@@ -717,6 +717,9 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [readings, setReadings] = useState<any[]>([])
   const [provings, setProvings] = useState<Proving[]>([])
   const [potQuality, setPotQuality] = useState<PotQuality[]>([])
+  const [transporterPotRules, setTransporterPotRules] = useState<any[]>([])
+  const [newTransporterPotName, setNewTransporterPotName] = useState('')
+  const [newTransporterPotId, setNewTransporterPotId] = useState('')
   const [contractProfiles, setContractProfiles] = useState<ContractProfile[]>([])
   const [newAdminEmail, setNewAdminEmail] = useState('')
   const [newAdminPassword, setNewAdminPassword] = useState('')
@@ -3621,6 +3624,98 @@ async function createCompany() {
     }))
   }
 
+
+  function normalizeTransporterName(value: any) {
+    return String(value || '').trim().toLowerCase()
+  }
+
+  function getAssignedPotForTransporter(transporterName: string) {
+    const normalized = normalizeTransporterName(transporterName)
+
+    const rule = transporterPotRules.find((item: any) =>
+      normalizeTransporterName(item.transporter_name) === normalized
+    )
+
+    if (rule?.pot_quality_id) {
+      const pot = potQuality.find((p: any) => p.id === rule.pot_quality_id)
+      if (pot) return pot
+    }
+
+    const directPot = potQuality
+      .filter((pot: any) => {
+        const potTransporter = normalizeTransporterName(
+          pot.transporter_name ||
+          pot.transporter ||
+          pot.customer_name ||
+          pot.customer ||
+          pot.producer_name ||
+          ''
+        )
+        return potTransporter === normalized
+      })
+      .sort((a: any, b: any) =>
+        new Date((b as any).created_at || b.sample_date || 0).getTime() -
+        new Date((a as any).created_at || a.sample_date || 0).getTime()
+      )[0]
+
+    return directPot || null
+  }
+
+  async function loadTransporterPotRules() {
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!targetCompanyId) return
+
+    const { data, error } = await supabase
+      .from('transporter_pot_rules')
+      .select('*')
+      .eq('company_id', targetCompanyId)
+      .order('transporter_name')
+
+    if (!error) setTransporterPotRules(data || [])
+  }
+
+  async function saveTransporterPotRule() {
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    if (!targetCompanyId) {
+      alert('No company selected.')
+      return
+    }
+
+    if (!newTransporterPotName || !newTransporterPotId) {
+      alert('Enter transporter and select POT.')
+      return
+    }
+
+    const { error } = await supabase
+      .from('transporter_pot_rules')
+      .upsert({
+        company_id: targetCompanyId,
+        transporter_name: newTransporterPotName.trim(),
+        pot_quality_id: newTransporterPotId,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'company_id,transporter_name' })
+
+    if (error) {
+      alert('Could not save transporter POT rule: ' + error.message)
+      return
+    }
+
+    setNewTransporterPotName('')
+    setNewTransporterPotId('')
+    await loadTransporterPotRules()
+    alert('Transporter POT rule saved.')
+  }
+
+  async function deleteTransporterPotRule(ruleId: string) {
+    const { error } = await supabase.from('transporter_pot_rules').delete().eq('id', ruleId)
+    if (error) {
+      alert('Could not delete rule: ' + error.message)
+      return
+    }
+    await loadTransporterPotRules()
+  }
+
   async function importFlowXTransporterSummaryTickets() {
     if (!flowxCsvFile) {
       alert('Choose a Flow-X CSV file first.')
@@ -3659,7 +3754,10 @@ async function createCompany() {
       return
     }
 
-    const ticketPayloads = summaries.map((s: any, i: number) => ({
+    const ticketPayloads = summaries.map((s: any, i: number) => {
+      const assignedPot = getAssignedPotForTransporter(s.transporter)
+
+      return ({
       company_id: targetCompanyId,
       ticket_number: `FLOWX-${flowxLactName || 'LACT'}-${s.transporter}-${Date.now()}-${i + 1}`,
       ticket_type: 'truck',
@@ -3705,7 +3803,8 @@ async function createCompany() {
         cpl: s.avgCpl,
         ctpl: s.avgCtpl,
       },
-    }))
+    })
+    })
 
     const { error } = await supabase.from('tickets').insert(ticketPayloads)
     if (error) {

@@ -3551,6 +3551,176 @@ async function createCompany() {
     setPage('tickets')
   }
 
+
+  function getFlowXRowValue(row: any, field: string, headers: string[] = []) {
+    const mapped = typeof getMappedFlowXValue === 'function' ? getMappedFlowXValue(row, field) : ''
+    if (mapped) return mapped
+    for (const h of headers) if (row[h] !== undefined && row[h] !== '') return row[h]
+    return ''
+  }
+
+  function getFlowXRowNumber(row: any, field: string, headers: string[] = []) {
+    const raw = getFlowXRowValue(row, field, headers)
+    const value = Number(String(raw || '').replace(/,/g, ''))
+    return Number.isFinite(value) ? value : 0
+  }
+
+  function buildFlowXTransporterSummaries(rows: any[]) {
+    const map: Record<string, any> = {}
+
+    rows.forEach((row: any) => {
+      const transporter = String(getFlowXRowValue(row, 'transporter_name', ['Transporter', 'Transporter Name', 'Customer']) || 'Unknown Transporter').trim()
+      const gross = getFlowXRowNumber(row, 'gross_volume_bbl', ['GSV Batch', 'IV Batch', 'Driver Obs Gross Bbls.', 'Driver Obs Gross Bbls'])
+      const net = getFlowXRowNumber(row, 'net_volume_bbl', ['NSV Batch']) || gross
+      if (!transporter || (!gross && !net)) return
+
+      if (!map[transporter]) {
+        map[transporter] = { transporter, gross: 0, net: 0, temp: 0, pressure: 0, api: 0, bsw: 0, ctl: 0, cpl: 0, ctpl: 0, weight: 0, rows: 0, tickets: new Set(), batches: new Set(), trucks: new Set(), drivers: new Set(), leases: new Set() }
+      }
+
+      const weight = net || gross || 1
+      const s = map[transporter]
+      s.gross += gross
+      s.net += net
+      s.weight += weight
+      s.rows += 1
+      s.temp += getFlowXRowNumber(row, 'observed_temperature', ['Temperature', 'Driver Obs Temp']) * weight
+      s.pressure += getFlowXRowNumber(row, 'pressure', ['Pressure']) * weight
+      s.api += getFlowXRowNumber(row, 'api_gravity', ['API 60F', 'Driver Obs API']) * weight
+      s.bsw += getFlowXRowNumber(row, 'bsw_percent', ['BS&W', 'Driver Obs BS&W']) * weight
+      s.ctl += getFlowXRowNumber(row, 'ctl', ['CTL']) * weight
+      s.cpl += getFlowXRowNumber(row, 'cpl', ['CPL']) * weight
+      s.ctpl += getFlowXRowNumber(row, 'ctpl', ['CTPL']) * weight
+
+      const ticket = getFlowXRowValue(row, 'ticket_number', ['Ticket Nr.', 'Ticket Nr', 'Ticket Number'])
+      const batch = getFlowXRowValue(row, 'batch_number', ['Batch Nr.', 'Batch Nr', 'Batch Number'])
+      const truck = getFlowXRowValue(row, 'truck_number', ['Truck Nr.', 'Truck Nr', 'Truck Number'])
+      const driver = getFlowXRowValue(row, 'driver_name', ['Driver Name'])
+      const lease = getFlowXRowValue(row, 'lease_name', ['Lease'])
+      if (ticket) s.tickets.add(ticket)
+      if (batch) s.batches.add(batch)
+      if (truck) s.trucks.add(truck)
+      if (driver) s.drivers.add(driver)
+      if (lease) s.leases.add(lease)
+    })
+
+    return Object.values(map).map((s: any) => ({
+      ...s,
+      avgTemp: s.weight ? s.temp / s.weight : 0,
+      avgPressure: s.weight ? s.pressure / s.weight : 0,
+      avgApi: s.weight ? s.api / s.weight : 0,
+      avgBsw: s.weight ? s.bsw / s.weight : 0,
+      avgCtl: s.weight ? s.ctl / s.weight : 0,
+      avgCpl: s.weight ? s.cpl / s.weight : 0,
+      avgCtpl: s.weight ? s.ctpl / s.weight : 0,
+      ticketList: Array.from(s.tickets).join(', '),
+      batchList: Array.from(s.batches).join(', '),
+      truckList: Array.from(s.trucks).join(', '),
+      driverList: Array.from(s.drivers).join(', '),
+      leaseList: Array.from(s.leases).join(', '),
+    }))
+  }
+
+  async function importFlowXTransporterSummaryTickets() {
+    if (!flowxCsvFile) {
+      alert('Choose a Flow-X CSV file first.')
+      return
+    }
+
+    const csvText = await flowxCsvFile.text()
+    const parsed = parseFlowXCsvForMapping(csvText)
+    const summaries = buildFlowXTransporterSummaries(parsed.data || [])
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    if (!targetCompanyId) {
+      alert('No company selected.')
+      return
+    }
+
+    if (summaries.length === 0) {
+      alert('No transporter totals found. Check Transporter and NSV/GSV columns.')
+      return
+    }
+
+    const { data: batch, error: batchError } = await supabase
+      .from('flowx_import_batches')
+      .insert({
+        company_id: targetCompanyId,
+        lact_name: flowxLactName || null,
+        source_file_name: flowxCsvFile.name,
+        imported_count: parsed.data.length,
+        imported_by: session?.user?.email || null,
+      })
+      .select()
+      .single()
+
+    if (batchError || !batch) {
+      alert('Could not create Flow-X import batch: ' + (batchError?.message || 'unknown error'))
+      return
+    }
+
+    const ticketPayloads = summaries.map((s: any, i: number) => ({
+      company_id: targetCompanyId,
+      ticket_number: `FLOWX-${flowxLactName || 'LACT'}-${s.transporter}-${Date.now()}-${i + 1}`,
+      ticket_type: 'truck',
+      status: 'draft',
+      segment_id: flowxDefaultSegmentId || null,
+      import_batch_id: batch.id,
+      truck_number: s.truckList || null,
+      driver_name: s.driverList || null,
+      customer_name: s.transporter,
+      transporter_name: s.transporter,
+      split_parent_ticket: s.ticketList || s.batchList || null,
+      split_percent: 100,
+      lact_name: flowxLactName || null,
+      observed_inputs: {
+        source: 'flowx_transporter_summary',
+        lact_name: flowxLactName || null,
+        transporter_name: s.transporter,
+        ticket_numbers: s.ticketList,
+        batch_numbers: s.batchList,
+        truck_numbers: s.truckList,
+        driver_names: s.driverList,
+        leases: s.leaseList,
+        source_rows: s.rows,
+        gross_volume_bbl: s.gross,
+        net_volume_bbl: s.net,
+        average_temperature: s.avgTemp,
+        average_pressure: s.avgPressure,
+        api_gravity: s.avgApi,
+        bsw_percent: s.avgBsw,
+        ctl: s.avgCtl,
+        cpl: s.avgCpl,
+        ctpl: s.avgCtpl,
+      },
+      calculation_results: {
+        gov: s.gross,
+        gsv: s.gross,
+        nsv: s.net,
+        average_temperature: s.avgTemp,
+        average_pressure: s.avgPressure,
+        api_gravity: s.avgApi,
+        bsw_percent: s.avgBsw,
+        ctl: s.avgCtl,
+        cpl: s.avgCpl,
+        ctpl: s.avgCtpl,
+      },
+    }))
+
+    const { error } = await supabase.from('tickets').insert(ticketPayloads)
+    if (error) {
+      alert('Could not create transporter tickets: ' + error.message)
+      return
+    }
+
+    alert(`Flow-X summary import complete. Created ${ticketPayloads.length} transporter ticket(s).`)
+    setFlowxCsvFile(null)
+    setFlowxMappingRows([])
+    setFlowxMappingHeaders([])
+    await loadAll()
+    setPage('tickets')
+  }
+
   async function importFlowXTruckTickets() {
     if (!flowxCsvFile) {
       alert('Choose a Flow-X CSV file first.')
@@ -6099,8 +6269,8 @@ async function saveUserRole() {
 
                       <input style={input} type="file" accept=".csv,text/csv" onChange={(e) => setFlowxCsvFile(e.target.files?.[0] || null)} />
 
-                      <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Importing Flow-X truck tickets', importFlowXTruckTickets)}>
-                        Import Flow-X Truck Tickets
+                      <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Importing transporter summary tickets', importFlowXTransporterSummaryTickets)}>
+                        Import Transporter Summary Tickets
                       </button>
                     </div>
 
@@ -6933,8 +7103,8 @@ async function saveUserRole() {
                   </div>
                 )}
 
-                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Importing mapped Flow-X tickets', importMappedFlowXTruckTickets)}>
-                  Generate Split Truck Tickets
+                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Importing transporter summary tickets', importFlowXTransporterSummaryTickets)}>
+                  Generate Transporter Summary Tickets
                 </button>
               </div>
             )}

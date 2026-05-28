@@ -1994,7 +1994,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
                   <div class="row"><div class="label">Segment:</div><div class="val">${segment?.name || '—'}</div></div>
                   <div class="row"><div class="label">Movement:</div><div class="val">${direction || '—'}</div></div>
                   <div class="row"><div class="label">Producer:</div><div class="val">${producer?.name || '—'}</div></div>
-                  <div class="row"><div class="label">Transporter:</div><div class="val">${(ticket as any).transporter_name || ticket.observed_inputs?.transporter_name || ticket.customer_name || '—'}</div></div>
+                  <div class="row"><div class="label">Transporter:</div><div class="val">${(ticket as any).transporter_name || ticket.observed_inputs?.transporter_name || (ticket as any).customer_name || '—'}</div></div>
                   <div class="row"><div class="label">Assigned POT:</div><div class="val">${ticket.observed_inputs?.assigned_pot_label || (ticket as any).assigned_pot_id || '—'}</div></div>
                   <div class="row"><div class="label">Date:</div><div class="val">${(ticket as any).created_at ? new Date((ticket as any).created_at).toLocaleString() : '—'}</div></div>
                 </div>
@@ -3758,6 +3758,9 @@ async function createCompany() {
 
     const ticketPayloads = summaries.map((s: any, i: number) => {
       const assignedPot = getAssignedPotForTransporter(s.transporter)
+      const potApiGravity = getPotApiGravity(assignedPot, s.avgApi)
+      const potBswPercent = getPotBswPercent(assignedPot, s.avgBsw)
+      const potLabel = getPotNumberLabel(assignedPot)
 
       return ({
       company_id: targetCompanyId,
@@ -4264,7 +4267,7 @@ async function createCompany() {
         ticket.ticket_number || ticket.id,
         ticket.truck_number || ticket.observed_inputs?.truck_number || '',
         ticket.driver_name || ticket.observed_inputs?.driver_name || '',
-        ticket.customer_name || ticket.observed_inputs?.customer_name || '',
+        (ticket as any).customer_name || ticket.observed_inputs?.customer_name || '',
         ticket.split_percent || ticket.observed_inputs?.split_percent || '',
         Number(ticket.calculation_results?.gsv ?? 0).toFixed(2),
         Number(ticket.calculation_results?.nsv ?? 0).toFixed(2),
@@ -4329,7 +4332,7 @@ async function createCompany() {
             getTicketVolumeForBalance(ticket).toFixed(2),
             ticket.ticket_type === 'tank' ? getTankSignedMovement(ticket).toFixed(2) : '',
             getTicketDateForBalance(ticket),
-            ticket.customer_name || ticket.observed_inputs?.customer_name || '',
+            (ticket as any).customer_name || ticket.observed_inputs?.customer_name || '',
           ]),
         ],
       }

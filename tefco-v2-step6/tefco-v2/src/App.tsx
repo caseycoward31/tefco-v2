@@ -3517,7 +3517,7 @@ async function createCompany() {
       return
     }
 
-    const splits = getFlowXSplits()
+  const splits = getFlowXSplitsForImport(parsed.data)
 
     if (splits.length === 0) {
   alert('No transporter allocations were detected from the CSV.')

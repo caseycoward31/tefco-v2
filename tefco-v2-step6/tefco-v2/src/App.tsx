@@ -97,6 +97,7 @@ type PotQuality = {
   csw?: number
   sample_temperature?: number
   notes?: string
+  created_at?: string | null
 }
 
 function roundFactor(value: number) {
@@ -3430,7 +3431,7 @@ async function createCompany() {
             customer_name: splitTransporter,
             transporter_name: splitTransporter,
             assigned_pot_id: assignedPot?.id || null,
-            assigned_pot_sample_date: assignedPot?.sample_date || assignedPot?.created_at || null,
+            assigned_pot_sample_date: assignedPot?.sample_date || (assignedPot as any)?.created_at || null,
             split_percent: split.percent,
             gross_volume_bbl: splitGross,
             net_volume_bbl: splitNet,
@@ -4492,7 +4493,7 @@ async function saveUserRole() {
     const end = new Date(`${potCsvEndDate}T23:59:59`)
 
     const rowsToExport = potQuality.filter((pot: any) => {
-      const sampleDate = pot.sample_date || pot.sampleDate || pot.effective_date || pot.created_at || ''
+      const sampleDate = pot.sample_date || pot.sampleDate || pot.effective_date || (pot as any).created_at || ''
       const dateOk = sampleDate ? new Date(sampleDate) >= start && new Date(sampleDate) <= end : false
       const producerOk = potCsvProducerId ? pot.producer_id === potCsvProducerId || pot.producerId === potCsvProducerId : true
       return dateOk && producerOk
@@ -4505,7 +4506,7 @@ async function saveUserRole() {
 
     const dataRows = rowsToExport.map((pot: any, index: number) => {
       const row = Array(gqLiquidImportHeaders.length).fill('')
-      const sampleDate = pot.sample_date || pot.sampleDate || pot.effective_date || pot.created_at || ''
+      const sampleDate = pot.sample_date || pot.sampleDate || pot.effective_date || (pot as any).created_at || ''
       const bsw = pot.bsw ?? pot.bsw_percent ?? pot.bs_w ?? ''
       const grav = pot.observed_api_gravity ?? pot.api_gravity ?? pot.gravity ?? ''
       const temp = pot.observed_temperature ?? pot.sample_temperature ?? pot.temp ?? ''

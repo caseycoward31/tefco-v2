@@ -3223,7 +3223,47 @@ async function createCompany() {
 
   function getMappedFlowXValue(row: any, field: string) {
     const header = flowxColumnMap[field]
-    return header ? row[header] : ''
+
+    if (header && row[header] !== undefined) return row[header]
+
+    const aliases: Record<string, string[]> = {
+      ticket_number: ['Ticket Nr.', 'Ticket Nr', 'Ticket No', 'Ticket Number', 'Ticket'],
+      batch_number: ['Batch Nr.', 'Batch Nr', 'Batch No', 'Batch Number', 'Batch'],
+      truck_number: ['Truck Nr.', 'Truck Nr', 'Truck No', 'Truck Number', 'Truck'],
+      driver_name: ['Driver Name', 'Driver'],
+      producer_name: ['Producer'],
+      transporter_name: ['Transporter', 'Transporter Name', 'Carrier', 'Shipper'],
+      customer_name: ['Customer', 'Customer Name'],
+      lease_name: ['Lease', 'Lease Name'],
+      meter_number: ['Rack Nr.', 'Rack Nr', 'Meter Number', 'Meter'],
+      segment_name: ['Site', 'Segment', 'Segment Name'],
+      gross_volume_bbl: ['GSV Batch', 'IV Batch', 'Driver Obs Gross Bbls.', 'Driver Obs Gross Bbls', 'Gross Volume', 'GSV'],
+      net_volume_bbl: ['NSV Batch', 'Net Volume', 'NSV'],
+      api_gravity: ['API 60F', 'Driver Obs API', 'API Gravity', 'API'],
+      observed_temperature: ['Temperature', 'Driver Obs Temp', 'Observed Temp'],
+      bsw_percent: ['BS&W', 'Driver Obs BS&W', 'BSW', 'S&W'],
+      open_datetime: ['Start Time', 'Open Time'],
+      close_datetime: ['Stop Time', 'Close Time'],
+    }
+
+    const possibleHeaders = aliases[field] || []
+
+    for (const possibleHeader of possibleHeaders) {
+      if (row[possibleHeader] !== undefined && row[possibleHeader] !== '') return row[possibleHeader]
+    }
+
+    const normalizedFieldHeaders = Object.keys(row).reduce((acc: Record<string, string>, key) => {
+      acc[String(key).toLowerCase().replace(/[^a-z0-9]+/g, '_')] = key
+      return acc
+    }, {})
+
+    for (const possibleHeader of possibleHeaders) {
+      const normalized = possibleHeader.toLowerCase().replace(/[^a-z0-9]+/g, '_')
+      const realHeader = normalizedFieldHeaders[normalized]
+      if (realHeader && row[realHeader] !== undefined && row[realHeader] !== '') return row[realHeader]
+    }
+
+    return ''
   }
 
   function getMappedFlowXNumber(row: any, field: string) {
@@ -3273,7 +3313,7 @@ async function createCompany() {
         'Unknown Transporter'
       ).trim()
 
-      const nsv = getMappedFlowXNumber(row, 'net_volume_bbl') || getMappedFlowXNumber(row, 'gross_volume_bbl')
+      const nsv = getMappedFlowXNumber(row, 'net_volume_bbl') || getMappedFlowXNumber(row, 'gross_volume_bbl') || Number(row['NSV Batch'] || row['GSV Batch'] || row['IV Batch'] || 0)
 
       if (!transporter || !Number.isFinite(nsv) || nsv <= 0) return
 
@@ -3305,7 +3345,7 @@ async function createCompany() {
 
     rows.forEach((row) => {
       const transporter = String(getMappedFlowXValue(row, 'transporter_name') || getMappedFlowXValue(row, 'producer_name') || 'Unknown Transporter').trim()
-      const nsv = getMappedFlowXNumber(row, 'net_volume_bbl') || getMappedFlowXNumber(row, 'gross_volume_bbl')
+      const nsv = getMappedFlowXNumber(row, 'net_volume_bbl') || getMappedFlowXNumber(row, 'gross_volume_bbl') || Number(row['NSV Batch'] || row['GSV Batch'] || row['IV Batch'] || 0)
 
       if (!transporter || !nsv) return
 

@@ -5888,6 +5888,61 @@ async function saveUserRole() {
         {page === 'admin' && !canViewAdmin && (
           <div style={box}>
             <h1>Admin</h1>
+
+            <div style={box}>
+              <h2>Transporter → POT Assignment</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Set which POT quality should be used for each Flow-X transporter summary ticket.
+              </p>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12 }}>
+                <input
+                  style={input}
+                  placeholder="Transporter Name exactly as Flow-X shows it"
+                  value={newTransporterPotName}
+                  onChange={(e) => setNewTransporterPotName(e.target.value)}
+                />
+
+                <select style={input} value={newTransporterPotId} onChange={(e) => setNewTransporterPotId(e.target.value)}>
+                  <option value="">Select POT Quality</option>
+                  {potQuality.map((pot: any) => (
+                    <option key={pot.id} value={pot.id}>
+                      {(pot.pot_number || pot.sample_id || pot.id)} | API {pot.api_gravity || pot.observed_api_gravity || ''} | BSW {pot.bsw_percent || pot.bsw || ''}
+                    </option>
+                  ))}
+                </select>
+
+                <button style={button} onClick={() => runSafeAction('Saving transporter POT rule', saveTransporterPotRule)}>
+                  Save Rule
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                {transporterPotRules.length === 0 && (
+                  <div style={card}>No transporter POT rules saved yet.</div>
+                )}
+
+                {transporterPotRules.map((rule: any) => {
+                  const pot = potQuality.find((item: any) => item.id === rule.pot_quality_id)
+
+                  return (
+                    <div key={rule.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                      <div>
+                        <strong>{rule.transporter_name}</strong>
+                        <div style={{ color: '#a8b3bd' }}>
+                          POT: {pot ? (pot.pot_number || pot.sample_id || pot.id) : rule.pot_quality_id}
+                        </div>
+                      </div>
+                      <button style={{ ...button, background: '#dc2626', width: 110 }} onClick={() => deleteTransporterPotRule(rule.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+
             <p>You do not have permission to view Admin.</p>
             <button style={button} onClick={() => setPage('dashboard')}>
               Back to Dashboard

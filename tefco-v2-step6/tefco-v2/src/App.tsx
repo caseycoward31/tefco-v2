@@ -626,6 +626,8 @@ function App() {
   const [flowxPercent2, setFlowxPercent2] = useState('')
   const [flowxPercent3, setFlowxPercent3] = useState('')
   const [flowxPercent4, setFlowxPercent4] = useState('')
+  const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
+  const [flowxAutoSplits, setFlowxAutoSplits] = useState<any[]>([])
   const [inventoryStartDate, setInventoryStartDate] = useState('')
   const [inventoryEndDate, setInventoryEndDate] = useState('')
   const [inventorySegmentId, setInventorySegmentId] = useState('')
@@ -3192,6 +3194,7 @@ async function createCompany() {
     const parsed = parseFlowXCsvForMapping(csvText)
     setFlowxMappingHeaders(parsed.headers)
     setFlowxMappingRows(parsed.data.slice(0, 10))
+    setTimeout(() => refreshFlowXAutoSplits(parsed.data), 0)
 
     setFlowxColumnMap({
       ticket_number: guessFlowXColumn(parsed.headers, ['ticket nr', 'ticket_number', 'ticket no', 'ticket']),
@@ -3253,6 +3256,45 @@ async function createCompany() {
   }
 
 
+
+  function calculateFlowXTransporterSplitsFromRows(rows: any[]) {
+    const totals: Record<string, number> = {}
+    let grandTotal = 0
+
+    rows.forEach((row) => {
+      const transporter = String(
+        getMappedFlowXValue(row, 'transporter_name') ||
+        getMappedFlowXValue(row, 'producer_name') ||
+        getMappedFlowXValue(row, 'customer_name') ||
+        'Unknown Transporter'
+      ).trim()
+
+      const nsv = getMappedFlowXNumber(row, 'net_volume_bbl') || getMappedFlowXNumber(row, 'gross_volume_bbl')
+
+      if (!transporter || !Number.isFinite(nsv) || nsv <= 0) return
+
+      totals[transporter] = (totals[transporter] || 0) + nsv
+      grandTotal += nsv
+    })
+
+    return Object.entries(totals)
+      .map(([transporter, total]) => ({
+        customer: transporter,
+        transporter,
+        percent: grandTotal ? (total / grandTotal) * 100 : 0,
+        normalizedPercent: grandTotal ? total / grandTotal : 0,
+        totalNsv: total,
+      }))
+      .sort((a, b) => b.totalNsv - a.totalNsv)
+  }
+
+  function refreshFlowXAutoSplits(rows?: any[]) {
+    const sourceRows = rows || flowxMappingRows || []
+    const splits = calculateFlowXTransporterSplitsFromRows(sourceRows)
+    setFlowxAutoSplits(splits)
+    return splits
+  }
+
   function getFlowXAutoTransporterSplits(rows: any[]) {
     const totals: Record<string, number> = {}
     let grandTotal = 0
@@ -3277,13 +3319,19 @@ async function createCompany() {
   }
 
   function getFlowXSplitsForImport(rows: any[]) {
-    const manualSplits = getFlowXSplitsFromForm()
+    if (flowxManualSplitOverride) {
+      const manualSplits = getFlowXSplitsFromForm()
 
-    if (manualSplits.length > 0) {
-      return manualSplits.map((split: any) => ({
-        ...split,
-        transporter: split.customer,
-      }))
+      if (manualSplits.length > 0) {
+        return manualSplits.map((split: any) => ({
+          ...split,
+          transporter: split.customer,
+        }))
+      }
+    }
+
+    return calculateFlowXTransporterSplitsFromRows(rows)
+  }))
     }
 
     return getFlowXAutoTransporterSplits(rows)
@@ -3322,7 +3370,7 @@ async function createCompany() {
     const splits = getFlowXSplitsForImport(parsed.data)
 
     if (splits.length === 0) {
-      alert('No transporter volumes found in the CSV and no manual split was entered.')
+      alert('No transporter volumes found in the CSV. Check Transporter and NSV/GSV column mapping, or enable manual override.')
       return
     }
     const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
@@ -5974,16 +6022,61 @@ async function saveUserRole() {
                         {segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
                       </select>
 
-                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 12 }}>
-                        <input style={input} placeholder="Transporter 1" value={flowxTransporter1} onChange={(e) => setFlowxTransporter1(e.target.value)} />
-                        <input style={input} placeholder="% 1" value={flowxPercent1} onChange={(e) => setFlowxPercent1(e.target.value)} />
-                        <input style={input} placeholder="Transporter 2" value={flowxTransporter2} onChange={(e) => setFlowxTransporter2(e.target.value)} />
-                        <input style={input} placeholder="% 2" value={flowxPercent2} onChange={(e) => setFlowxPercent2(e.target.value)} />
-                        <input style={input} placeholder="Transporter 3" value={flowxTransporter3} onChange={(e) => setFlowxTransporter3(e.target.value)} />
-                        <input style={input} placeholder="% 3" value={flowxPercent3} onChange={(e) => setFlowxPercent3(e.target.value)} />
-                        <input style={input} placeholder="Transporter 4" value={flowxTransporter4} onChange={(e) => setFlowxTransporter4(e.target.value)} />
-                        <input style={input} placeholder="% 4" value={flowxPercent4} onChange={(e) => setFlowxPercent4(e.target.value)} />
-                      </div>
+                      <div style={card}>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={flowxManualSplitOverride}
+                      onChange={(e) => setFlowxManualSplitOverride(e.target.checked)}
+                    />
+                    Manual transporter split override
+                  </label>
+
+                  {!flowxManualSplitOverride && (
+                    <div style={{ marginTop: 10 }}>
+                      <h3>Auto Transporter Allocation</h3>
+                      {flowxAutoSplits.length === 0 ? (
+                        <div style={{ color: '#a8b3bd' }}>
+                          Upload and map a CSV with Transporter and NSV/GSV columns to calculate allocations.
+                        </div>
+                      ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                            <thead>
+                              <tr>
+                                <th style={{ textAlign: 'left', borderBottom: '1px solid #374151', padding: 6 }}>Transporter</th>
+                                <th style={{ textAlign: 'right', borderBottom: '1px solid #374151', padding: 6 }}>NSV Total</th>
+                                <th style={{ textAlign: 'right', borderBottom: '1px solid #374151', padding: 6 }}>Split %</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {flowxAutoSplits.map((split: any) => (
+                                <tr key={split.transporter}>
+                                  <td style={{ borderBottom: '1px solid #1f2937', padding: 6 }}>{split.transporter}</td>
+                                  <td style={{ textAlign: 'right', borderBottom: '1px solid #1f2937', padding: 6 }}>{split.totalNsv.toFixed(2)}</td>
+                                  <td style={{ textAlign: 'right', borderBottom: '1px solid #1f2937', padding: 6 }}>{split.percent.toFixed(4)}%</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {flowxManualSplitOverride && (
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 12, marginTop: 12 }}>
+                      <input style={input} placeholder="Transporter 1" value={flowxCustomer1} onChange={(e) => setFlowxCustomer1(e.target.value)} />
+                      <input style={input} placeholder="% 1" value={flowxPercent1} onChange={(e) => setFlowxPercent1(e.target.value)} />
+                      <input style={input} placeholder="Transporter 2" value={flowxCustomer2} onChange={(e) => setFlowxCustomer2(e.target.value)} />
+                      <input style={input} placeholder="% 2" value={flowxPercent2} onChange={(e) => setFlowxPercent2(e.target.value)} />
+                      <input style={input} placeholder="Transporter 3" value={flowxCustomer3} onChange={(e) => setFlowxCustomer3(e.target.value)} />
+                      <input style={input} placeholder="% 3" value={flowxPercent3} onChange={(e) => setFlowxPercent3(e.target.value)} />
+                      <input style={input} placeholder="Transporter 4" value={flowxCustomer4} onChange={(e) => setFlowxCustomer4(e.target.value)} />
+                      <input style={input} placeholder="% 4" value={flowxPercent4} onChange={(e) => setFlowxPercent4(e.target.value)} />
+                    </div>
+                  )}
+                </div>
 
                       <input style={input} type="file" accept=".csv,text/csv" onChange={(e) => setFlowxCsvFile(e.target.files?.[0] || null)} />
 
@@ -6769,6 +6862,7 @@ async function saveUserRole() {
                         ['driver_name', 'Driver Name'],
                         ['producer_name', 'Producer'],
                         ['transporter_name', 'Transporter'],
+                        ['customer_name', 'Customer'],
                         ['lease_name', 'Lease'],
                         ['meter_number', 'Meter Number'],
                         ['segment_name', 'Segment'],
@@ -6782,7 +6876,7 @@ async function saveUserRole() {
                       ].map(([field, label]) => (
                         <label key={field} style={{ display: 'grid', gap: 4 }}>
                           <span>{label}</span>
-                          <select style={input} value={flowxColumnMap[field] || ''} onChange={(e) => updateFlowXColumnMap(field, e.target.value)}>
+                          <select style={input} value={flowxColumnMap[field] || ''} onChange={(e) => { updateFlowXColumnMap(field, e.target.value); setTimeout(() => refreshFlowXAutoSplits(flowxMappingRows), 0) }}>
                             <option value="">Not mapped</option>
                             {flowxMappingHeaders.map((header) => (
                               <option key={header} value={header}>{header}</option>

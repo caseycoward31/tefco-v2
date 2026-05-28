@@ -1994,6 +1994,8 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
                   <div class="row"><div class="label">Segment:</div><div class="val">${segment?.name || '—'}</div></div>
                   <div class="row"><div class="label">Movement:</div><div class="val">${direction || '—'}</div></div>
                   <div class="row"><div class="label">Producer:</div><div class="val">${producer?.name || '—'}</div></div>
+                  <div class="row"><div class="label">Transporter:</div><div class="val">${(ticket as any).transporter_name || ticket.observed_inputs?.transporter_name || ticket.customer_name || '—'}</div></div>
+                  <div class="row"><div class="label">Assigned POT:</div><div class="val">${ticket.observed_inputs?.assigned_pot_label || (ticket as any).assigned_pot_id || '—'}</div></div>
                   <div class="row"><div class="label">Date:</div><div class="val">${(ticket as any).created_at ? new Date((ticket as any).created_at).toLocaleString() : '—'}</div></div>
                 </div>
               </div>
@@ -3773,6 +3775,8 @@ async function createCompany() {
       lact_name: flowxLactName || null,
       observed_inputs: {
         source: 'flowx_transporter_summary',
+        assigned_pot_id: assignedPot?.id || null,
+        assigned_pot_label: potLabel || null,
         lact_name: flowxLactName || null,
         transporter_name: s.transporter,
         ticket_numbers: s.ticketList,
@@ -3785,11 +3789,11 @@ async function createCompany() {
         net_volume_bbl: s.net,
         average_temperature: s.avgTemp,
         average_pressure: s.avgPressure,
-        api_gravity: s.avgApi,
-        bsw_percent: s.avgBsw,
-        ctl: s.avgCtl,
-        cpl: s.avgCpl,
-        ctpl: s.avgCtpl,
+        api_gravity: potApiGravity,
+        bsw_percent: potBswPercent,
+        ctl: Number((assignedPot as any)?.ctl || s.avgCtl || 0),
+        cpl: Number((assignedPot as any)?.cpl || s.avgCpl || 0),
+        ctpl: Number((assignedPot as any)?.ctpl || s.avgCtpl || 0),
       },
       calculation_results: {
         gov: s.gross,
@@ -3797,11 +3801,11 @@ async function createCompany() {
         nsv: s.net,
         average_temperature: s.avgTemp,
         average_pressure: s.avgPressure,
-        api_gravity: s.avgApi,
-        bsw_percent: s.avgBsw,
-        ctl: s.avgCtl,
-        cpl: s.avgCpl,
-        ctpl: s.avgCtpl,
+        api_gravity: potApiGravity,
+        bsw_percent: potBswPercent,
+        ctl: Number((assignedPot as any)?.ctl || s.avgCtl || 0),
+        cpl: Number((assignedPot as any)?.cpl || s.avgCpl || 0),
+        ctpl: Number((assignedPot as any)?.ctpl || s.avgCtpl || 0),
       },
     })
     })
@@ -3812,7 +3816,7 @@ async function createCompany() {
       return
     }
 
-    alert(`Flow-X summary import complete. Created ${ticketPayloads.length} transporter ticket(s).`)
+    alert(`Flow-X summary import complete. Created ${ticketPayloads.length} transporter ticket(s). POT rules applied where matched.`)
     setFlowxCsvFile(null)
     setFlowxMappingRows([])
     setFlowxMappingHeaders([])

@@ -3624,7 +3624,7 @@ async function createCompany() {
         lact_name: flowxLactName || null,
         source_file_name: flowxCsvFile.name,
         imported_count: rows.length,
-        imported_by: userEmail || null,
+        imported_by: session?.user?.email || null,
       })
       .select()
       .single()

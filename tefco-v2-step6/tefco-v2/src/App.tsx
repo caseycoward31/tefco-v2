@@ -7551,32 +7551,32 @@ async function saveUserRole() {
                     <div>Segment ID: {selectedTicket.segment_id || 'None'}</div>
                   </div>
 
-                  {ticket?.observed_inputs?.source === 'flowx_transporter_summary' && (
+                  {selectedTicket?.observed_inputs?.source === 'flowx_transporter_summary' && (
   <div style={box}>
     <h2>Flow-X Import Details</h2>
 
-    <div>Transporter: {ticket.observed_inputs?.transporter_name}</div>
-    <div>Assigned POT: {ticket.observed_inputs?.assigned_pot_label}</div>
+    <div>Transporter: {selectedTicket.observed_inputs?.transporter_name}</div>
+    <div>Assigned POT: {selectedTicket.observed_inputs?.assigned_pot_label}</div>
 
-    <div>Source Tickets: {ticket.observed_inputs?.ticket_numbers}</div>
-    <div>Source Batches: {ticket.observed_inputs?.batch_numbers}</div>
-    <div>Source Trucks: {ticket.observed_inputs?.truck_numbers}</div>
-    <div>Source Leases: {ticket.observed_inputs?.leases}</div>
+    <div>Source Tickets: {selectedTicket.observed_inputs?.ticket_numbers}</div>
+    <div>Source Batches: {selectedTicket.observed_inputs?.batch_numbers}</div>
+    <div>Source Trucks: {selectedTicket.observed_inputs?.truck_numbers}</div>
+    <div>Source Leases: {selectedTicket.observed_inputs?.leases}</div>
 
     <hr />
 
-    <div>GSV: {ticket.calculation_results?.gsv}</div>
-    <div>NSV: {ticket.calculation_results?.nsv}</div>
+    <div>GSV: {selectedTicket.calculation_results?.gsv}</div>
+    <div>NSV: {selectedTicket.calculation_results?.nsv}</div>
 
-    <div>Average Temp: {ticket.calculation_results?.average_temperature}</div>
-    <div>Average Pressure: {ticket.calculation_results?.average_pressure}</div>
+    <div>Average Temp: {selectedTicket.calculation_results?.average_temperature}</div>
+    <div>Average Pressure: {selectedTicket.calculation_results?.average_pressure}</div>
 
-    <div>API Gravity: {ticket.calculation_results?.api_gravity}</div>
-    <div>BS&W: {ticket.calculation_results?.bsw_percent}</div>
+    <div>API Gravity: {selectedTicket.calculation_results?.api_gravity}</div>
+    <div>BS&W: {selectedTicket.calculation_results?.bsw_percent}</div>
 
-    <div>CTL: {ticket.calculation_results?.ctl}</div>
-    <div>CPL: {ticket.calculation_results?.cpl}</div>
-    <div>CTPL: {ticket.calculation_results?.ctpl}</div>
+    <div>CTL: {selectedTicket.calculation_results?.ctl}</div>
+    <div>CPL: {selectedTicket.calculation_results?.cpl}</div>
+    <div>CTPL: {selectedTicket.calculation_results?.ctpl}</div>
   </div>
 )}
                   <div style={card}>

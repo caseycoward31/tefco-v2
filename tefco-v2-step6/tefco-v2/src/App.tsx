@@ -5694,9 +5694,9 @@ async function saveUserRole() {
           </div>
         </div>
 
-        {['dashboard', 'admin', 'operations', 'reports', 'readings', 'pot', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
+        {['dashboard', 'admin', 'operations', 'reports', 'readings', 'pot', 'pot_map', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
           <button key={p} onClick={() => { setPage(p); setMobileNavOpen(false) }} style={button}>
-            {p.toUpperCase()}
+            {p === 'pot_map' ? 'POT MAP' : p.toUpperCase()}
           </button>
         ))}
 
@@ -6357,6 +6357,59 @@ async function saveUserRole() {
                       <p style={{ color: '#a8b3bd' }}>
                         Import Flow-X LACT truck CSV rows and split each load into up to 4 customer draft truck tickets.
                       </p>
+                <div style={{ ...card, marginTop: 14 }}>
+                  <h3>Transporter → POT Assignment</h3>
+                  <p style={{ color: '#a8b3bd' }}>
+                    Assign Flow-X transporter names to POT quality records. These rules apply to generated transporter summary tickets.
+                  </p>
+
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12 }}>
+                    <input
+                      style={input}
+                      placeholder="Transporter Name exactly as Flow-X shows it"
+                      value={newTransporterPotName}
+                      onChange={(e) => setNewTransporterPotName(e.target.value)}
+                    />
+
+                    <select style={input} value={newTransporterPotId} onChange={(e) => setNewTransporterPotId(e.target.value)}>
+                      <option value="">Select POT Quality</option>
+                      {potQuality.map((pot: any) => (
+                        <option key={pot.id} value={pot.id}>
+                          {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button style={button} onClick={() => runSafeAction('Saving transporter POT rule', saveTransporterPotRule)}>
+                      Save Rule
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                    {transporterPotRules.length === 0 && (
+                      <div style={{ color: '#a8b3bd' }}>No transporter POT rules saved yet.</div>
+                    )}
+
+                    {transporterPotRules.map((rule: any) => {
+                      const pot = potQuality.find((item: any) => item.id === rule.pot_quality_id)
+
+                      return (
+                        <div key={rule.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                          <div>
+                            <strong>{rule.transporter_name}</strong>
+                            <div style={{ color: '#a8b3bd' }}>
+                              POT: {pot ? ((pot as any).pot_number || (pot as any).sample_id || pot.id) : rule.pot_quality_id}
+                            </div>
+                          </div>
+                          <button style={{ ...button, background: '#dc2626', width: 110 }} onClick={() => deleteTransporterPotRule(rule.id)}>
+                            Delete
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
 
                       <input style={input} placeholder="LACT Name" value={flowxLactName} onChange={(e) => setFlowxLactName(e.target.value)} />
 
@@ -6652,6 +6705,69 @@ async function saveUserRole() {
               <input style={input} placeholder="Fallback Meter Factor" value={readingMF} onChange={(e) => setReadingMF(e.target.value)} />
               <div style={{ marginTop: 15 }}>IV: {(Number(readingClose || 0) - Number(readingOpen || 0)).toFixed(2)}</div>
               <button style={button} onClick={saveReading}>Save Reading</button>
+            </div>
+          </>
+        )}
+
+        
+        {page === 'pot_map' && (
+          <>
+            <h1>Transporter → POT Assignment</h1>
+
+            <div style={box}>
+              <h2>Assign Transporter to POT</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Set which POT quality record should be used when Flow-X transporter summary tickets are generated.
+              </p>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12 }}>
+                <input
+                  style={input}
+                  placeholder="Transporter Name exactly as Flow-X shows it"
+                  value={newTransporterPotName}
+                  onChange={(e) => setNewTransporterPotName(e.target.value)}
+                />
+
+                <select style={input} value={newTransporterPotId} onChange={(e) => setNewTransporterPotId(e.target.value)}>
+                  <option value="">Select POT Quality</option>
+                  {potQuality.map((pot: any) => (
+                    <option key={pot.id} value={pot.id}>
+                      {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
+                    </option>
+                  ))}
+                </select>
+
+                <button style={button} onClick={() => runSafeAction('Saving transporter POT rule', saveTransporterPotRule)}>
+                  Save Rule
+                </button>
+              </div>
+            </div>
+
+            <div style={box}>
+              <h2>Saved Rules</h2>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {transporterPotRules.length === 0 && (
+                  <div style={card}>No transporter POT rules saved yet.</div>
+                )}
+
+                {transporterPotRules.map((rule: any) => {
+                  const pot = potQuality.find((item: any) => item.id === rule.pot_quality_id)
+
+                  return (
+                    <div key={rule.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                      <div>
+                        <strong>{rule.transporter_name}</strong>
+                        <div style={{ color: '#a8b3bd' }}>
+                          POT: {pot ? ((pot as any).pot_number || (pot as any).sample_id || pot.id) : rule.pot_quality_id}
+                        </div>
+                      </div>
+                      <button style={{ ...button, background: '#dc2626', width: 110 }} onClick={() => deleteTransporterPotRule(rule.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           </>
         )}

@@ -725,6 +725,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [newAdminPassword, setNewAdminPassword] = useState('')
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
   const [openApprovedTicketMonths, setOpenApprovedTicketMonths] = useState<Record<string, boolean>>({})
+  const [openWorkflowTicketGroups, setOpenWorkflowTicketGroups] = useState<Record<string, boolean>>({})
 
   const [newArea, setNewArea] = useState('')
   const [newSegment, setNewSegment] = useState('')
@@ -5530,6 +5531,47 @@ async function saveUserRole() {
     }))
   }
 
+
+  function getWorkflowGroupKey(ticket: any) {
+    const status = String(ticket.status || 'draft').toLowerCase()
+    if (status === 'submitted') return 'submitted'
+    if (status === 'draft') return 'draft'
+    return 'needs_review'
+  }
+
+  function getWorkflowGroupLabel(groupKey: string) {
+    if (groupKey === 'submitted') return 'Submitted Tickets'
+    if (groupKey === 'draft') return 'Draft Tickets'
+    return 'Needs Review'
+  }
+
+  function groupWorkflowTickets(ticketList: any[]) {
+    const order = ['submitted', 'draft', 'needs_review']
+    const grouped = ticketList.reduce((acc: Record<string, any[]>, ticket: any) => {
+      const key = getWorkflowGroupKey(ticket)
+      if (!acc[key]) acc[key] = []
+      acc[key].push(ticket)
+      return acc
+    }, {})
+
+    return Object.entries(grouped)
+      .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
+      .map(([groupKey, groupTickets]) => ({
+        groupKey,
+        label: getWorkflowGroupLabel(groupKey),
+        tickets: groupTickets.sort((a: any, b: any) =>
+          new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime()
+        ),
+      }))
+  }
+
+  function toggleWorkflowTicketGroup(groupKey: string) {
+    setOpenWorkflowTicketGroups((prev) => ({
+      ...prev,
+      [groupKey]: !(prev[groupKey] ?? true),
+    }))
+  }
+
   function groupTicketsByMonth(ticketList: any[]) {
     const grouped = ticketList.reduce((acc: Record<string, any[]>, ticket: any) => {
       const key = getTicketMonthKey(ticket)
@@ -7503,6 +7545,7 @@ async function saveUserRole() {
 
             {/* All Pending Ticket Approval Queue */}
             
+            
             <div style={box}>
               <h2>Workflow Queue</h2>
 
@@ -7510,21 +7553,44 @@ async function saveUserRole() {
                 <div style={card}>No draft or submitted tickets waiting.</div>
               )}
 
-              <div style={{ display: 'grid', gap: 10 }}>
-                {getDraftWorkflowTickets().map((ticket: any) => (
-                  <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
-                    <div>
-                      <strong>{compactTicketTitle(ticket)}</strong>
-                      <span style={{ ...getTicketStatusStyle(ticket.status), marginLeft: 8 }}>{ticket.status || 'draft'}</span>
-                      <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
-                      <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
-                    </div>
-                    <button style={{ ...button, width: 150 }} onClick={() => setSelectedTicket(ticket)}>
-                      Open Ticket
+              {groupWorkflowTickets(getDraftWorkflowTickets()).map((group: any) => {
+                const isOpen = openWorkflowTicketGroups[group.groupKey] ?? true
+                const totalNsv = group.tickets.reduce((sum: number, ticket: any) => {
+                  const calc = ticket.calculation_results || {}
+                  const observed = ticket.observed_inputs || {}
+                  return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                }, 0)
+
+                return (
+                  <div key={group.groupKey} style={{ ...card, marginBottom: 12 }}>
+                    <button
+                      style={{ ...button, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
+                      onClick={() => toggleWorkflowTicketGroup(group.groupKey)}
+                    >
+                      <span>{isOpen ? '▼' : '▶'} {group.label}</span>
+                      <span>{group.tickets.length} tickets • NSV {totalNsv.toFixed(2)}</span>
                     </button>
+
+                    {isOpen && (
+                      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                        {group.tickets.map((ticket: any) => (
+                          <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                            <div>
+                              <strong>{compactTicketTitle(ticket)}</strong>
+                              <span style={{ ...getTicketStatusStyle(ticket.status), marginLeft: 8 }}>{ticket.status || 'draft'}</span>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
+                            </div>
+                            <button style={{ ...button, width: 150 }} onClick={() => setSelectedTicket(ticket)}>
+                              Open Ticket
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
+                )
+              })}
             </div>
 
 {selectedTicket && (
@@ -7721,26 +7787,7 @@ async function saveUserRole() {
               <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating ticket', async () => { await createTicket(); clearLocalTicketDraft() })}>Auto Build Draft Ticket</button>
             </div>
 
-            <div style={box}>
-              <h3>Workflow Queue</h3>
-              {workflowTickets.map((t) => (
-                <div key={t.id} style={card}>
-                  <strong>{t.ticket_number}</strong>
-                  <div><span style={getTicketStatusStyle(t.status)}>{t.status || 'draft'}</span></div>
-                  <div>Type: {t.ticket_type}</div>
-                  <div>Factor Type: {t.observed_inputs?.factor_type || 'MF'}</div>
-                  <div>Factor Source: {t.observed_inputs?.mf_source || 'None'}</div>
-                  <div>POT Source: {t.observed_inputs?.pot_source || 'None'}</div>
-                  <div>GSV: {t.calculation_results?.gsv ?? 'None'}</div>
-                  <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
-                  <button style={button} onClick={() => { setSelectedTicket(t); setPage('tickets') }}>Open Ticket →</button>
-                </div>
-              ))}
-            </div>
-
-            
-            <div style={box}>
-              <h2>Approved Tickets by Month</h2>
+            Approved Tickets by Month</h2>
 
               {getApprovedTickets().length === 0 && (
                 <div style={card}>No approved tickets yet.</div>

@@ -3693,6 +3693,57 @@ async function createCompany() {
     )
   }
 
+
+  async function checkFlowXDuplicateImport(targetCompanyId: string, fileName: string, lactName: string) {
+    const { data, error } = await supabase
+      .from('flowx_import_batches')
+      .select('id, source_file_name, lact_name, imported_count, created_at')
+      .eq('company_id', targetCompanyId)
+      .eq('source_file_name', fileName)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (error) {
+      console.warn('Duplicate Flow-X import check failed:', error)
+      return 'none'
+    }
+
+    const existing = (data || [])[0]
+    if (!existing) return 'none'
+
+    const existingLact = String(existing.lact_name || '').trim().toLowerCase()
+    const currentLact = String(lactName || '').trim().toLowerCase()
+
+    if (existingLact && currentLact && existingLact !== currentLact) {
+      return 'none'
+    }
+
+    const importedAt = existing.created_at ? new Date(existing.created_at).toLocaleString() : 'previous import'
+
+    return window.confirm(
+      `This Flow-X file was already imported on ${importedAt}.\n\n` +
+      `File: ${fileName}\n` +
+      `LACT: ${existing.lact_name || lactName || 'N/A'}\n` +
+      `Rows: ${existing.imported_count || 'N/A'}\n\n` +
+      `Importing again can create duplicate draft tickets.\n\n` +
+      `Click OK to import anyway, or Cancel to stop.`
+    ) ? 'continue' : 'stop'
+  }
+
+  async function deleteExistingFlowXDraftsForBatch(importBatchId: string) {
+    if (!importBatchId) return
+
+    const { error } = await supabase
+      .from('tickets')
+      .delete()
+      .eq('import_batch_id', importBatchId)
+      .eq('status', 'draft')
+
+    if (error) {
+      console.warn('Could not remove existing draft tickets for duplicate batch:', error)
+    }
+  }
+
   async function importFlowXTransporterSummaryTickets() {
     if (!flowxCsvFile) {
       alert('Choose a Flow-X CSV file first.')
@@ -3706,6 +3757,12 @@ async function createCompany() {
 
     if (!targetCompanyId) {
       alert('No company selected.')
+      return
+    }
+
+    const duplicateDecision = await checkFlowXDuplicateImport(targetCompanyId, flowxCsvFile.name, flowxLactName || '')
+    if (duplicateDecision === 'stop') {
+      alert('Import cancelled. No duplicate tickets were created.')
       return
     }
 

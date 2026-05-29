@@ -1949,7 +1949,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     const isFlowX = observed.source === 'flowx_transporter_summary'
 
     const companyName = getCompanyDisplayName ? getCompanyDisplayName() : (companySettings?.company_name || 'Measurement Platform')
-    const logoUrl = companyLogoDataUrl || companySettings?.logo_url || ''
+    const logoUrl = (typeof getCompanyLogoUrl === 'function' ? getCompanyLogoUrl() : '') || companySettings?.logo_url || ''
     const ticketNumber = ticket.ticket_number || ticket.id || 'Ticket'
     const createdAt = ticket.created_at ? new Date(ticket.created_at).toLocaleString() : new Date().toLocaleString()
     const approvedAt = ticket.approved_at ? new Date(ticket.approved_at).toLocaleString() : 'Pending Approval'
@@ -2159,7 +2159,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
         <div class="cell"><div class="small-label">Approved</div><div class="value">${approvedAt}</div></div>
         <div class="cell"><div class="small-label">Segment</div><div class="value">${segment?.name || observed.segment_name || '—'}</div></div>
         <div class="cell"><div class="small-label">Producer</div><div class="value">${producer?.name || observed.producer_name || '—'}</div></div>
-        <div class="cell"><div class="small-label">Lease</div><div class="value">${lease?.name || observed.leases || observed.lease_name || '—'}</div></div>
+        <div class="cell"><div class="small-label">Lease</div><div class="value">${((lease as any)?.name || (lease as any)?.lease_name || (lease as any)?.lease_number) || observed.leases || observed.lease_name || '—'}</div></div>
         <div class="cell"><div class="small-label">Meter / Rack</div><div class="value">${meter?.meter_number || observed.meter_number || '—'}</div></div>
         <div class="cell"><div class="small-label">Transporter</div><div class="value">${transporter}</div></div>
         <div class="cell"><div class="small-label">Assigned POT</div><div class="value">${assignedPot}</div></div>
@@ -3971,9 +3971,9 @@ async function createCompany() {
 
   function getTicketVolumeForBalance(ticket: any) {
     return Number(
-      selectedTicket.calculation_results?.nsv ??
+      selectedTicket!.calculation_results?.nsv ??
       ticket.calculation_results?.tank_nsv ??
-      selectedTicket.calculation_results?.gsv ??
+      selectedTicket!.calculation_results?.gsv ??
       ticket.calculation_results?.tank_gsv ??
       ticket.calculation_results?.gov ??
       ticket.calculation_results?.tank_gov ??
@@ -3998,7 +3998,7 @@ async function createCompany() {
     const volume = Number(
       ticket.calculation_results?.tank_nsv ??
       ticket.calculation_results?.tank_movement_bbl ??
-      selectedTicket.calculation_results?.nsv ??
+      selectedTicket!.calculation_results?.nsv ??
       0
     )
 
@@ -4192,8 +4192,8 @@ async function createCompany() {
         producer?.name || '',
         segment?.name || '',
         meter?.meter_number || '',
-        selectedTicket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? '',
-        selectedTicket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? '',
+        selectedTicket!.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? '',
+        selectedTicket!.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? '',
         getTicketReportDate(ticket),
       ]
     })
@@ -4217,8 +4217,8 @@ async function createCompany() {
           producer?.name || '',
           segment?.name || '',
           meter?.meter_number || '',
-          Number(selectedTicket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? 0).toFixed(2),
-          Number(selectedTicket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? 0).toFixed(2),
+          Number(selectedTicket!.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? 0).toFixed(2),
+          Number(selectedTicket!.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? 0).toFixed(2),
           getTicketReportDate(ticket),
         ]
       }),
@@ -4245,8 +4245,8 @@ async function createCompany() {
         ticket.driver_name || ticket.observed_inputs?.driver_name || '',
         (ticket as any).customer_name || ticket.observed_inputs?.customer_name || '',
         ticket.split_percent || ticket.observed_inputs?.split_percent || '',
-        Number(selectedTicket.calculation_results?.gsv ?? 0).toFixed(2),
-        Number(selectedTicket.calculation_results?.nsv ?? 0).toFixed(2),
+        Number(selectedTicket!.calculation_results?.gsv ?? 0).toFixed(2),
+        Number(selectedTicket!.calculation_results?.nsv ?? 0).toFixed(2),
         ticket.lact_name || ticket.observed_inputs?.lact_name || '',
         getTicketReportDate(ticket),
       ]),
@@ -4359,14 +4359,14 @@ async function createCompany() {
           const meter = meters.find((m: any) => m.id === ticket.meter_id)
           return ((meter as any)?.meter_role || (meter as any)?.meter_direction || (meter as any)?.direction) === 'receipt'
         })
-        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket.calculation_results?.nsv || selectedTicket.calculation_results?.gsv || 0), 0)
+        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || selectedTicket!.calculation_results?.gsv || 0), 0)
 
       const deliveryVolume = segmentTickets
         .filter((ticket: any) => {
           const meter = meters.find((m: any) => m.id === ticket.meter_id)
           return ((meter as any)?.meter_role || (meter as any)?.meter_direction || (meter as any)?.direction) === 'delivery'
         })
-        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket.calculation_results?.nsv || selectedTicket.calculation_results?.gsv || 0), 0)
+        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || selectedTicket!.calculation_results?.gsv || 0), 0)
 
       const tankMovement = segmentTickets
         .filter((ticket: any) => ticket.ticket_type === 'tank')
@@ -4374,7 +4374,7 @@ async function createCompany() {
 
       const truckVolume = segmentTickets
         .filter((ticket: any) => ticket.ticket_type === 'truck')
-        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket.calculation_results?.nsv || 0), 0)
+        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || 0), 0)
 
       const overShort = receiptVolume - deliveryVolume + tankMovement - truckVolume
 
@@ -4984,9 +4984,9 @@ async function saveUserRole() {
                 <div class="grid-two">
                   <div class="row"><div class="label">CCF:</div><div class="val">${value(ticket.calculation_results?.ccf)}</div></div>
                   <div class="row"><div class="label">Flowing Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.flowing_volume || ticket.calculation_results?.gross_volume)}</div></div>
-                  <div class="row"><div class="label">GSV:</div><div class="val">${value(selectedTicket.calculation_results?.gsv)}</div></div>
-                  <div class="row"><div class="label">Net Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.net_volume || selectedTicket.calculation_results?.nsv)}</div></div>
-                  <div class="row"><div class="label">NSV:</div><div class="val">${value(selectedTicket.calculation_results?.nsv)}</div></div>
+                  <div class="row"><div class="label">GSV:</div><div class="val">${value(selectedTicket!.calculation_results?.gsv)}</div></div>
+                  <div class="row"><div class="label">Net Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.net_volume || selectedTicket!.calculation_results?.nsv)}</div></div>
+                  <div class="row"><div class="label">NSV:</div><div class="val">${value(selectedTicket!.calculation_results?.nsv)}</div></div>
                   <div class="row"><div class="label">Water Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.water_volume)}</div></div>
                 </div>
               </div>
@@ -7090,13 +7090,13 @@ async function saveUserRole() {
                       const meter = meters.find((m: any) => m.id === ticket.meter_id)
                       return (meter as any)?.direction === 'receipt'
                     })
-                    .reduce((sum: number, ticket: any) => sum + Number(selectedTicket.calculation_results?.nsv || selectedTicket.calculation_results?.gsv || 0), 0)
+                    .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || selectedTicket!.calculation_results?.gsv || 0), 0)
                   const deliveries = segmentTickets
                     .filter((ticket: any) => {
                       const meter = meters.find((m: any) => m.id === ticket.meter_id)
                       return (meter as any)?.direction === 'delivery'
                     })
-                    .reduce((sum: number, ticket: any) => sum + Number(selectedTicket.calculation_results?.nsv || selectedTicket.calculation_results?.gsv || 0), 0)
+                    .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || selectedTicket!.calculation_results?.gsv || 0), 0)
                   const tankMovements = segmentTickets
                     .filter((ticket: any) => ticket.ticket_type === 'tank')
                     .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.tank_movement_bbl || 0), 0)
@@ -7482,40 +7482,40 @@ async function saveUserRole() {
             {selectedTicket && (
               <div style={box}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <h2 style={{ margin: 0 }}>Open Ticket: {selectedTicket.ticket_number || selectedTicket.id}</h2>
-                  <span style={getTicketStatusStyle(selectedTicket.status)}>{selectedTicket.status || 'draft'}</span>
+                  <h2 style={{ margin: 0 }}>Open Ticket: {selectedTicket!.ticket_number || selectedTicket!.id}</h2>
+                  <span style={getTicketStatusStyle(selectedTicket!.status)}>{selectedTicket!.status || 'draft'}</span>
                 </div>
 
                 <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginTop: 12 }}>
                   <div style={card}>
                     <h3>Ticket Info</h3>
-                    <div>Type: {selectedTicket.ticket_type}</div>
-                    <div>Producer ID: {selectedTicket.producer_id || 'None'}</div>
-                    <div>Meter ID: {selectedTicket.meter_id || 'None'}</div>
-                    <div>Segment ID: {selectedTicket.segment_id || 'None'}</div>
+                    <div>Type: {selectedTicket!.ticket_type}</div>
+                    <div>Producer ID: {selectedTicket!.producer_id || 'None'}</div>
+                    <div>Meter ID: {selectedTicket!.meter_id || 'None'}</div>
+                    <div>Segment ID: {selectedTicket!.segment_id || 'None'}</div>
                   </div>
 
                   <div style={card}>
                     <h3>Volumes</h3>
-                    {selectedTicket.ticket_type === 'tank' && (
+                    {selectedTicket!.ticket_type === 'tank' && (
                       <>
                         <div><strong>Tank Results</strong></div>
-                        <div>Opening Gauge: {(selectedTicket as any).opening_gauge ?? selectedTicket.observed_inputs?.opening_gauge ?? 'None'}</div>
-                        <div>Closing Gauge: {(selectedTicket as any).closing_gauge ?? selectedTicket.observed_inputs?.closing_gauge ?? 'None'}</div>
-                        <div>GOV: {selectedTicket.calculation_results?.tank_gov ?? selectedTicket.calculation_results?.tank_movement_bbl ?? 'None'}</div>
+                        <div>Opening Gauge: {(selectedTicket as any).opening_gauge ?? selectedTicket!.observed_inputs?.opening_gauge ?? 'None'}</div>
+                        <div>Closing Gauge: {(selectedTicket as any).closing_gauge ?? selectedTicket!.observed_inputs?.closing_gauge ?? 'None'}</div>
+                        <div>GOV: {selectedTicket!.calculation_results?.tank_gov ?? selectedTicket!.calculation_results?.tank_movement_bbl ?? 'None'}</div>
                       </>
                     )}
-                    <div>GSV: {selectedTicket.calculation_results?.gsv ?? 'None'}</div>
-                    <div>NSV: {selectedTicket.calculation_results?.nsv ?? 'None'}</div>
-                    <div>CCF: {selectedTicket.calculation_results?.ccf ?? 'None'}</div>
+                    <div>GSV: {selectedTicket!.calculation_results?.gsv ?? 'None'}</div>
+                    <div>NSV: {selectedTicket!.calculation_results?.nsv ?? 'None'}</div>
+                    <div>CCF: {selectedTicket!.calculation_results?.ccf ?? 'None'}</div>
                   </div>
 
                   <div style={card}>
                     <h3>Inputs</h3>
-                    <div>IV: {selectedTicket.observed_inputs?.iv ?? 'None'}</div>
-                    <div>CTL: {selectedTicket.observed_inputs?.ctl ?? 'None'}</div>
-                    <div>CPL: {selectedTicket.observed_inputs?.cpl ?? 'None'}</div>
-                    <div>API @ 60: {selectedTicket.observed_inputs?.api_gravity_60 ?? selectedTicket.observed_inputs?.corrected_api ?? 'None'}</div>
+                    <div>IV: {selectedTicket!.observed_inputs?.iv ?? 'None'}</div>
+                    <div>CTL: {selectedTicket!.observed_inputs?.ctl ?? 'None'}</div>
+                    <div>CPL: {selectedTicket!.observed_inputs?.cpl ?? 'None'}</div>
+                    <div>API @ 60: {selectedTicket!.observed_inputs?.api_gravity_60 ?? selectedTicket!.observed_inputs?.corrected_api ?? 'None'}</div>
                   </div>
                 </div>
 
@@ -7707,16 +7707,16 @@ async function saveUserRole() {
               <div style={box}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                   <h2 style={{ margin: 0 }}>Ticket Detail</h2>
-                  <span style={getTicketStatusStyle(selectedTicket.status)}>{selectedTicket.status || 'draft'}</span>
+                  <span style={getTicketStatusStyle(selectedTicket!.status)}>{selectedTicket!.status || 'draft'}</span>
                 </div>
-                <div><strong>Ticket:</strong> {selectedTicket.ticket_number}</div>
+                <div><strong>Ticket:</strong> {selectedTicket!.ticket_number}</div>
                 <div><strong>Locked:</strong> {(selectedTicket as any).is_locked ? 'Yes' : 'No'}</div>
                 <div><strong>Locked At:</strong> {selectedTicket.locked_at || 'N/A'}</div>
-                <div><strong>Status:</strong> {selectedTicket.status}</div>
-                <div><strong>Type:</strong> {selectedTicket.ticket_type}</div>
+                <div><strong>Status:</strong> {selectedTicket!.status}</div>
+                <div><strong>Type:</strong> {selectedTicket!.ticket_type}</div>
                 <div><strong>Profile:</strong> {selectedTicket.calculation_profile_snapshot?.name || 'None'}</div>
-                <div><strong>Contract Profile:</strong> {selectedTicket.observed_inputs?.contract_profile_name || selectedTicket.calculation_profile_snapshot?.contract_profile?.name || 'Default'}</div>
-                <div><strong>Calculation Method:</strong> {selectedTicket.observed_inputs?.calculation_method || selectedTicket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL'}</div>
+                <div><strong>Contract Profile:</strong> {selectedTicket!.observed_inputs?.contract_profile_name || selectedTicket.calculation_profile_snapshot?.contract_profile?.name || 'Default'}</div>
+                <div><strong>Calculation Method:</strong> {selectedTicket!.observed_inputs?.calculation_method || selectedTicket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL'}</div>
 
                 {selectedTicket.approved_at && (
                   <div style={{ color: '#86efac', marginTop: 10 }}>
@@ -7724,7 +7724,7 @@ async function saveUserRole() {
                   </div>
                 )}
 
-                {selectedTicket.status === 'approved' && (
+                {selectedTicket!.status === 'approved' && (
                   <div style={{ background: '#14532d', padding: 12, borderRadius: 8, marginTop: 12 }}>
                     Approved ticket is locked for custody transfer.
                   </div>
@@ -7732,24 +7732,24 @@ async function saveUserRole() {
 
                 <div style={card}>
                   <h3>Observed Inputs</h3>
-                  <div>IV: {selectedTicket.observed_inputs?.iv}</div>
-                  <div>CTL: {selectedTicket.observed_inputs?.ctl}</div>
-                  <div>CPL: {selectedTicket.observed_inputs?.cpl}</div>
-                  <div>CTLP: {selectedTicket.observed_inputs?.ctlp}</div>
-                  <div>{selectedTicket.observed_inputs?.factor_type || 'MF'}: {selectedTicket.observed_inputs?.mf}</div>
-                  <div>API Gravity: {selectedTicket.observed_inputs?.api_gravity}</div>
-                  <div>Temp: {selectedTicket.observed_inputs?.temperature}</div>
-                  <div>Avg Temp: {selectedTicket.observed_inputs?.average_temperature}</div>
-                  <div>Avg Pressure: {selectedTicket.observed_inputs?.average_pressure}</div>
-                  <div>BS&W %: {selectedTicket.observed_inputs?.bsw_percent}</div>
-                  <div>CSW: {selectedTicket.observed_inputs?.csw}</div>
+                  <div>IV: {selectedTicket!.observed_inputs?.iv}</div>
+                  <div>CTL: {selectedTicket!.observed_inputs?.ctl}</div>
+                  <div>CPL: {selectedTicket!.observed_inputs?.cpl}</div>
+                  <div>CTLP: {selectedTicket!.observed_inputs?.ctlp}</div>
+                  <div>{selectedTicket!.observed_inputs?.factor_type || 'MF'}: {selectedTicket!.observed_inputs?.mf}</div>
+                  <div>API Gravity: {selectedTicket!.observed_inputs?.api_gravity}</div>
+                  <div>Temp: {selectedTicket!.observed_inputs?.temperature}</div>
+                  <div>Avg Temp: {selectedTicket!.observed_inputs?.average_temperature}</div>
+                  <div>Avg Pressure: {selectedTicket!.observed_inputs?.average_pressure}</div>
+                  <div>BS&W %: {selectedTicket!.observed_inputs?.bsw_percent}</div>
+                  <div>CSW: {selectedTicket!.observed_inputs?.csw}</div>
                 </div>
 
                 <div style={card}>
                   <h3>Calculated Results</h3>
-                  <div>CCF: {selectedTicket.calculation_results?.ccf}</div>
-                  <div>GSV: {selectedTicket.calculation_results?.gsv}</div>
-                  <div>NSV: {selectedTicket.calculation_results?.nsv}</div>
+                  <div>CCF: {selectedTicket!.calculation_results?.ccf}</div>
+                  <div>GSV: {selectedTicket!.calculation_results?.gsv}</div>
+                  <div>NSV: {selectedTicket!.calculation_results?.nsv}</div>
                 </div>
 
                 {(selectedTicket as any).is_locked && (
@@ -7782,14 +7782,14 @@ async function saveUserRole() {
                 <div style={card}>
                   <h3>Ticket Audit Timeline</h3>
 
-                  {getTicketAuditRows(selectedTicket.id).length === 0 && (
+                  {getTicketAuditRows(selectedTicket!.id).length === 0 && (
                     <div style={{ color: '#a8b3bd' }}>
                       No audit events recorded yet.
                     </div>
                   )}
 
                   <div style={{ display: 'grid', gap: 12 }}>
-                    {getTicketAuditRows(selectedTicket.id).map((log: any) => (
+                    {getTicketAuditRows(selectedTicket!.id).map((log: any) => (
                       <div
                         key={log.id}
                         style={{

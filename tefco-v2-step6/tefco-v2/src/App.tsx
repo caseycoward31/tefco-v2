@@ -7540,7 +7540,7 @@ async function saveUserRole() {
 
             {/* Ticket Debug Counts */}
             <div style={{ ...card, marginBottom: 12 }}>
-              Total tickets loaded: {tickets.length} • Pending workflow tickets: {workflowTickets.length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
+              Total tickets loaded: {tickets.length} • Pending workflow tickets: {getDraftWorkflowTickets().length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
             </div>
 
             {/* All Pending Ticket Approval Queue */}
@@ -7787,24 +7787,6 @@ async function saveUserRole() {
               <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating ticket', async () => { await createTicket(); clearLocalTicketDraft() })}>Auto Build Draft Ticket</button>
             </div>
 
-            <div style={box}>
-              <h3>Workflow Queue</h3>
-              {workflowTickets.map((t) => (
-                <div key={t.id} style={card}>
-                  <strong>{t.ticket_number}</strong>
-                  <div><span style={getTicketStatusStyle(t.status)}>{t.status || 'draft'}</span></div>
-                  <div>Type: {t.ticket_type}</div>
-                  <div>Factor Type: {t.observed_inputs?.factor_type || 'MF'}</div>
-                  <div>Factor Source: {t.observed_inputs?.mf_source || 'None'}</div>
-                  <div>POT Source: {t.observed_inputs?.pot_source || 'None'}</div>
-                  <div>GSV: {t.calculation_results?.gsv ?? 'None'}</div>
-                  <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
-                  <button style={button} onClick={() => { setSelectedTicket(t); setPage('tickets') }}>Open Ticket →</button>
-                </div>
-              ))}
-            </div>
-
-            
             <div style={box}>
               <h2>Approved Tickets by Month</h2>
 

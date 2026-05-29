@@ -1956,7 +1956,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     const createdAt = ticket.created_at ? new Date(ticket.created_at).toLocaleString() : new Date().toLocaleString()
     const approvedAt = ticket.approved_at ? new Date(ticket.approved_at).toLocaleString() : 'Pending Approval'
 
-    const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name || '—'
+    const transporter = ticket.transporter_name || observed.transporter_name || (ticket as any).customer_name || '—'
     const assignedPot = observed.assigned_pot_label || ticket.assigned_pot_id || '—'
     const sourceTicketCount = uniqueCsvCount(observed.ticket_numbers)
     const sourceBatchCount = uniqueCsvCount(observed.batch_numbers)
@@ -5597,7 +5597,7 @@ async function saveUserRole() {
 
   function compactTicketSubtitle(ticket: any) {
     const observed = ticket.observed_inputs || {}
-    const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name
+    const transporter = ticket.transporter_name || observed.transporter_name || (ticket as any).customer_name
     const type = ticket.ticket_type || 'ticket'
     const status = ticket.status || 'draft'
     return `${type} • ${status}${transporter ? ` • ${transporter}` : ''}`
@@ -7540,7 +7540,7 @@ async function saveUserRole() {
 
             {/* Ticket Debug Counts */}
             <div style={{ ...card, marginBottom: 12 }}>
-              Total tickets loaded: {tickets.length} • Pending workflow tickets: {workflowTickets.length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
+              Total tickets loaded: {tickets.length} • Pending workflow tickets: {getDraftWorkflowTickets().length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
             </div>
 
             {/* All Pending Ticket Approval Queue */}

@@ -724,6 +724,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [newAdminEmail, setNewAdminEmail] = useState('')
   const [newAdminPassword, setNewAdminPassword] = useState('')
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
+  const [openApprovedTicketMonths, setOpenApprovedTicketMonths] = useState<Record<string, boolean>>({})
 
   const [newArea, setNewArea] = useState('')
   const [newSegment, setNewSegment] = useState('')
@@ -2159,7 +2160,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
         <div class="cell"><div class="small-label">Approved</div><div class="value">${approvedAt}</div></div>
         <div class="cell"><div class="small-label">Segment</div><div class="value">${segment?.name || observed.segment_name || '—'}</div></div>
         <div class="cell"><div class="small-label">Producer</div><div class="value">${producer?.name || observed.producer_name || '—'}</div></div>
-        <div class="cell"><div class="small-label">Lease</div><div class="value">${((lease as any)?.name || (lease as any)?.lease_name || (lease as any)?.lease_number) || observed.leases || observed.lease_name || '—'}</div></div>
+        <div class="cell"><div class="small-label">Lease</div><div class="value">${((lease as any)?.name || (lease as any)?.lease_name || (lease as any)?.lease_number) || observed.lease_name || (isFlowX ? `${sourceLeaseCount || '—'} lease(s)` : '—')}</div></div>
         <div class="cell"><div class="small-label">Meter / Rack</div><div class="value">${meter?.meter_number || observed.meter_number || '—'}</div></div>
         <div class="cell"><div class="small-label">Transporter</div><div class="value">${transporter}</div></div>
         <div class="cell"><div class="small-label">Assigned POT</div><div class="value">${assignedPot}</div></div>
@@ -2168,7 +2169,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     ${isFlowX ? `
     <div class="section">
-      <div class="section-title">Flow-X Import Summary</div>
+      <div class="section-title">Flow-X Transporter Summary</div>
       <div class="grid-3">
         <div class="cell"><div class="small-label">Source Rows</div><div class="value">${observed.source_rows || '—'}</div></div>
         <div class="cell"><div class="small-label">Source Ticket Count</div><div class="value">${sourceTicketCount || '—'}</div></div>
@@ -2214,12 +2215,9 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     ${isFlowX ? `
     <div class="section">
-      <div class="section-title">Source References</div>
-      <div class="grid-2">
-        <div class="cell"><div class="small-label">Ticket Numbers</div><div class="value">${formatTicketNumberValue(observed.ticket_numbers)}</div></div>
-        <div class="cell"><div class="small-label">Batch Numbers</div><div class="value">${formatTicketNumberValue(observed.batch_numbers)}</div></div>
-        <div class="cell"><div class="small-label">Truck Numbers</div><div class="value">${formatTicketNumberValue(observed.truck_numbers)}</div></div>
-        <div class="cell"><div class="small-label">Drivers</div><div class="value">${formatTicketNumberValue(observed.driver_names)}</div></div>
+      <div class="section-title">Source Data</div>
+      <div class="notes">
+        Source Flow-X CSV retained separately. This ticket is a transporter summary generated from ${observed.source_rows || '—'} source rows.
       </div>
     </div>
     ` : ''}
@@ -5492,6 +5490,87 @@ async function saveUserRole() {
     }
   }
 
+
+  function getTicketDateValue(ticket: any) {
+    return ticket.approved_at || ticket.updated_at || ticket.created_at || new Date().toISOString()
+  }
+
+  function getTicketMonthKey(ticket: any) {
+    const date = new Date(getTicketDateValue(ticket))
+    if (Number.isNaN(date.getTime())) return 'Unknown'
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+  }
+
+  function getTicketMonthLabel(monthKey: string) {
+    if (monthKey === 'Unknown') return 'Unknown Date'
+    const [year, month] = monthKey.split('-').map(Number)
+    return new Date(year, month - 1, 1).toLocaleDateString(undefined, {
+      month: 'long',
+      year: 'numeric',
+    })
+  }
+
+
+  function getDraftWorkflowTickets() {
+    return tickets
+      .filter((ticket: any) => !['approved', 'voided'].includes(String(ticket.status || 'draft').toLowerCase()))
+      .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
+  }
+
+  function getApprovedTickets() {
+    return tickets
+      .filter((ticket: any) => String(ticket.status || '').toLowerCase() === 'approved')
+      .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
+  }
+
+  function toggleApprovedTicketMonth(monthKey: string) {
+    setOpenApprovedTicketMonths((prev) => ({
+      ...prev,
+      [monthKey]: !(prev[monthKey] ?? true),
+    }))
+  }
+
+  function groupTicketsByMonth(ticketList: any[]) {
+    const grouped = ticketList.reduce((acc: Record<string, any[]>, ticket: any) => {
+      const key = getTicketMonthKey(ticket)
+      if (!acc[key]) acc[key] = []
+      acc[key].push(ticket)
+      return acc
+    }, {})
+
+    return Object.entries(grouped)
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([monthKey, monthTickets]) => ({
+        monthKey,
+        label: getTicketMonthLabel(monthKey),
+        tickets: monthTickets.sort((a: any, b: any) =>
+          new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime()
+        ),
+      }))
+  }
+
+  function compactTicketTitle(ticket: any) {
+    return ticket.ticket_number || ticket.id || 'Ticket'
+  }
+
+  function compactTicketSubtitle(ticket: any) {
+    const observed = ticket.observed_inputs || {}
+    const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name
+    const type = ticket.ticket_type || 'ticket'
+    const status = ticket.status || 'draft'
+    return `${type} • ${status}${transporter ? ` • ${transporter}` : ''}`
+  }
+
+  function compactTicketVolume(ticket: any) {
+    const calc = ticket.calculation_results || {}
+    const observed = ticket.observed_inputs || {}
+    const nsv = calc.nsv ?? observed.net_volume_bbl
+    const gsv = calc.gsv ?? observed.gross_volume_bbl
+    if (nsv !== undefined && nsv !== null) return `NSV: ${Number(nsv || 0).toFixed(2)}`
+    if (gsv !== undefined && gsv !== null) return `GSV: ${Number(gsv || 0).toFixed(2)}`
+    return ''
+  }
+
   if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
   if (!session) return <Login />
 
@@ -7423,63 +7502,32 @@ async function saveUserRole() {
             </div>
 
             {/* All Pending Ticket Approval Queue */}
+            
             <div style={box}>
-              <h2>Workflow Queue ({workflowTickets.length})</h2>
-              {workflowTickets.length === 0 && (
-                <div style={card}>
-                  No draft or submitted tickets are waiting for approval.
-                </div>
-              )}
+              <h2>Workflow Queue</h2>
 
-              {/* All Loaded Tickets Fallback */}
-              {workflowTickets.length === 0 && tickets.length > 0 && (
-                <div style={card}>
-                  <strong>Loaded tickets exist, but none are pending.</strong>
-                  <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                    This means they may already be approved/voided or status is not draft/submitted.
-                  </div>
-                </div>
+              {getDraftWorkflowTickets().length === 0 && (
+                <div style={card}>No draft or submitted tickets waiting.</div>
               )}
 
               <div style={{ display: 'grid', gap: 10 }}>
-                {workflowTickets.map((ticket: any) => (
-                  <div
-                    key={ticket.id}
-                    style={{
-                      ...card,
-                      display: 'grid',
-                      gridTemplateColumns: '1fr auto auto',
-                      gap: 12,
-                      alignItems: 'center',
-                    }}
-                  >
+                {getDraftWorkflowTickets().map((ticket: any) => (
+                  <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
                     <div>
-                      <strong>{ticket.ticket_number || ticket.id}</strong>
-                      <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                        Type: {ticket.ticket_type || 'meter'} • Status: {ticket.status || 'draft'}
-                      </div>
-                      {ticket.ticket_type === 'tank' && (
-                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                          Tank: {tanks.find((tank: any) => tank.id === ticket.tank_id)?.tank_number || ticket.tank_id || 'None'}
-                        </div>
-                      )}
+                      <strong>{compactTicketTitle(ticket)}</strong>
+                      <span style={{ ...getTicketStatusStyle(ticket.status), marginLeft: 8 }}>{ticket.status || 'draft'}</span>
+                      <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
+                      <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
                     </div>
-
-                    <span style={getTicketStatusStyle(ticket.status)}>{ticket.status || 'draft'}</span>
-
-                    <button
-                      disabled={isActionRunning}
-                      style={button}
-                      onClick={() => { setSelectedTicket(ticket); setPage('tickets') }}
-                    >
+                    <button style={{ ...button, width: 150 }} onClick={() => setSelectedTicket(ticket)}>
                       Open Ticket
                     </button>
                   </div>
                 ))}
               </div>
             </div>
-            {/* Selected Ticket Quick View */}
-            {selectedTicket && (
+
+{selectedTicket && (
               <div style={box}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                   <h2 style={{ margin: 0 }}>Open Ticket: {selectedTicket!.ticket_number || selectedTicket!.id}</h2>
@@ -7690,20 +7738,54 @@ async function saveUserRole() {
               ))}
             </div>
 
+            
             <div style={box}>
-              <h3>Approved Tickets</h3>
-              {approvedTickets.length === 0 && <div style={card}>No approved tickets yet.</div>}
-              {approvedTickets.map((t) => (
-                <div key={t.id} style={card}>
-                  <strong>{t.ticket_number}</strong>
-                  <div><span style={getTicketStatusStyle(t.status)}>{t.status || 'draft'}</span></div>
-                  <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
-                  <button style={button} onClick={() => { setSelectedTicket(t); setPage('tickets') }}>Open Approved Ticket</button>
-                </div>
-              ))}
+              <h2>Approved Tickets by Month</h2>
+
+              {getApprovedTickets().length === 0 && (
+                <div style={card}>No approved tickets yet.</div>
+              )}
+
+              {groupTicketsByMonth(getApprovedTickets()).map((group: any) => {
+                const isOpen = openApprovedTicketMonths[group.monthKey] ?? true
+                const totalNsv = group.tickets.reduce((sum: number, ticket: any) => {
+                  const calc = ticket.calculation_results || {}
+                  const observed = ticket.observed_inputs || {}
+                  return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                }, 0)
+
+                return (
+                  <div key={group.monthKey} style={{ ...card, marginBottom: 12 }}>
+                    <button
+                      style={{ ...button, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
+                      onClick={() => toggleApprovedTicketMonth(group.monthKey)}
+                    >
+                      <span>{isOpen ? '▼' : '▶'} {group.label}</span>
+                      <span>{group.tickets.length} tickets • NSV {totalNsv.toFixed(2)}</span>
+                    </button>
+
+                    {isOpen && (
+                      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                        {group.tickets.map((ticket: any) => (
+                          <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                            <div>
+                              <strong>{compactTicketTitle(ticket)}</strong>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
+                            </div>
+                            <button style={{ ...button, width: 170 }} onClick={() => setSelectedTicket(ticket)}>
+                              Open Approved Ticket
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
 
-            {selectedTicket && canViewAudit && (
+{selectedTicket && canViewAudit && (
               <div style={box}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                   <h2 style={{ margin: 0 }}>Ticket Detail</h2>

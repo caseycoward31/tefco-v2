@@ -1914,404 +1914,348 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     return `${tank.tank_number || ''}${tank.tank_name ? ` - ${tank.tank_name}` : ''}`
   }
 
-  async function generatePdfPreview(ticket: Ticket) {
-    const companyName = getCompanyDisplayName()
-    const companyLogoUrl = getCompanyLogoUrl()
-    const companyAccent = getCompanyAccentColor()
-    const companyLogoDataUrl = companyLogoUrl ? await getImageDataUrl(companyLogoUrl) : ''
 
-    const producer = producers.find((p) => p.id === ticket.producer_id)
-    const meter = meters.find((m) => m.id === ticket.meter_id)
-    const segment = segments.find((s) => s.id === ticket.segment_id)
+  function formatTicketNumberValue(value: any) {
+    if (value === null || value === undefined || value === '') return '—'
+    return String(value)
+  }
 
-    // Refinery Tank Ticket PDF
-    if (ticket.ticket_type === 'tank') {
-      const tankId = (ticket as any).tank_id || ticket.observed_inputs?.tank_id
-      const tankName = getTankDisplayName(tankId)
-      const openingGauge = (ticket as any).opening_gauge ?? ticket.observed_inputs?.opening_gauge ?? ticket.observed_inputs?.opening_gauge_decimal ?? 0
-      const closingGauge = (ticket as any).closing_gauge ?? ticket.observed_inputs?.closing_gauge ?? ticket.observed_inputs?.closing_gauge_decimal ?? 0
-      const openingBbl = ticket.observed_inputs?.tank_opening_bbl ?? ticket.calculation_results?.tank_opening_bbl ?? 0
-      const closingBbl = ticket.observed_inputs?.tank_closing_bbl ?? ticket.calculation_results?.tank_closing_bbl ?? 0
-      const gov = ticket.calculation_results?.tank_gov ?? ticket.calculation_results?.tank_movement_bbl ?? ticket.calculation_results?.gov ?? 0
-      const gsv = ticket.calculation_results?.tank_gsv ?? ticket.calculation_results?.gsv ?? 0
-      const nsv = ticket.calculation_results?.tank_nsv ?? ticket.calculation_results?.nsv ?? 0
-      const swPercent = ticket.observed_inputs?.tank_sw_percent ?? ticket.calculation_results?.tank_sw_percent ?? ticket.observed_inputs?.bsw_percent ?? ''
-      const avgTemp = ticket.observed_inputs?.tank_average_temp ?? ticket.observed_inputs?.average_temperature ?? ''
-      const ambientTemp = ticket.observed_inputs?.tank_ambient_temp ?? ''
-      const obsGravity = ticket.observed_inputs?.tank_observed_gravity ?? ticket.observed_inputs?.observed_api_gravity ?? ''
-      const obsTemp = ticket.observed_inputs?.tank_observed_temp ?? ticket.observed_inputs?.observed_temperature ?? ''
-      const api60 = ticket.calculation_results?.api_gravity_60 ?? ticket.observed_inputs?.api_gravity_60 ?? ''
-      const ctl = ticket.calculation_results?.ctl ?? ticket.observed_inputs?.ctl ?? ''
-      const cpl = ticket.calculation_results?.cpl ?? ticket.observed_inputs?.cpl ?? ''
-      const ccf = ticket.calculation_results?.ccf ?? ticket.observed_inputs?.ccf ?? ''
-      const direction = (ticket as any).movement_direction || ticket.observed_inputs?.tank_movement_direction || ''
-      const openingDeadwood = getDeadwoodAdjustment(tankId, Number(openingGauge))
-      const closingDeadwood = getDeadwoodAdjustment(tankId, Number(closingGauge))
+  function formatBbl(value: any) {
+    const num = Number(value || 0)
+    return Number.isFinite(num) ? num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'
+  }
 
-      const tankHtml = `
-        <html>
-          <head>
-            <title>${ticket.ticket_number || 'Tank Ticket'}</title>
-            <style>
-              @page { size: letter portrait; margin: 0.35in; }
-              * { box-sizing: border-box; }
-              body { margin: 0; padding: 0; color: #111; font-family: Arial, Helvetica, sans-serif; font-size: 11px; }
-              .page { width: 100%; max-width: 7.8in; margin: 0 auto; }
-              .brand { display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid ${companyAccent}; padding-bottom: 8px; margin-bottom: 10px; }
-              .brand-name { font-size: 24px; font-weight: 900; color: ${companyAccent}; }
-              .subtitle { font-size: 12px; margin-top: 3px; }
-              .logo { max-height: 48px; max-width: 150px; object-fit: contain; }
-              .title { text-align: center; font-size: 24px; font-weight: 900; margin: 10px 0; }
-              .section { border: 1.5px solid #111; margin-bottom: 9px; page-break-inside: avoid; }
-              .section-title { text-align: center; font-weight: 900; font-size: 14px; padding: 5px; border-bottom: 1.2px solid #111; background: #f4f4f4; }
-              .grid { display: grid; grid-template-columns: 1fr 1fr; }
-              .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; }
-              .row { display: grid; grid-template-columns: 48% 52%; min-height: 23px; border-bottom: 1px solid #d6d6d6; }
-              .grid > .row:nth-child(odd), .grid3 > .row:not(:nth-child(3n)) { border-right: 1px solid #111; }
-              .label { font-weight: 900; padding: 5px 7px; }
-              .val { text-align: right; padding: 5px 7px; }
-              .big { font-size: 16px; font-weight: 900; }
-              .footer { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 18px; }
-              .sig { border-top: 1.2px solid #111; padding-top: 6px; min-height: 44px; }
-            </style>
-          </head>
-          <body>
-            <div class="page">
-              <div class="brand">
-                <div>
-                  <div class="brand-name">${companyName}</div>
-                  <div class="subtitle">Refinery Tank Ticket</div>
-                </div>
-                ${companyLogoDataUrl ? `<img class="logo" src="${companyLogoDataUrl}" />` : ''}
-              </div>
+  function formatMeasurementNumber(value: any, digits = 4) {
+    const num = Number(value || 0)
+    return Number.isFinite(num) ? num.toFixed(digits) : '0'
+  }
 
-              <div class="title">${ticket.ticket_number || 'Tank Ticket'}</div>
+  function uniqueCsvCount(value: any) {
+    const items = String(value || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+    return new Set(items).size
+  }
 
-              <div class="section">
-                <div class="grid">
-                  <div class="row"><div class="label">Tank:</div><div class="val">${tankName || '—'}</div></div>
-                  <div class="row"><div class="label">Status:</div><div class="val">${ticket.status || 'draft'}</div></div>
-                  <div class="row"><div class="label">Segment:</div><div class="val">${segment?.name || '—'}</div></div>
-                  <div class="row"><div class="label">Movement:</div><div class="val">${direction || '—'}</div></div>
-                  <div class="row"><div class="label">Producer:</div><div class="val">${producer?.name || '—'}</div></div>
-                  <div class="row"><div class="label">Transporter:</div><div class="val">${(ticket as any).transporter_name || ticket.observed_inputs?.transporter_name || (ticket as any).customer_name || '—'}</div></div>
-                  <div class="row"><div class="label">Assigned POT:</div><div class="val">${ticket.observed_inputs?.assigned_pot_label || (ticket as any).assigned_pot_id || '—'}</div></div>
-                  <div class="row"><div class="label">Date:</div><div class="val">${(ticket as any).created_at ? new Date((ticket as any).created_at).toLocaleString() : '—'}</div></div>
-                </div>
-              </div>
+  function generatePdfPreview(ticket: any) {
+    const producer = producers.find((item: any) => item.id === ticket.producer_id)
+    const meter = meters.find((item: any) => item.id === ticket.meter_id)
+    const segment = segments.find((item: any) => item.id === ticket.segment_id)
+    const lease = leases.find((item: any) => item.id === ticket.lease_id)
 
-              <div class="section">
-                <div class="section-title">Gauge / Strapping</div>
-                <div class="grid">
-                  <div class="row"><div class="label">Opening Gauge:</div><div class="val">${formatGaugeFeetInchesEighths(openingGauge)}</div></div>
-                  <div class="row"><div class="label">Closing Gauge:</div><div class="val">${formatGaugeFeetInchesEighths(closingGauge)}</div></div>
-                  <div class="row"><div class="label">Opening BBL:</div><div class="val">${Number(openingBbl || 0).toFixed(2)}</div></div>
-                  <div class="row"><div class="label">Closing BBL:</div><div class="val">${Number(closingBbl || 0).toFixed(2)}</div></div>
-                  <div class="row"><div class="label">Opening Deadwood:</div><div class="val">${Number(openingDeadwood || 0).toFixed(2)}</div></div>
-                  <div class="row"><div class="label">Closing Deadwood:</div><div class="val">${Number(closingDeadwood || 0).toFixed(2)}</div></div>
-                </div>
-              </div>
+    const observed = ticket.observed_inputs || {}
+    const calc = ticket.calculation_results || {}
+    const isFlowX = observed.source === 'flowx_transporter_summary'
 
-              <div class="section">
-                <div class="section-title">Observed Quality / Corrections</div>
-                <div class="grid3">
-                  <div class="row"><div class="label">Avg Temp:</div><div class="val">${avgTemp || '—'}</div></div>
-                  <div class="row"><div class="label">Ambient Temp:</div><div class="val">${ambientTemp || '—'}</div></div>
-                  <div class="row"><div class="label">Obs Temp:</div><div class="val">${obsTemp || '—'}</div></div>
-                  <div class="row"><div class="label">Obs Gravity:</div><div class="val">${obsGravity || '—'}</div></div>
-                  <div class="row"><div class="label">API @60:</div><div class="val">${api60 || '—'}</div></div>
-                  <div class="row"><div class="label">S&W %:</div><div class="val">${swPercent || '—'}</div></div>
-                  <div class="row"><div class="label">CTL:</div><div class="val">${ctl || '—'}</div></div>
-                  <div class="row"><div class="label">CPL:</div><div class="val">${cpl || '—'}</div></div>
-                  <div class="row"><div class="label">CCF:</div><div class="val">${ccf || '—'}</div></div>
-                </div>
-              </div>
+    const companyName = getCompanyDisplayName ? getCompanyDisplayName() : (companySettings?.company_name || 'Measurement Platform')
+    const logoUrl = companyLogoDataUrl || companySettings?.logo_url || ''
+    const ticketNumber = ticket.ticket_number || ticket.id || 'Ticket'
+    const createdAt = ticket.created_at ? new Date(ticket.created_at).toLocaleString() : new Date().toLocaleString()
+    const approvedAt = ticket.approved_at ? new Date(ticket.approved_at).toLocaleString() : 'Pending Approval'
 
-              <div class="section">
-                <div class="section-title">Volumes</div>
-                <div class="grid3">
-                  <div class="row"><div class="label big">GOV:</div><div class="val big">${Number(gov || 0).toFixed(2)}</div></div>
-                  <div class="row"><div class="label big">GSV:</div><div class="val big">${Number(gsv || 0).toFixed(2)}</div></div>
-                  <div class="row"><div class="label big">NSV:</div><div class="val big">${Number(nsv || 0).toFixed(2)}</div></div>
-                </div>
-              </div>
+    const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name || '—'
+    const assignedPot = observed.assigned_pot_label || ticket.assigned_pot_id || '—'
+    const sourceTicketCount = uniqueCsvCount(observed.ticket_numbers)
+    const sourceBatchCount = uniqueCsvCount(observed.batch_numbers)
+    const sourceTruckCount = uniqueCsvCount(observed.truck_numbers)
+    const sourceLeaseCount = uniqueCsvCount(observed.leases)
 
-              <div class="footer">
-                <div class="sig">Operator Signature</div>
-                <div class="sig">Approval Signature / Date</div>
-              </div>
-            </div>
-          </body>
-        </html>
-      `
+    const html = `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${ticketNumber}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #f4f5f7;
+      color: #111827;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12px;
+    }
+    .page {
+      width: 8.5in;
+      min-height: 11in;
+      margin: 0 auto;
+      background: #fff;
+      padding: 0.45in;
+    }
+    .header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      border-bottom: 4px solid #c46a2b;
+      padding-bottom: 14px;
+      margin-bottom: 16px;
+      align-items: center;
+    }
+    .brand { display: flex; gap: 14px; align-items: center; }
+    .logo {
+      width: 110px;
+      max-height: 62px;
+      object-fit: contain;
+    }
+    .brand-title {
+      font-size: 24px;
+      font-weight: 900;
+      letter-spacing: 0.2px;
+      margin-bottom: 4px;
+    }
+    .brand-subtitle {
+      font-size: 12px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+    }
+    .ticket-box {
+      border: 2px solid #111827;
+      padding: 10px 14px;
+      text-align: right;
+      min-width: 220px;
+    }
+    .ticket-box .label {
+      color: #6b7280;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .ticket-box .number {
+      font-size: 19px;
+      font-weight: 900;
+      margin-top: 4px;
+    }
+    .status {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: ${ticket.status === 'approved' ? '#dcfce7' : '#fef3c7'};
+      color: ${ticket.status === 'approved' ? '#166534' : '#92400e'};
+      font-weight: 800;
+      text-transform: uppercase;
+      font-size: 10px;
+    }
+    .section {
+      border: 1px solid #d1d5db;
+      margin-top: 12px;
+      break-inside: avoid;
+    }
+    .section-title {
+      background: #111827;
+      color: #fff;
+      font-weight: 900;
+      padding: 8px 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      font-size: 11px;
+    }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+    .cell {
+      padding: 8px 10px;
+      border-right: 1px solid #e5e7eb;
+      border-bottom: 1px solid #e5e7eb;
+      min-height: 38px;
+    }
+    .cell:nth-child(2n) { border-right: 0; }
+    .grid-3 .cell:nth-child(2n) { border-right: 1px solid #e5e7eb; }
+    .grid-3 .cell:nth-child(3n) { border-right: 0; }
+    .small-label {
+      color: #6b7280;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      margin-bottom: 3px;
+    }
+    .value {
+      font-size: 13px;
+      font-weight: 800;
+      word-break: break-word;
+    }
+    .volume {
+      font-size: 18px;
+      font-weight: 900;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th {
+      background: #f3f4f6;
+      text-align: left;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #374151;
+      padding: 7px 8px;
+      border-bottom: 1px solid #d1d5db;
+    }
+    td {
+      padding: 8px;
+      border-bottom: 1px solid #e5e7eb;
+      font-weight: 700;
+    }
+    .right { text-align: right; }
+    .notes {
+      white-space: pre-wrap;
+      min-height: 45px;
+      padding: 10px;
+    }
+    .signatures {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      margin-top: 34px;
+    }
+    .sig-line {
+      border-top: 1px solid #111827;
+      padding-top: 7px;
+      color: #374151;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+    }
+    .footer {
+      margin-top: 24px;
+      border-top: 1px solid #d1d5db;
+      padding-top: 8px;
+      display: flex;
+      justify-content: space-between;
+      color: #6b7280;
+      font-size: 10px;
+    }
+    @media print {
+      body { background: #fff; }
+      .page { margin: 0; width: auto; min-height: auto; }
+      @page { size: letter; margin: 0.35in; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <div class="brand">
+        ${logoUrl ? `<img class="logo" src="${logoUrl}" />` : ''}
+        <div>
+          <div class="brand-title">${companyName}</div>
+          <div class="brand-subtitle">Measurement Ticket</div>
+        </div>
+      </div>
+      <div class="ticket-box">
+        <div class="label">Ticket Number</div>
+        <div class="number">${ticketNumber}</div>
+        <div class="status">${ticket.status || 'draft'}</div>
+      </div>
+    </div>
 
-      const w = window.open('', '_blank')
-      if (!w) return
+    <div class="section">
+      <div class="section-title">Ticket Information</div>
+      <div class="grid-3">
+        <div class="cell"><div class="small-label">Ticket Type</div><div class="value">${ticket.ticket_type || '—'}</div></div>
+        <div class="cell"><div class="small-label">Created</div><div class="value">${createdAt}</div></div>
+        <div class="cell"><div class="small-label">Approved</div><div class="value">${approvedAt}</div></div>
+        <div class="cell"><div class="small-label">Segment</div><div class="value">${segment?.name || observed.segment_name || '—'}</div></div>
+        <div class="cell"><div class="small-label">Producer</div><div class="value">${producer?.name || observed.producer_name || '—'}</div></div>
+        <div class="cell"><div class="small-label">Lease</div><div class="value">${lease?.name || observed.leases || observed.lease_name || '—'}</div></div>
+        <div class="cell"><div class="small-label">Meter / Rack</div><div class="value">${meter?.meter_number || observed.meter_number || '—'}</div></div>
+        <div class="cell"><div class="small-label">Transporter</div><div class="value">${transporter}</div></div>
+        <div class="cell"><div class="small-label">Assigned POT</div><div class="value">${assignedPot}</div></div>
+      </div>
+    </div>
 
-      w.document.write(tankHtml)
-      w.document.close()
-      w.focus()
+    ${isFlowX ? `
+    <div class="section">
+      <div class="section-title">Flow-X Import Summary</div>
+      <div class="grid-3">
+        <div class="cell"><div class="small-label">Source Rows</div><div class="value">${observed.source_rows || '—'}</div></div>
+        <div class="cell"><div class="small-label">Source Ticket Count</div><div class="value">${sourceTicketCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">Source Batch Count</div><div class="value">${sourceBatchCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">Truck Count</div><div class="value">${sourceTruckCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">Lease Count</div><div class="value">${sourceLeaseCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">LACT</div><div class="value">${observed.lact_name || ticket.lact_name || '—'}</div></div>
+      </div>
+    </div>
+    ` : ''}
 
-      setTimeout(() => {
-        w.print()
-      }, 500)
+    <div class="section">
+      <div class="section-title">Volumes</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th class="right">Barrels</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Gross Observed / GOV</td><td class="right volume">${formatBbl(calc.gov || observed.gross_volume_bbl)}</td></tr>
+          <tr><td>Gross Standard / GSV</td><td class="right volume">${formatBbl(calc.gsv || observed.gross_volume_bbl)}</td></tr>
+          <tr><td>Net Standard / NSV</td><td class="right volume">${formatBbl(calc.nsv || observed.net_volume_bbl)}</td></tr>
+        </tbody>
+      </table>
+    </div>
 
+    <div class="section">
+      <div class="section-title">Quality / Corrections</div>
+      <div class="grid-3">
+        <div class="cell"><div class="small-label">API Gravity</div><div class="value">${formatMeasurementNumber(calc.api_gravity || observed.api_gravity, 2)}</div></div>
+        <div class="cell"><div class="small-label">BS&W %</div><div class="value">${formatMeasurementNumber(calc.bsw_percent || observed.bsw_percent, 4)}</div></div>
+        <div class="cell"><div class="small-label">Average Temp °F</div><div class="value">${formatMeasurementNumber(calc.average_temperature || observed.average_temperature, 2)}</div></div>
+        <div class="cell"><div class="small-label">Average Pressure</div><div class="value">${formatMeasurementNumber(calc.average_pressure || observed.average_pressure, 2)}</div></div>
+        <div class="cell"><div class="small-label">CTL</div><div class="value">${formatMeasurementNumber(calc.ctl || observed.ctl, 5)}</div></div>
+        <div class="cell"><div class="small-label">CPL</div><div class="value">${formatMeasurementNumber(calc.cpl || observed.cpl, 5)}</div></div>
+        <div class="cell"><div class="small-label">CTPL</div><div class="value">${formatMeasurementNumber(calc.ctpl || observed.ctpl, 5)}</div></div>
+        <div class="cell"><div class="small-label">POT Quality Source</div><div class="value">${assignedPot}</div></div>
+        <div class="cell"><div class="small-label">Calculation Method</div><div class="value">${observed.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'Standard'}</div></div>
+      </div>
+    </div>
+
+    ${isFlowX ? `
+    <div class="section">
+      <div class="section-title">Source References</div>
+      <div class="grid-2">
+        <div class="cell"><div class="small-label">Ticket Numbers</div><div class="value">${formatTicketNumberValue(observed.ticket_numbers)}</div></div>
+        <div class="cell"><div class="small-label">Batch Numbers</div><div class="value">${formatTicketNumberValue(observed.batch_numbers)}</div></div>
+        <div class="cell"><div class="small-label">Truck Numbers</div><div class="value">${formatTicketNumberValue(observed.truck_numbers)}</div></div>
+        <div class="cell"><div class="small-label">Drivers</div><div class="value">${formatTicketNumberValue(observed.driver_names)}</div></div>
+      </div>
+    </div>
+    ` : ''}
+
+    <div class="section">
+      <div class="section-title">Notes</div>
+      <div class="notes">${ticket.notes || observed.notes || ''}</div>
+    </div>
+
+    <div class="signatures">
+      <div class="sig-line">Prepared By</div>
+      <div class="sig-line">Approved By</div>
+    </div>
+
+    <div class="footer">
+      <div>Generated by TEFCO Measurement Platform</div>
+      <div>${new Date().toLocaleString()}</div>
+    </div>
+  </div>
+  <script>
+    window.onload = () => {
+      window.focus();
+    };
+  </script>
+</body>
+</html>`
+
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      alert('Popup blocked. Allow popups to preview PDF.')
       return
     }
 
-    const value = (v: any) => v === null || v === undefined || v === '' ? '—' : v
-    const num = (v: any, decimals = 4) => {
-      const n = Number(v)
-      return Number.isFinite(n) ? n.toFixed(decimals) : value(v)
-    }
-
-    const html = `
-      <html>
-        <head>
-          <title>${ticket.ticket_number || 'Ticket'}</title>
-          <style>
-            @page {
-              size: letter portrait;
-              margin: 0.35in;
-            }
-
-            * {
-              box-sizing: border-box;
-            }
-
-            html,
-            body {
-              margin: 0;
-              padding: 0;
-              background: #fff;
-              color: #111;
-              font-family: Arial, Helvetica, sans-serif;
-              font-size: 10.5px;
-              line-height: 1.15;
-            }
-
-            .page {
-              width: 100%;
-              max-width: 7.8in;
-              margin: 0 auto;
-            }
-
-            .brand-header {
-              border-bottom: 3px solid ${companyAccent};
-              padding-bottom: 6px;
-              margin-bottom: 8px;
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              gap: 16px;
-            }
-
-            .brand-name {
-              font-size: 24px;
-              font-weight: 900;
-              color: ${companyAccent};
-              letter-spacing: 0.2px;
-            }
-
-            .brand-subtitle {
-              font-size: 10.5px;
-              color: #111;
-              margin-top: 2px;
-            }
-
-            .brand-logo {
-              max-height: 42px;
-              max-width: 140px;
-              object-fit: contain;
-            }
-
-            .ticket-title {
-              text-align: center;
-              font-size: 24px;
-              font-weight: 900;
-              margin: 8px 0 10px;
-              letter-spacing: 0.4px;
-            }
-
-            .section {
-              border: 1.4px solid #111;
-              margin-bottom: 10px;
-              page-break-inside: avoid;
-            }
-
-            .section-title {
-              text-align: center;
-              font-size: 14px;
-              font-weight: 900;
-              border-bottom: 1.2px solid #111;
-              padding: 5px 8px;
-              background: #fafafa;
-            }
-
-            .grid-two {
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-            }
-
-            .row {
-              display: grid;
-              grid-template-columns: 48% 52%;
-              min-height: 21px;
-              border-bottom: 1px solid #d6d6d6;
-            }
-
-            .grid-two > .row:nth-child(odd) {
-              border-right: 1px solid #111;
-            }
-
-            .row:last-child,
-            .grid-two > .row:nth-last-child(1),
-            .grid-two > .row:nth-last-child(2) {
-              border-bottom: none;
-            }
-
-            .label {
-              font-weight: 900;
-              padding: 5px 7px;
-            }
-
-            .val {
-              text-align: right;
-              padding: 5px 7px;
-            }
-
-            .footer {
-              border-top: 1.4px solid #111;
-              margin-top: 10px;
-              padding-top: 8px;
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-              gap: 18px;
-              page-break-inside: avoid;
-            }
-
-            .small-line {
-              min-height: 24px;
-            }
-
-            @media print {
-              body {
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-              }
-
-              .page {
-                page-break-after: avoid;
-              }
-            }
-          </style>
-        </head>
-
-        <body>
-          <div class="page">
-            <div class="brand-header">
-              <div>
-                <div class="brand-name">${getCompanyDisplayName()}</div>
-                <div class="brand-subtitle">Custody Transfer Ticket</div>
-              </div>
-              ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}
-            </div>
-
-            <div class="ticket-title">${ticket.ticket_number || 'Ticket'}</div>
-
-            <div class="section">
-              <div class="grid-two">
-                <div class="row"><div class="label">Status:</div><div class="val">${value(ticket.status)}</div></div>
-                <div class="row"><div class="label">Contract Profile:</div><div class="val">${value(ticket.observed_inputs?.contract_profile_name || ticket.calculation_profile_snapshot?.contract_profile?.name || 'Default')}</div></div>
-
-                <div class="row"><div class="label">Type:</div><div class="val">${value(ticket.ticket_type)}</div></div>
-                <div class="row"><div class="label">Calculation Method:</div><div class="val">${value(ticket.observed_inputs?.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL')}</div></div>
-
-                <div class="row"><div class="label">Producer:</div><div class="val">${value(producer?.name)}</div></div>
-                <div class="row"><div class="label">Ticket Created:</div><div class="val">${value((ticket as any).created_at ? new Date((ticket as any).created_at).toLocaleString() : '')}</div></div>
-
-                <div class="row"><div class="label">Meter:</div><div class="val">${value(meter?.meter_number)}</div></div>
-                <div class="row"><div class="label">Created By:</div><div class="val">${value((ticket as any).created_by_name || (ticket as any).created_by_email)}</div></div>
-
-                <div class="row"><div class="label">Segment:</div><div class="val">${value(segment?.name)}</div></div>
-                <div class="row"><div class="label">Last Updated:</div><div class="val">${value((ticket as any).updated_at ? new Date((ticket as any).updated_at).toLocaleString() : '')}</div></div>
-
-                <div class="row"><div class="label">Profile:</div><div class="val">${value(ticket.calculation_profile_snapshot?.name)}</div></div>
-                <div class="row"><div class="label">Updated By:</div><div class="val">${value((ticket as any).updated_by_name || (ticket as any).updated_by_email)}</div></div>
-              </div>
-            </div>
-
-            <div class="section">
-              <div class="section-title">Observed Inputs</div>
-              <div class="grid-two">
-                <div class="row"><div class="label">IV:</div><div class="val">${value(ticket.observed_inputs?.iv)}</div></div>
-                <div class="row"><div class="label">Density @60 kg/m³:</div><div class="val">${value(ticket.observed_inputs?.density_60)}</div></div>
-
-                <div class="row"><div class="label">CTL:</div><div class="val">${value(ticket.observed_inputs?.ctl)}</div></div>
-                <div class="row"><div class="label">Avg Temp (°F):</div><div class="val">${value(ticket.observed_inputs?.average_temperature)}</div></div>
-
-                <div class="row"><div class="label">CPL:</div><div class="val">${value(ticket.observed_inputs?.cpl)}</div></div>
-                <div class="row"><div class="label">Avg Pressure (psi):</div><div class="val">${value(ticket.observed_inputs?.average_pressure)}</div></div>
-
-                <div class="row"><div class="label">CTLP:</div><div class="val">${value(ticket.observed_inputs?.ctlp)}</div></div>
-                <div class="row"><div class="label">BS&W %:</div><div class="val">${value(ticket.observed_inputs?.bsw_percent)}</div></div>
-
-                <div class="row"><div class="label">CMF:</div><div class="val">${value(ticket.observed_inputs?.cmf)}</div></div>
-                <div class="row"><div class="label">CSW:</div><div class="val">${value(ticket.observed_inputs?.csw)}</div></div>
-
-                <div class="row"><div class="label">Observed API Gravity:</div><div class="val">${value(ticket.observed_inputs?.observed_api_gravity)}</div></div>
-                <div class="row"><div class="label">Casing / Line Size:</div><div class="val">${value(ticket.observed_inputs?.line_size || ticket.observed_inputs?.casing_size)}</div></div>
-
-                <div class="row"><div class="label">Observed Temp (°F):</div><div class="val">${value(ticket.observed_inputs?.observed_temperature)}</div></div>
-                <div class="row"><div class="label">Meter Type:</div><div class="val">${value((meter as any)?.meter_type || (meter as any)?.type)}</div></div>
-
-                <div class="row"><div class="label">API Gravity @60°F:</div><div class="val">${value(ticket.observed_inputs?.api_gravity_60 || ticket.observed_inputs?.corrected_api)}</div></div>
-                <div class="row"><div class="label">Meter Factor:</div><div class="val">${value(ticket.observed_inputs?.meter_factor || ticket.observed_inputs?.mf)}</div></div>
-              </div>
-            </div>
-
-            <div class="section">
-              <div class="section-title">Calculated Results</div>
-              <div class="grid-two">
-                <div class="row"><div class="label">CCF:</div><div class="val">${value(ticket.calculation_results?.ccf)}</div></div>
-                <div class="row"><div class="label">Flowing Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.flowing_volume || ticket.calculation_results?.gross_volume)}</div></div>
-
-                <div class="row"><div class="label">GSV:</div><div class="val">${value(ticket.calculation_results?.gsv)}</div></div>
-                <div class="row"><div class="label">Net Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.net_volume || ticket.calculation_results?.nsv)}</div></div>
-
-                <div class="row"><div class="label">NSV:</div><div class="val">${value(ticket.calculation_results?.nsv)}</div></div>
-                <div class="row"><div class="label">Shrink %:</div><div class="val">${value(ticket.calculation_results?.shrink_percent)}</div></div>
-
-                <div class="row"><div class="label">CF (Total):</div><div class="val">${value(ticket.calculation_results?.cf_total || ticket.calculation_results?.ccf)}</div></div>
-                <div class="row"><div class="label">Water Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.water_volume)}</div></div>
-              </div>
-            </div>
-
-            <div class="footer">
-              <div>
-                <strong>Notes:</strong>
-                <div class="small-line">${value((ticket as any).notes)}</div>
-              </div>
-              <div>
-                <div><strong>Approved By:</strong> ${value((ticket as any).approved_by_name || (ticket as any).approved_by_email)}</div>
-                <div style="margin-top: 10px;"><strong>Approved Date:</strong> ${value((ticket as any).approved_at ? new Date((ticket as any).approved_at).toLocaleString() : '')}</div>
-              </div>
-            </div>
-          </div>
-        </body>
-      </html>
-    `
-
-    const w = window.open('', '_blank')
-    if (!w) return
-
-    w.document.write(html)
-    w.document.close()
-    w.focus()
-
-    setTimeout(() => {
-      w.print()
-    }, 500)
+    printWindow.document.open()
+    printWindow.document.write(html)
+    printWindow.document.close()
   }
 
   
@@ -4027,9 +3971,9 @@ async function createCompany() {
 
   function getTicketVolumeForBalance(ticket: any) {
     return Number(
-      ticket.calculation_results?.nsv ??
+      selectedTicket.calculation_results?.nsv ??
       ticket.calculation_results?.tank_nsv ??
-      ticket.calculation_results?.gsv ??
+      selectedTicket.calculation_results?.gsv ??
       ticket.calculation_results?.tank_gsv ??
       ticket.calculation_results?.gov ??
       ticket.calculation_results?.tank_gov ??
@@ -4054,7 +3998,7 @@ async function createCompany() {
     const volume = Number(
       ticket.calculation_results?.tank_nsv ??
       ticket.calculation_results?.tank_movement_bbl ??
-      ticket.calculation_results?.nsv ??
+      selectedTicket.calculation_results?.nsv ??
       0
     )
 
@@ -4248,8 +4192,8 @@ async function createCompany() {
         producer?.name || '',
         segment?.name || '',
         meter?.meter_number || '',
-        ticket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? '',
-        ticket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? '',
+        selectedTicket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? '',
+        selectedTicket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? '',
         getTicketReportDate(ticket),
       ]
     })
@@ -4273,8 +4217,8 @@ async function createCompany() {
           producer?.name || '',
           segment?.name || '',
           meter?.meter_number || '',
-          Number(ticket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? 0).toFixed(2),
-          Number(ticket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? 0).toFixed(2),
+          Number(selectedTicket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? 0).toFixed(2),
+          Number(selectedTicket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? 0).toFixed(2),
           getTicketReportDate(ticket),
         ]
       }),
@@ -4301,8 +4245,8 @@ async function createCompany() {
         ticket.driver_name || ticket.observed_inputs?.driver_name || '',
         (ticket as any).customer_name || ticket.observed_inputs?.customer_name || '',
         ticket.split_percent || ticket.observed_inputs?.split_percent || '',
-        Number(ticket.calculation_results?.gsv ?? 0).toFixed(2),
-        Number(ticket.calculation_results?.nsv ?? 0).toFixed(2),
+        Number(selectedTicket.calculation_results?.gsv ?? 0).toFixed(2),
+        Number(selectedTicket.calculation_results?.nsv ?? 0).toFixed(2),
         ticket.lact_name || ticket.observed_inputs?.lact_name || '',
         getTicketReportDate(ticket),
       ]),
@@ -4415,14 +4359,14 @@ async function createCompany() {
           const meter = meters.find((m: any) => m.id === ticket.meter_id)
           return ((meter as any)?.meter_role || (meter as any)?.meter_direction || (meter as any)?.direction) === 'receipt'
         })
-        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket.calculation_results?.nsv || selectedTicket.calculation_results?.gsv || 0), 0)
 
       const deliveryVolume = segmentTickets
         .filter((ticket: any) => {
           const meter = meters.find((m: any) => m.id === ticket.meter_id)
           return ((meter as any)?.meter_role || (meter as any)?.meter_direction || (meter as any)?.direction) === 'delivery'
         })
-        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket.calculation_results?.nsv || selectedTicket.calculation_results?.gsv || 0), 0)
 
       const tankMovement = segmentTickets
         .filter((ticket: any) => ticket.ticket_type === 'tank')
@@ -4430,7 +4374,7 @@ async function createCompany() {
 
       const truckVolume = segmentTickets
         .filter((ticket: any) => ticket.ticket_type === 'truck')
-        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || 0), 0)
+        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket.calculation_results?.nsv || 0), 0)
 
       const overShort = receiptVolume - deliveryVolume + tankMovement - truckVolume
 
@@ -5040,9 +4984,9 @@ async function saveUserRole() {
                 <div class="grid-two">
                   <div class="row"><div class="label">CCF:</div><div class="val">${value(ticket.calculation_results?.ccf)}</div></div>
                   <div class="row"><div class="label">Flowing Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.flowing_volume || ticket.calculation_results?.gross_volume)}</div></div>
-                  <div class="row"><div class="label">GSV:</div><div class="val">${value(ticket.calculation_results?.gsv)}</div></div>
-                  <div class="row"><div class="label">Net Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.net_volume || ticket.calculation_results?.nsv)}</div></div>
-                  <div class="row"><div class="label">NSV:</div><div class="val">${value(ticket.calculation_results?.nsv)}</div></div>
+                  <div class="row"><div class="label">GSV:</div><div class="val">${value(selectedTicket.calculation_results?.gsv)}</div></div>
+                  <div class="row"><div class="label">Net Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.net_volume || selectedTicket.calculation_results?.nsv)}</div></div>
+                  <div class="row"><div class="label">NSV:</div><div class="val">${value(selectedTicket.calculation_results?.nsv)}</div></div>
                   <div class="row"><div class="label">Water Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.water_volume)}</div></div>
                 </div>
               </div>
@@ -7146,13 +7090,13 @@ async function saveUserRole() {
                       const meter = meters.find((m: any) => m.id === ticket.meter_id)
                       return (meter as any)?.direction === 'receipt'
                     })
-                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+                    .reduce((sum: number, ticket: any) => sum + Number(selectedTicket.calculation_results?.nsv || selectedTicket.calculation_results?.gsv || 0), 0)
                   const deliveries = segmentTickets
                     .filter((ticket: any) => {
                       const meter = meters.find((m: any) => m.id === ticket.meter_id)
                       return (meter as any)?.direction === 'delivery'
                     })
-                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+                    .reduce((sum: number, ticket: any) => sum + Number(selectedTicket.calculation_results?.nsv || selectedTicket.calculation_results?.gsv || 0), 0)
                   const tankMovements = segmentTickets
                     .filter((ticket: any) => ticket.ticket_type === 'tank')
                     .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.tank_movement_bbl || 0), 0)
@@ -7551,34 +7495,6 @@ async function saveUserRole() {
                     <div>Segment ID: {selectedTicket.segment_id || 'None'}</div>
                   </div>
 
-                  {selectedTicket?.observed_inputs?.source === 'flowx_transporter_summary' && (
-  <div style={box}>
-    <h2>Flow-X Import Details</h2>
-
-    <div>Transporter: {selectedTicket.observed_inputs?.transporter_name}</div>
-    <div>Assigned POT: {selectedTicket.observed_inputs?.assigned_pot_label}</div>
-
-    <div>Source Tickets: {selectedTicket.observed_inputs?.ticket_numbers}</div>
-    <div>Source Batches: {selectedTicket.observed_inputs?.batch_numbers}</div>
-    <div>Source Trucks: {selectedTicket.observed_inputs?.truck_numbers}</div>
-    <div>Source Leases: {selectedTicket.observed_inputs?.leases}</div>
-
-    <hr />
-
-    <div>GSV: {selectedTicket.calculation_results?.gsv}</div>
-    <div>NSV: {selectedTicket.calculation_results?.nsv}</div>
-
-    <div>Average Temp: {selectedTicket.calculation_results?.average_temperature}</div>
-    <div>Average Pressure: {selectedTicket.calculation_results?.average_pressure}</div>
-
-    <div>API Gravity: {selectedTicket.calculation_results?.api_gravity}</div>
-    <div>BS&W: {selectedTicket.calculation_results?.bsw_percent}</div>
-
-    <div>CTL: {selectedTicket.calculation_results?.ctl}</div>
-    <div>CPL: {selectedTicket.calculation_results?.cpl}</div>
-    <div>CTPL: {selectedTicket.calculation_results?.ctpl}</div>
-  </div>
-)}
                   <div style={card}>
                     <h3>Volumes</h3>
                     {selectedTicket.ticket_type === 'tank' && (

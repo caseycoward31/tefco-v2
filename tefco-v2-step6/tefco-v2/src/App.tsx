@@ -3773,12 +3773,81 @@ async function createCompany() {
       cpl: factors.cpl,
       mf: Number(apiTesterMf || 1),
       bsw_percent: Number(apiTesterBsw || 0),
+      api_version: apiTesterVersion,
     })
 
     return {
       ...factors,
       ...volume,
       ctpl: factors.ctpl,
+    }
+  }
+
+
+  function roundToDecimals(value: any, decimals: number) {
+    const num = Number(value || 0)
+    if (!Number.isFinite(num)) return 0
+    const factor = 10 ** decimals
+    return Math.round((num + Number.EPSILON) * factor) / factor
+  }
+
+  function getApiVersionRoundingProfile(version: string) {
+    // These are configurable app rounding profiles by API 11.1 generation.
+    // Exact contractual rounding should be verified against the contract/API implementation you are matching.
+    if (version === 'api_11_1_2004') {
+      return {
+        ctlDecimals: 4,
+        cplDecimals: 4,
+        ctplDecimals: 4,
+        gsvDecimals: 2,
+        nsvDecimals: 2,
+        label: 'Legacy 2004 rounding profile',
+      }
+    }
+
+    if (version === 'api_11_1_2007') {
+      return {
+        ctlDecimals: 5,
+        cplDecimals: 5,
+        ctplDecimals: 5,
+        gsvDecimals: 2,
+        nsvDecimals: 2,
+        label: '2007 rounding profile',
+      }
+    }
+
+    if (version === 'api_11_1_2019') {
+      return {
+        ctlDecimals: 5,
+        cplDecimals: 5,
+        ctplDecimals: 5,
+        gsvDecimals: 3,
+        nsvDecimals: 3,
+        label: '2019 rounding profile',
+      }
+    }
+
+    return {
+      ctlDecimals: 6,
+      cplDecimals: 6,
+      ctplDecimals: 6,
+      gsvDecimals: 3,
+      nsvDecimals: 3,
+      label: '2021 rounding profile',
+    }
+  }
+
+  function applyApiVersionRounding(result: any, version: string) {
+    const profile = getApiVersionRoundingProfile(version)
+
+    return {
+      ...result,
+      ctl: roundToDecimals(result.ctl, profile.ctlDecimals),
+      cpl: roundToDecimals(result.cpl, profile.cplDecimals),
+      ctpl: roundToDecimals(result.ctpl, profile.ctplDecimals),
+      gsv: result.gsv !== undefined ? roundToDecimals(result.gsv, profile.gsvDecimals) : result.gsv,
+      nsv: result.nsv !== undefined ? roundToDecimals(result.nsv, profile.nsvDecimals) : result.nsv,
+      rounding_profile: profile,
     }
   }
 
@@ -3805,23 +3874,34 @@ async function createCompany() {
     const cpl = 1 / (1 - (pressureCompressibility * observedPressure))
     const ctpl = ctl * cpl
 
+    const roundingProfile = getApiVersionRoundingProfile(apiVersion)
+    const roundedCtl = roundToDecimals(ctl, roundingProfile.ctlDecimals)
+    const roundedCpl = roundToDecimals(cpl, roundingProfile.cplDecimals)
+    const roundedCtpl = roundToDecimals(ctpl, roundingProfile.ctplDecimals)
+
     return {
       api_version: apiVersion,
       api_version_label: getApiVersionLabel(apiVersion),
-      ctl,
-      cpl,
-      ctpl,
+      ctl: roundedCtl,
+      cpl: roundedCpl,
+      ctpl: roundedCtpl,
       correction_source: 'app_calculated_placeholder',
+      rounding_profile: roundingProfile,
       warning: 'API 11.1 framework active. Replace placeholder approximation with licensed/verified API MPMS 11.1 implementation before custody-transfer reliance.',
       audit: {
         api_version: apiVersion,
+        api_version_label: getApiVersionLabel(apiVersion),
         observed_temperature: observedTemp,
         observed_pressure: observedPressure,
         api_gravity: apiGravity,
         base_temperature: baseTemp,
-        ctl,
-        cpl,
-        ctpl,
+        raw_ctl: ctl,
+        raw_cpl: cpl,
+        raw_ctpl: ctpl,
+        rounded_ctl: roundedCtl,
+        rounded_cpl: roundedCpl,
+        rounded_ctpl: roundedCtpl,
+        rounding_profile: roundingProfile,
       },
     }
   }
@@ -3832,9 +3912,24 @@ async function createCompany() {
     const cpl = Number(input.cpl || 1)
     const mf = Number(input.mf || 1)
     const bswPercent = Number(input.bsw_percent || 0)
-    const gsv = iv * ctl * cpl * mf
-    const nsv = gsv * (1 - (bswPercent / 100))
-    return { iv, ctl, cpl, mf, bsw_percent: bswPercent, gsv, nsv, method: 'chapter12_2021', formula: 'GSV = IV × CTL × CPL × MF; NSV = GSV × (1 - BS&W%)' }
+    const apiVersion = input.api_version || 'api_11_1_2021'
+
+    const gsvRaw = iv * ctl * cpl * mf
+    const nsvRaw = gsvRaw * (1 - (bswPercent / 100))
+
+    return applyApiVersionRounding({
+      iv,
+      ctl,
+      cpl,
+      mf,
+      bsw_percent: bswPercent,
+      gsv: gsvRaw,
+      nsv: nsvRaw,
+      raw_gsv: gsvRaw,
+      raw_nsv: nsvRaw,
+      method: 'chapter12_2021',
+      formula: 'GSV = IV × CTL × CPL × MF; NSV = GSV × (1 - BS&W%)',
+    }, apiVersion)
   }
 
   function getContractProfileForTransporter(transporterName: string) {
@@ -3871,7 +3966,7 @@ async function createCompany() {
 
     if (method === 'chapter12_2021') {
       return {
-        ...calculateChapter122021({ iv: summary.gross, ctl: factors.ctl, cpl: factors.cpl, mf, bsw_percent: bswPercent }),
+        ...calculateChapter122021({ iv: summary.gross, ctl: factors.ctl, cpl: factors.cpl, mf, bsw_percent: bswPercent, api_version: apiVersion }),
         api_version: apiVersion,
         api_version_label: factors.api_version_label,
         ctpl: factors.ctpl,
@@ -7058,13 +7153,14 @@ async function saveUserRole() {
                 return (
                   <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
                     <div style={card}><strong>API Version</strong><br />{result.api_version_label}</div>
-                    <div style={card}><strong>CTL</strong><br />{Number(result.ctl || 0).toFixed(6)}</div>
-                    <div style={card}><strong>CPL</strong><br />{Number(result.cpl || 0).toFixed(6)}</div>
-                    <div style={card}><strong>CTPL</strong><br />{Number(result.ctpl || 0).toFixed(6)}</div>
-                    <div style={card}><strong>GSV</strong><br />{Number(result.gsv || 0).toFixed(2)}</div>
-                    <div style={card}><strong>NSV</strong><br />{Number(result.nsv || 0).toFixed(2)}</div>
+                    <div style={card}><strong>CTL</strong><br />{Number(result.ctl || 0).toFixed(result.rounding_profile?.ctlDecimals ?? 6)}</div>
+                    <div style={card}><strong>CPL</strong><br />{Number(result.cpl || 0).toFixed(result.rounding_profile?.cplDecimals ?? 6)}</div>
+                    <div style={card}><strong>CTPL</strong><br />{Number(result.ctpl || 0).toFixed(result.rounding_profile?.ctplDecimals ?? 6)}</div>
+                    <div style={card}><strong>GSV</strong><br />{Number(result.gsv || 0).toFixed(result.rounding_profile?.gsvDecimals ?? 2)}</div>
+                    <div style={card}><strong>NSV</strong><br />{Number(result.nsv || 0).toFixed(result.rounding_profile?.nsvDecimals ?? 2)}</div>
                     <div style={card}><strong>Formula</strong><br />{result.formula}</div>
                     <div style={card}><strong>Source</strong><br />{result.correction_source}</div>
+                    <div style={card}><strong>Rounding Profile</strong><br />{result.rounding_profile?.label || '—'}</div>
                   </div>
                 )
               })()}

@@ -712,10 +712,8 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [selectedAdminCompanyId, setSelectedAdminCompanyId] = useState('')
   const [newCompanyAdminEmail, setNewCompanyAdminEmail] = useState('')
   const [newCompanyAdminPassword, setNewCompanyAdminPassword] = useState('')
-  const [newContractName, setNewContractName] = useState('')
   const [newContractProducer, setNewContractProducer] = useState('')
   const [newContractStandard, setNewContractStandard] = useState('API 11.1 2021')
-  const [newContractMethod, setNewContractMethod] = useState('CTPL')
   const [newContractFactorType, setNewContractFactorType] = useState('MF')
   const [newContractProductGroup, setNewContractProductGroup] = useState('crude')
   const [newContractApiRounding, setNewContractApiRounding] = useState('1')
@@ -734,7 +732,6 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [transporterPotRules, setTransporterPotRules] = useState<any[]>([])
   const [newTransporterPotName, setNewTransporterPotName] = useState('')
   const [newTransporterPotId, setNewTransporterPotId] = useState('')
-  const [contractProfiles, setContractProfiles] = useState<ContractProfile[]>([])
   const [newAdminEmail, setNewAdminEmail] = useState('')
   const [newAdminPassword, setNewAdminPassword] = useState('')
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
@@ -3481,10 +3478,6 @@ async function createCompany() {
             customer_name: splitTransporter,
             transporter_name: splitTransporter,
             assigned_pot_id: assignedPot?.id || null,
-      contract_profile_id: contractProfile?.id || null,
-      calculation_method: contractCalc.method,
-      api_version: contractCalc.api_version,
-      correction_source: contractCalc.correction_source,
             assigned_pot_sample_date: assignedPot?.sample_date || (assignedPot as any)?.created_at || null,
             split_percent: split.percent,
             gross_volume_bbl: splitGross,
@@ -4895,59 +4888,6 @@ async function saveUserRole() {
     loadAll()
   }
 
-  async function saveContractProfile() {
-    if (!canEditAdmin) {
-      alert('You do not have permission to manage contract profiles.')
-      return
-    }
-
-    if (!companyId || !newContractName) {
-      alert('Enter a contract profile name.')
-      return
-    }
-
-    const { error } = await supabase.from('contract_profiles').insert({
-      company_id: companyId,
-      producer_id: newContractProducer || null,
-      name: newContractName,
-      standard: newContractStandard,
-      calculation_method: newContractMethod,
-      factor_type: newContractFactorType,
-      product_group: newContractProductGroup,
-      api_rounding: Number(newContractApiRounding || 1),
-      ctl_rounding: Number(newContractCtlRounding || 5),
-      cpl_rounding: Number(newContractCplRounding || 5),
-      ctlp_rounding: Number(newContractCtlpRounding || 5),
-      volume_rounding: Number(newContractVolumeRounding || 2),
-      use_pressure: newContractUsePressure,
-      use_shrink: newContractUseShrink,
-      shrink_factor: Number(newContractShrinkFactor || 1),
-      active: true,
-    })
-
-    if (error) {
-      alert('Could not save contract profile: ' + error.message)
-      return
-    }
-
-    setNewContractName('')
-    setNewContractProducer('')
-    setNewContractStandard('API 11.1 2021')
-    setNewContractMethod('CTPL')
-    setNewContractFactorType('MF')
-    setNewContractProductGroup('crude')
-    setNewContractApiRounding('1')
-    setNewContractCtlRounding('5')
-    setNewContractCplRounding('5')
-    setNewContractCtlpRounding('5')
-    setNewContractVolumeRounding('2')
-    setNewContractUsePressure(true)
-    setNewContractUseShrink(false)
-    setNewContractShrinkFactor('1')
-
-    alert('Contract profile saved.')
-    loadAll()
-  }
 
   async function deactivateContractProfile(profileId: string) {
     if (!canEditAdmin) {

@@ -582,6 +582,13 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
+  const [contractProfiles, setContractProfiles] = useState<any[]>([])
+  const [newContractName, setNewContractName] = useState('')
+  const [newContractTransporter, setNewContractTransporter] = useState('')
+  const [newContractMethod, setNewContractMethod] = useState('chapter12_2021')
+  const [newContractMf, setNewContractMf] = useState('1')
+  const [newContractApiVersion, setNewContractApiVersion] = useState('api_11_1_2021')
+  const [newContractCorrectionSource, setNewContractCorrectionSource] = useState('app_calculated')
   const [apiTesterVersion, setApiTesterVersion] = useState('api_11_1_2021')
   const [apiTesterGravity, setApiTesterGravity] = useState('40')
   const [apiTesterTemp, setApiTesterTemp] = useState('80')
@@ -3840,8 +3847,8 @@ async function createCompany() {
   function getContractProfileForTransporter(transporterName: string) {
     const name = String(transporterName || '').trim().toLowerCase()
     return contractProfiles.find((profile: any) =>
-      String(profile.transporter_name || '').trim().toLowerCase() === name ||
-      String(profile.contract_name || '').trim().toLowerCase() === name
+      String((profile as any).transporter_name || '').trim().toLowerCase() === name ||
+      String((profile as any).contract_name || '').trim().toLowerCase() === name
     ) || null
   }
 
@@ -6661,7 +6668,7 @@ async function saveUserRole() {
                       <div key={profile.id} style={card}>
                         <strong>{profile.name}</strong>
                         <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                          {profile.standard} / {profile.calculation_method}
+                          {profile.standard} / {(profile as any).calculation_method}
                         </div>
                       </div>
                     ))}
@@ -7166,9 +7173,9 @@ async function saveUserRole() {
                 {contractProfiles.map((profile: any) => (
                   <div key={profile.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
                     <div>
-                      <strong>{profile.contract_name}</strong>
+                      <strong>{(profile as any).contract_name}</strong>
                       <div style={{ color: '#a8b3bd', marginTop: 4 }}>
-                        Transporter: {profile.transporter_name || '—'} • Method: {profile.calculation_method || 'chapter12_2021'} • API: {profile.api_version || 'api_11_1_2021'} • CTL/CPL: {profile.correction_source || 'app_calculated'} • MF: {profile.meter_factor || 1}
+                        Transporter: {(profile as any).transporter_name || '—'} • Method: {(profile as any).calculation_method || 'chapter12_2021'} • API: {(profile as any).api_version || 'api_11_1_2021'} • CTL/CPL: {(profile as any).correction_source || 'app_calculated'} • MF: {(profile as any).meter_factor || 1}
                       </div>
                     </div>
                     <button style={{ ...button, background: '#dc2626', width: 120 }} onClick={() => deleteContractProfile(profile.id)}>Delete</button>

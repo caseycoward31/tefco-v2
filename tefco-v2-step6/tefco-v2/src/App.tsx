@@ -802,6 +802,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
 
   useEffect(() => {
     function handleMobileResize() {
+    const targetCompanyId = getActiveCompanyId()
       if (typeof window !== 'undefined' && window.innerWidth <= 768) {
         setMobileMenuOpen(true)
       }
@@ -1193,7 +1194,7 @@ const provingCompliancePercent =
   async function addLease() {
     const targetCompanyId = getActiveCompanyId()
 
-    if (!newLeaseName || !companyId) return
+    if (!newLeaseName || !targetCompanyId) return
     await supabase.from('leases').insert({
       company_id: targetCompanyId,
       area_id: selectedArea || null,
@@ -1210,7 +1211,7 @@ const provingCompliancePercent =
   async function addMeter() {
     const targetCompanyId = getActiveCompanyId()
 
-    if (!newMeter || !companyId) return
+    if (!newMeter || !targetCompanyId) return
     await supabase.from('meters').insert({
       company_id: targetCompanyId,
       meter_number: newMeter,
@@ -1227,6 +1228,7 @@ const provingCompliancePercent =
   }
 
   async function saveReading() {
+    const targetCompanyId = getActiveCompanyId()
     if (isReadOnly) {
       alert('System is in read-only auditor mode.')
       return

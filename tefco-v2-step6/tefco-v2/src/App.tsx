@@ -5911,6 +5911,32 @@ async function saveUserRole() {
       }))
   }
 
+
+  function formatTicketDetailNumber(value: any, digits = 1) {
+    const num = Number(value)
+    if (!Number.isFinite(num)) return '—'
+    return num.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })
+  }
+
+  function formatFactorDetail(value: any, digits = 6) {
+    const num = Number(value)
+    if (!Number.isFinite(num)) return '—'
+    return num.toFixed(digits)
+  }
+
+  function getTicketAssignedPotLabel(ticket: any) {
+    return ticket?.observed_inputs?.assigned_pot_label || ticket?.assigned_pot_id || '—'
+  }
+
+  function getTicketContractName(ticket: any) {
+    return ticket?.observed_inputs?.contract_name || ticket?.calculation_profile_snapshot?.contract_name || '—'
+  }
+
+  function getTicketApiVersionLabel(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    return observed.api_version_label || getApiVersionLabel(observed.api_version || ticket?.api_version || '') || '—'
+  }
+
   function compactTicketTitle(ticket: any) {
     return ticket.ticket_number || ticket.id || 'Ticket'
   }
@@ -8031,49 +8057,92 @@ async function saveUserRole() {
 {selectedTicket && (
               <div style={box}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <h2 style={{ margin: 0 }}>Open Ticket: {selectedTicket!.ticket_number || selectedTicket!.id}</h2>
+                  <div>
+                    <h2 style={{ margin: 0 }}>Ticket Review: {selectedTicket!.ticket_number || selectedTicket!.id}</h2>
+                    <div style={{ color: '#a8b3bd', marginTop: 4 }}>
+                      {selectedTicket!.ticket_type || 'ticket'} • {selectedTicket!.observed_inputs?.transporter_name || (selectedTicket as any).transporter_name || (selectedTicket as any).customer_name || 'No transporter'}
+                    </div>
+                  </div>
                   <span style={getTicketStatusStyle(selectedTicket!.status)}>{selectedTicket!.status || 'draft'}</span>
                 </div>
 
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginTop: 12 }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
+                  <button style={{ ...button, width: 'auto' }} onClick={() => generatePdfPreview(selectedTicket)}>
+                    Generate Customer PDF
+                  </button>
+                  <button style={{ ...button, width: 'auto' }} onClick={() => navigator.clipboard?.writeText(JSON.stringify(selectedTicket, null, 2))}>
+                    Copy Ticket JSON
+                  </button>
+                  <button style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => setSelectedTicket(null)}>
+                    Close Ticket
+                  </button>
+                </div>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginTop: 14 }}>
                   <div style={card}>
-                    <h3>Ticket Info</h3>
-                    <div>Type: {selectedTicket!.ticket_type}</div>
-                    <div>Producer ID: {selectedTicket!.producer_id || 'None'}</div>
-                    <div>Meter ID: {selectedTicket!.meter_id || 'None'}</div>
-                    <div>Segment ID: {selectedTicket!.segment_id || 'None'}</div>
+                    <h3>Ticket Information</h3>
+                    <div><strong>Ticket #:</strong> {selectedTicket!.ticket_number || selectedTicket!.id}</div>
+                    <div><strong>Type:</strong> {selectedTicket!.ticket_type || '—'}</div>
+                    <div><strong>Status:</strong> {selectedTicket!.status || 'draft'}</div>
+                    <div><strong>Transporter:</strong> {selectedTicket!.observed_inputs?.transporter_name || (selectedTicket as any).transporter_name || (selectedTicket as any).customer_name || '—'}</div>
+                    <div><strong>LACT:</strong> {selectedTicket!.observed_inputs?.lact_name || (selectedTicket as any).lact_name || '—'}</div>
+                    <div><strong>Source Rows:</strong> {selectedTicket!.observed_inputs?.source_rows || '—'}</div>
                   </div>
 
                   <div style={card}>
-                    <h3>Volumes</h3>
-                    {selectedTicket!.ticket_type === 'tank' && (
-                      <>
-                        <div><strong>Tank Results</strong></div>
-                        <div>Opening Gauge: {(selectedTicket as any).opening_gauge ?? selectedTicket!.observed_inputs?.opening_gauge ?? 'None'}</div>
-                        <div>Closing Gauge: {(selectedTicket as any).closing_gauge ?? selectedTicket!.observed_inputs?.closing_gauge ?? 'None'}</div>
-                        <div>GOV: {selectedTicket!.calculation_results?.tank_gov ?? selectedTicket!.calculation_results?.tank_movement_bbl ?? 'None'}</div>
-                      </>
-                    )}
-                    <div>GSV: {selectedTicket!.calculation_results?.gsv ?? 'None'}</div>
-                    <div>NSV: {selectedTicket!.calculation_results?.nsv ?? 'None'}</div>
-                    <div>CCF: {selectedTicket!.calculation_results?.ccf ?? 'None'}</div>
+                    <h3>Volume Calculation</h3>
+                    <div><strong>IV:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.iv ?? selectedTicket!.calculation_results?.gov ?? selectedTicket!.observed_inputs?.gross_volume_bbl, 1)}</div>
+                    <div><strong>CTL:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</div>
+                    <div><strong>CPL:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</div>
+                    <div><strong>CCF:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.ccf ?? selectedTicket!.observed_inputs?.ccf ?? selectedTicket!.calculation_results?.ctpl, 6)}</div>
+                    <div><strong>MF:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.mf ?? selectedTicket!.observed_inputs?.mf, 6)}</div>
+                    <div><strong>CSW:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.csw ?? selectedTicket!.observed_inputs?.csw, 6)}</div>
+                    <hr style={{ borderColor: '#1f2937' }} />
+                    <div><strong>GSV:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.gsv, 1)}</div>
+                    <div><strong>NSV:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.nsv, 1)}</div>
                   </div>
 
                   <div style={card}>
-                    <h3>Inputs</h3>
-                    <div>IV: {selectedTicket!.observed_inputs?.iv ?? 'None'}</div>
-                    <div>CTL: {selectedTicket!.observed_inputs?.ctl ?? 'None'}</div>
-                    <div>CPL: {selectedTicket!.observed_inputs?.cpl ?? 'None'}</div>
-                    <div>API @ 60: {selectedTicket!.observed_inputs?.api_gravity_60 ?? selectedTicket!.observed_inputs?.corrected_api ?? 'None'}</div>
+                    <h3>Quality Information</h3>
+                    <div><strong>API Gravity:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.api_gravity ?? selectedTicket!.observed_inputs?.api_gravity, 2)}</div>
+                    <div><strong>BS&W %:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.bsw_percent ?? selectedTicket!.observed_inputs?.bsw_percent, 4)}</div>
+                    <div><strong>Avg Temp:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.average_temperature ?? selectedTicket!.observed_inputs?.average_temperature, 2)}</div>
+                    <div><strong>Avg Pressure:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.average_pressure ?? selectedTicket!.observed_inputs?.average_pressure, 2)}</div>
+                  </div>
+
+                  <div style={card}>
+                    <h3>POT Assignment</h3>
+                    <div><strong>Assigned POT:</strong> {getTicketAssignedPotLabel(selectedTicket)}</div>
+                    <div><strong>POT ID:</strong> {(selectedTicket as any).assigned_pot_id || selectedTicket!.observed_inputs?.assigned_pot_id || '—'}</div>
+                    <div><strong>POT Source:</strong> {selectedTicket!.observed_inputs?.pot_source || 'Transporter POT Map'}</div>
+                  </div>
+
+                  <div style={card}>
+                    <h3>Contract Information</h3>
+                    <div><strong>Contract:</strong> {getTicketContractName(selectedTicket)}</div>
+                    <div><strong>API Version:</strong> {getTicketApiVersionLabel(selectedTicket)}</div>
+                    <div><strong>Method:</strong> {selectedTicket!.observed_inputs?.calculation_method || (selectedTicket as any).calculation_method || '—'}</div>
+                    <div><strong>Formula:</strong> {selectedTicket!.observed_inputs?.calculation_formula || selectedTicket!.calculation_results?.formula || '—'}</div>
+                    <div><strong>Correction Source:</strong> {selectedTicket!.observed_inputs?.correction_source || (selectedTicket as any).correction_source || '—'}</div>
+                  </div>
+
+                  <div style={card}>
+                    <h3>Source Summary</h3>
+                    <div><strong>Ticket Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.ticket_numbers) || '—'}</div>
+                    <div><strong>Batch Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.batch_numbers) || '—'}</div>
+                    <div><strong>Truck Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.truck_numbers) || '—'}</div>
+                    <div><strong>Lease Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.leases) || '—'}</div>
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginTop: 12 }}>
-                  <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Submitting ticket', () => updateTicketStatus(selectedTicket, 'submitted'))}>Submit</button>
-                  <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Approving ticket', () => updateTicketStatus(selectedTicket, 'approved'))}>Approve Tank/Draft Ticket</button>
-                  <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Generating PDF preview', () => generatePdfPreview(selectedTicket))}>PDF Preview</button>
-                  <button style={{ ...button, background: '#374151', borderColor: '#4b5563' }} onClick={() => setSelectedTicket(null)}>Close</button>
-                </div>
+                {selectedTicket!.observed_inputs?.calculation_audit && (
+                  <div style={{ ...card, marginTop: 12 }}>
+                    <h3>Calculation Audit</h3>
+                    <pre style={{ whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
+                      {JSON.stringify(selectedTicket!.observed_inputs?.calculation_audit, null, 2)}
+                    </pre>
+                  </div>
+                )}
               </div>
             )}
             {hasLocalTicketDraft && (

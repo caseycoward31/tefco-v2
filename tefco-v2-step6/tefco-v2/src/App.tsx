@@ -3774,6 +3774,7 @@ async function createCompany() {
       mf: Number(apiTesterMf || 1),
       bsw_percent: Number(apiTesterBsw || 0),
       api_version: apiTesterVersion,
+      ccf: factors.ctpl,
     })
 
     return {
@@ -3799,8 +3800,8 @@ async function createCompany() {
         ctlDecimals: 4,
         cplDecimals: 4,
         ctplDecimals: 4,
-        gsvDecimals: 2,
-        nsvDecimals: 2,
+        gsvDecimals: 1,
+        nsvDecimals: 1,
         label: 'Legacy 2004 rounding profile',
       }
     }
@@ -3810,8 +3811,8 @@ async function createCompany() {
         ctlDecimals: 5,
         cplDecimals: 5,
         ctplDecimals: 5,
-        gsvDecimals: 2,
-        nsvDecimals: 2,
+        gsvDecimals: 1,
+        nsvDecimals: 1,
         label: '2007 rounding profile',
       }
     }
@@ -3821,8 +3822,8 @@ async function createCompany() {
         ctlDecimals: 5,
         cplDecimals: 5,
         ctplDecimals: 5,
-        gsvDecimals: 3,
-        nsvDecimals: 3,
+        gsvDecimals: 1,
+        nsvDecimals: 1,
         label: '2019 rounding profile',
       }
     }
@@ -3831,8 +3832,8 @@ async function createCompany() {
       ctlDecimals: 6,
       cplDecimals: 6,
       ctplDecimals: 6,
-      gsvDecimals: 3,
-      nsvDecimals: 3,
+      gsvDecimals: 1,
+      nsvDecimals: 1,
       label: '2021 rounding profile',
     }
   }
@@ -3842,6 +3843,7 @@ async function createCompany() {
 
     return {
       ...result,
+      iv: result.iv !== undefined ? roundToDecimals(result.iv, 1) : result.iv,
       ctl: roundToDecimals(result.ctl, profile.ctlDecimals),
       cpl: roundToDecimals(result.cpl, profile.cplDecimals),
       ctpl: roundToDecimals(result.ctpl, profile.ctplDecimals),
@@ -3907,29 +3909,50 @@ async function createCompany() {
   }
 
   function calculateChapter122021(input: any) {
-    const iv = Number(input.iv ?? input.gross_volume_bbl ?? 0)
+    const ivRaw = Number(input.iv ?? input.gross_volume_bbl ?? 0)
     const ctl = Number(input.ctl || 1)
     const cpl = Number(input.cpl || 1)
     const mf = Number(input.mf || 1)
     const bswPercent = Number(input.bsw_percent || 0)
     const apiVersion = input.api_version || 'api_11_1_2021'
 
-    const gsvRaw = iv * ctl * cpl * mf
-    const nsvRaw = gsvRaw * (1 - (bswPercent / 100))
+    const csw = 1 - (bswPercent / 100)
+    const ccf = Number(input.ccf || input.ctpl || (ctl * cpl * mf))
 
-    return applyApiVersionRounding({
-      iv,
+    const usesCombinedCorrectionFactor = ['api_11_1_2004', 'api_11_1_2007', 'api_11_1_2019'].includes(apiVersion)
+
+    const gsvRaw = usesCombinedCorrectionFactor
+      ? ivRaw * ccf
+      : ivRaw * ctl * cpl * mf
+
+    const nsvRaw = gsvRaw * csw
+
+    const rounded = applyApiVersionRounding({
+      iv: ivRaw,
       ctl,
       cpl,
       mf,
+      ccf,
+      csw,
       bsw_percent: bswPercent,
       gsv: gsvRaw,
       nsv: nsvRaw,
+      raw_iv: ivRaw,
       raw_gsv: gsvRaw,
       raw_nsv: nsvRaw,
-      method: 'chapter12_2021',
-      formula: 'GSV = IV × CTL × CPL × MF; NSV = GSV × (1 - BS&W%)',
+      method: usesCombinedCorrectionFactor ? `${apiVersion}_ccf` : 'api_11_1_2021_separate_factors',
+      formula: usesCombinedCorrectionFactor
+        ? 'GSV = IV × CCF; NSV = GSV × CSW'
+        : 'GSV = IV × CTL × CPL × MF; NSV = GSV × CSW',
+      uses_combined_correction_factor: usesCombinedCorrectionFactor,
     }, apiVersion)
+
+    return {
+      ...rounded,
+      iv: roundToDecimals(ivRaw, 1),
+      gsv: roundToDecimals(rounded.gsv, 1),
+      nsv: roundToDecimals(rounded.nsv, 1),
+    }
   }
 
   function getContractProfileForTransporter(transporterName: string) {
@@ -3966,7 +3989,7 @@ async function createCompany() {
 
     if (method === 'chapter12_2021') {
       return {
-        ...calculateChapter122021({ iv: summary.gross, ctl: factors.ctl, cpl: factors.cpl, mf, bsw_percent: bswPercent, api_version: apiVersion }),
+        ...calculateChapter122021({ iv: summary.gross, ctl: factors.ctl, cpl: factors.cpl, mf, ccf: factors.ctpl, bsw_percent: bswPercent, api_version: apiVersion }),
         api_version: apiVersion,
         api_version_label: factors.api_version_label,
         ctpl: factors.ctpl,
@@ -7156,9 +7179,13 @@ async function saveUserRole() {
                     <div style={card}><strong>CTL</strong><br />{Number(result.ctl || 0).toFixed(result.rounding_profile?.ctlDecimals ?? 6)}</div>
                     <div style={card}><strong>CPL</strong><br />{Number(result.cpl || 0).toFixed(result.rounding_profile?.cplDecimals ?? 6)}</div>
                     <div style={card}><strong>CTPL</strong><br />{Number(result.ctpl || 0).toFixed(result.rounding_profile?.ctplDecimals ?? 6)}</div>
+                    <div style={card}><strong>CCF</strong><br />{Number(result.ccf || 0).toFixed(6)}</div>
+                    <div style={card}><strong>CSW</strong><br />{Number(result.csw || 0).toFixed(6)}</div>
+                    <div style={card}><strong>IV</strong><br />{Number(result.iv || 0).toFixed(1)}</div>
                     <div style={card}><strong>GSV</strong><br />{Number(result.gsv || 0).toFixed(result.rounding_profile?.gsvDecimals ?? 2)}</div>
                     <div style={card}><strong>NSV</strong><br />{Number(result.nsv || 0).toFixed(result.rounding_profile?.nsvDecimals ?? 2)}</div>
                     <div style={card}><strong>Formula</strong><br />{result.formula}</div>
+                    <div style={card}><strong>Correction Path</strong><br />{result.uses_combined_correction_factor ? 'Combined CCF' : 'Separate CTL × CPL × MF'}</div>
                     <div style={card}><strong>Source</strong><br />{result.correction_source}</div>
                     <div style={card}><strong>Rounding Profile</strong><br />{result.rounding_profile?.label || '—'}</div>
                   </div>
@@ -7180,7 +7207,7 @@ async function saveUserRole() {
             <h1>Contract Profiles</h1>
             <div style={box}>
               <h2>Create / Update Contract Profile</h2>
-              <p style={{ color: '#a8b3bd' }}>Chapter 12 / 2021 uses GSV = IV × CTL × CPL × MF.</p>
+              <p style={{ color: '#a8b3bd' }}>API 11.1 routing: 2004 / 2007 / 2019 use IV × CCF; 2021 uses IV × CTL × CPL × MF. IV/GSV/NSV round to 1 decimal.</p>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
                 <input style={input} placeholder="Contract Name" value={newContractName} onChange={(e) => setNewContractName(e.target.value)} />
                 <input style={input} placeholder="Transporter Name" value={newContractTransporter} onChange={(e) => setNewContractTransporter(e.target.value)} />

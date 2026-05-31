@@ -2538,8 +2538,6 @@ async function createCompany() {
       return
     }
 
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
-
     const { error } = await supabase.from('tanks').insert({
       company_id: targetCompanyId,
       segment_id: newTankSegmentId || null,
@@ -2564,8 +2562,6 @@ async function createCompany() {
       alert('Enter line fill name.')
       return
     }
-
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
     const { error } = await supabase.from('line_fills').insert({
       company_id: targetCompanyId,
@@ -2597,8 +2593,6 @@ async function createCompany() {
       alert('Enter start gauge, end gauge, and adjustment barrels.')
       return
     }
-
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
     const calibration = getActiveTankCalibration(deadwoodTankId)
 
     if (!calibration) {
@@ -2877,8 +2871,6 @@ async function createCompany() {
       alert('Select a tank and CSV/XLSX file.')
       return
     }
-
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
     const { data: latestVersions } = await supabase
       .from('tank_calibration_versions')
@@ -3388,7 +3380,6 @@ async function createCompany() {
       alert('No transporter volumes found in the CSV. Check Transporter and NSV/GSV column mapping, or enable manual override.')
       return
     }
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
     if (!targetCompanyId) {
       alert('No company selected.')
@@ -3634,7 +3625,6 @@ async function createCompany() {
   }
 
   async function loadTransporterPotRules() {
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
     if (!targetCompanyId) return
 
     const { data, error } = await supabase
@@ -3648,8 +3638,6 @@ async function createCompany() {
 
   async function saveTransporterPotRule() {
     const targetCompanyId = getActiveCompanyId()
-
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
     if (!targetCompanyId) {
       alert('No company selected.')
@@ -4057,7 +4045,6 @@ async function createCompany() {
   }
 
   async function loadContractProfiles() {
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
     if (!targetCompanyId) return
     const { data, error } = await supabase.from('contract_profiles').select('*').eq('company_id', targetCompanyId).order('contract_name')
     if (!error) setContractProfiles(data || [])
@@ -4065,8 +4052,6 @@ async function createCompany() {
 
   async function saveContractProfile() {
     const targetCompanyId = getActiveCompanyId()
-
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
     if (!targetCompanyId) return alert('No company selected.')
     if (!newContractName) return alert('Enter a contract name.')
     const { error } = await supabase.from('contract_profiles').upsert({
@@ -4103,7 +4088,6 @@ async function createCompany() {
     const csvText = await flowxCsvFile.text()
     const parsed = parseFlowXCsvForMapping(csvText)
     const summaries = buildFlowXTransporterSummaries(parsed.data || [])
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
     if (!targetCompanyId) {
       alert('No company selected.')
@@ -4233,7 +4217,6 @@ async function createCompany() {
 
     const csvText = await flowxCsvFile.text()
     const parsed = parseFlowXCsvForMapping(csvText)
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
     if (!targetCompanyId) {
       alert('No company selected.')
@@ -4816,8 +4799,6 @@ async function createCompany() {
       alert('Choose a CSV file first.')
       return
     }
-
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
     if (!targetCompanyId) {
       alert('Select or load a company before importing.')

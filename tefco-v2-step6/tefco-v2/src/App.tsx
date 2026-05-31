@@ -582,6 +582,13 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
+  const [apiTesterVersion, setApiTesterVersion] = useState('api_11_1_2021')
+  const [apiTesterGravity, setApiTesterGravity] = useState('40')
+  const [apiTesterTemp, setApiTesterTemp] = useState('80')
+  const [apiTesterPressure, setApiTesterPressure] = useState('50')
+  const [apiTesterIv, setApiTesterIv] = useState('1000')
+  const [apiTesterMf, setApiTesterMf] = useState('1')
+  const [apiTesterBsw, setApiTesterBsw] = useState('0')
   const [systemHealthChecks, setSystemHealthChecks] = useState<any[]>([])
   const [systemHealthRunning, setSystemHealthRunning] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -3467,6 +3474,10 @@ async function createCompany() {
             customer_name: splitTransporter,
             transporter_name: splitTransporter,
             assigned_pot_id: assignedPot?.id || null,
+      contract_profile_id: contractProfile?.id || null,
+      calculation_method: contractCalc.method,
+      api_version: contractCalc.api_version,
+      correction_source: contractCalc.correction_source,
             assigned_pot_sample_date: assignedPot?.sample_date || (assignedPot as any)?.created_at || null,
             split_percent: split.percent,
             gross_volume_bbl: splitGross,
@@ -3744,6 +3755,183 @@ async function createCompany() {
     }
   }
 
+
+
+
+  function getApiTesterResult() {
+    const factors = calculateApi111CorrectionFactors({
+      api_version: apiTesterVersion,
+      api_gravity: Number(apiTesterGravity || 0),
+      observed_temperature: Number(apiTesterTemp || 60),
+      observed_pressure: Number(apiTesterPressure || 0),
+      base_temperature: 60,
+    })
+
+    const volume = calculateChapter122021({
+      iv: Number(apiTesterIv || 0),
+      ctl: factors.ctl,
+      cpl: factors.cpl,
+      mf: Number(apiTesterMf || 1),
+      bsw_percent: Number(apiTesterBsw || 0),
+    })
+
+    return {
+      ...factors,
+      ...volume,
+      ctpl: factors.ctpl,
+    }
+  }
+
+  function getApiVersionLabel(version: string) {
+    if (version === 'api_11_1_2004') return 'API MPMS 11.1 (2004)'
+    if (version === 'api_11_1_2007') return 'API MPMS 11.1 (2007)'
+    if (version === 'api_11_1_2019') return 'API MPMS 11.1 (2019)'
+    if (version === 'api_11_1_2021') return 'API MPMS 11.1 (2021)'
+    return version || 'API MPMS 11.1'
+  }
+
+  function calculateApi111CorrectionFactors(input: any) {
+    const apiVersion = input.api_version || 'api_11_1_2021'
+    const observedTemp = Number(input.observed_temperature || input.temperature || 60)
+    const observedPressure = Number(input.observed_pressure || input.pressure || 0)
+    const apiGravity = Number(input.api_gravity || 40)
+    const baseTemp = Number(input.base_temperature || 60)
+
+    const tempDelta = observedTemp - baseTemp
+    const gravityAdjustment = Math.max(0.00025, Math.min(0.00065, 0.00045 - ((apiGravity - 40) * 0.000002)))
+    const pressureCompressibility = Math.max(0.000002, Math.min(0.000008, 0.0000045 + ((apiGravity - 40) * 0.00000003)))
+
+    const ctl = 1 / (1 + (gravityAdjustment * tempDelta))
+    const cpl = 1 / (1 - (pressureCompressibility * observedPressure))
+    const ctpl = ctl * cpl
+
+    return {
+      api_version: apiVersion,
+      api_version_label: getApiVersionLabel(apiVersion),
+      ctl,
+      cpl,
+      ctpl,
+      correction_source: 'app_calculated_placeholder',
+      warning: 'API 11.1 framework active. Replace placeholder approximation with licensed/verified API MPMS 11.1 implementation before custody-transfer reliance.',
+      audit: {
+        api_version: apiVersion,
+        observed_temperature: observedTemp,
+        observed_pressure: observedPressure,
+        api_gravity: apiGravity,
+        base_temperature: baseTemp,
+        ctl,
+        cpl,
+        ctpl,
+      },
+    }
+  }
+
+  function calculateChapter122021(input: any) {
+    const iv = Number(input.iv ?? input.gross_volume_bbl ?? 0)
+    const ctl = Number(input.ctl || 1)
+    const cpl = Number(input.cpl || 1)
+    const mf = Number(input.mf || 1)
+    const bswPercent = Number(input.bsw_percent || 0)
+    const gsv = iv * ctl * cpl * mf
+    const nsv = gsv * (1 - (bswPercent / 100))
+    return { iv, ctl, cpl, mf, bsw_percent: bswPercent, gsv, nsv, method: 'chapter12_2021', formula: 'GSV = IV × CTL × CPL × MF; NSV = GSV × (1 - BS&W%)' }
+  }
+
+  function getContractProfileForTransporter(transporterName: string) {
+    const name = String(transporterName || '').trim().toLowerCase()
+    return contractProfiles.find((profile: any) =>
+      String(profile.transporter_name || '').trim().toLowerCase() === name ||
+      String(profile.contract_name || '').trim().toLowerCase() === name
+    ) || null
+  }
+
+  function applyContractProfileCalculation(summary: any, assignedPot: any, profile: any) {
+    const method = profile?.calculation_method || 'chapter12_2021'
+    const apiVersion = profile?.api_version || 'api_11_1_2021'
+    const correctionSource = profile?.correction_source || 'app_calculated'
+    const mf = Number(profile?.meter_factor || profile?.default_mf || 1)
+    const bswPercent = Number((assignedPot as any)?.bsw_percent || (assignedPot as any)?.bsw || summary.avgBsw || 0)
+
+    const factors = correctionSource === 'app_calculated'
+      ? calculateApi111CorrectionFactors({
+          api_version: apiVersion,
+          observed_temperature: summary.avgTemp,
+          observed_pressure: summary.avgPressure,
+          api_gravity: (assignedPot as any)?.api_gravity || (assignedPot as any)?.observed_api_gravity || summary.avgApi,
+        })
+      : {
+          api_version: apiVersion,
+          api_version_label: getApiVersionLabel(apiVersion),
+          ctl: Number((assignedPot as any)?.ctl || summary.avgCtl || 1),
+          cpl: Number((assignedPot as any)?.cpl || summary.avgCpl || 1),
+          ctpl: Number((assignedPot as any)?.ctpl || 1),
+          correction_source: 'imported_or_pot',
+          audit: {},
+        }
+
+    if (method === 'chapter12_2021') {
+      return {
+        ...calculateChapter122021({ iv: summary.gross, ctl: factors.ctl, cpl: factors.cpl, mf, bsw_percent: bswPercent }),
+        api_version: apiVersion,
+        api_version_label: factors.api_version_label,
+        ctpl: factors.ctpl,
+        correction_source: factors.correction_source,
+        calculation_audit: factors.audit,
+      }
+    }
+
+    return {
+      iv: summary.gross,
+      ctl: factors.ctl,
+      cpl: factors.cpl,
+      ctpl: factors.ctpl,
+      mf,
+      bsw_percent: bswPercent,
+      gsv: summary.gross,
+      nsv: summary.net,
+      method,
+      formula: 'Flow-X summary volumes',
+      api_version: apiVersion,
+      api_version_label: factors.api_version_label,
+      correction_source: factors.correction_source,
+      calculation_audit: factors.audit,
+    }
+  }
+
+  async function loadContractProfiles() {
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!targetCompanyId) return
+    const { data, error } = await supabase.from('contract_profiles').select('*').eq('company_id', targetCompanyId).order('contract_name')
+    if (!error) setContractProfiles(data || [])
+  }
+
+  async function saveContractProfile() {
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!targetCompanyId) return alert('No company selected.')
+    if (!newContractName) return alert('Enter a contract name.')
+    const { error } = await supabase.from('contract_profiles').upsert({
+      company_id: targetCompanyId,
+      contract_name: newContractName.trim(),
+      transporter_name: newContractTransporter.trim() || newContractName.trim(),
+      calculation_method: newContractMethod,
+      meter_factor: Number(newContractMf || 1),
+      api_version: newContractApiVersion,
+      correction_source: newContractCorrectionSource,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'company_id,contract_name' })
+    if (error) return alert('Could not save contract profile: ' + error.message)
+    setNewContractName(''); setNewContractTransporter(''); setNewContractMf('1'); setNewContractMethod('chapter12_2021')
+    await loadContractProfiles()
+    alert('Contract profile saved.')
+  }
+
+  async function deleteContractProfile(profileId: string) {
+    const { error } = await supabase.from('contract_profiles').delete().eq('id', profileId)
+    if (error) return alert('Could not delete contract profile: ' + error.message)
+    await loadContractProfiles()
+  }
+
   async function importFlowXTransporterSummaryTickets() {
     if (!flowxCsvFile) {
       alert('Choose a Flow-X CSV file first.')
@@ -3790,6 +3978,8 @@ async function createCompany() {
 
     const ticketPayloads = summaries.map((s: any, i: number) => {
       const assignedPot = getAssignedPotForTransporter(s.transporter)
+      const contractProfile = getContractProfileForTransporter(s.transporter)
+      const contractCalc = applyContractProfileCalculation(s, assignedPot, contractProfile)
       const potApiGravity = getPotApiGravity(assignedPot, s.avgApi)
       const potBswPercent = getPotBswPercent(assignedPot, s.avgBsw)
       const potLabel = getPotNumberLabel(assignedPot)
@@ -3810,6 +4000,14 @@ async function createCompany() {
       lact_name: flowxLactName || null,
       observed_inputs: {
         source: 'flowx_transporter_summary',
+        contract_profile_id: contractProfile?.id || null,
+        contract_name: contractProfile?.contract_name || null,
+        calculation_method: contractCalc.method,
+        calculation_formula: contractCalc.formula,
+        api_version: contractCalc.api_version,
+        api_version_label: contractCalc.api_version_label,
+        correction_source: contractCalc.correction_source,
+        calculation_audit: contractCalc.calculation_audit,
         assigned_pot_id: assignedPot?.id || null,
         assigned_pot_label: potLabel || null,
         lact_name: flowxLactName || null,
@@ -3820,8 +4018,8 @@ async function createCompany() {
         driver_names: s.driverList,
         leases: s.leaseList,
         source_rows: s.rows,
-        gross_volume_bbl: s.gross,
-        net_volume_bbl: s.net,
+        gross_volume_bbl: contractCalc.iv,
+        net_volume_bbl: contractCalc.nsv,
         average_temperature: s.avgTemp,
         average_pressure: s.avgPressure,
         api_gravity: potApiGravity,
@@ -3831,9 +4029,9 @@ async function createCompany() {
         ctpl: Number((assignedPot as any)?.ctpl || s.avgCtpl || 0),
       },
       calculation_results: {
-        gov: s.gross,
-        gsv: s.gross,
-        nsv: s.net,
+        gov: contractCalc.iv,
+        gsv: contractCalc.gsv,
+        nsv: contractCalc.nsv,
         average_temperature: s.avgTemp,
         average_pressure: s.avgPressure,
         api_gravity: potApiGravity,
@@ -5855,9 +6053,9 @@ async function saveUserRole() {
           </div>
         </div>
 
-        {['dashboard', 'admin', 'operations', 'reports', 'readings', 'pot', 'pot_map', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
+        {['dashboard', 'admin', 'operations', 'reports', 'readings', 'pot', 'pot_map', 'contracts', 'api_engine', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
           <button key={p} onClick={() => { setPage(p); setMobileNavOpen(false) }} style={button}>
-            {p === 'pot_map' ? 'POT MAP' : p.toUpperCase()}
+            {p === 'pot_map' ? 'POT MAP' : p === 'contracts' ? 'CONTRACTS' : p === 'api_engine' ? 'API ENGINE' : p.toUpperCase()}
           </button>
         ))}
 
@@ -6871,6 +7069,116 @@ async function saveUserRole() {
         )}
 
         
+        
+        
+        {page === 'api_engine' && (
+          <>
+            <h1>API 11.1 Engine Tester</h1>
+
+            <div style={box}>
+              <h2>Correction Factor Test</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Test API version routing, CTL, CPL, CTPL, GSV, and NSV before applying contract profiles to tickets.
+              </p>
+
+              <div style={{ ...card, border: '1px solid rgba(245,158,11,0.45)', marginBottom: 12 }}>
+                <strong>Important:</strong> This screen currently uses the app-owned API 11.1 framework placeholder.
+                Plug in licensed/verified API MPMS Chapter 11.1 formulas or tables before custody-transfer reliance.
+              </div>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                <select style={input} value={apiTesterVersion} onChange={(e) => setApiTesterVersion(e.target.value)}>
+                  <option value="api_11_1_2004">API 11.1 2004</option>
+                  <option value="api_11_1_2007">API 11.1 2007</option>
+                  <option value="api_11_1_2019">API 11.1 2019</option>
+                  <option value="api_11_1_2021">API 11.1 2021</option>
+                </select>
+
+                <input style={input} placeholder="API Gravity" value={apiTesterGravity} onChange={(e) => setApiTesterGravity(e.target.value)} />
+                <input style={input} placeholder="Observed Temp °F" value={apiTesterTemp} onChange={(e) => setApiTesterTemp(e.target.value)} />
+                <input style={input} placeholder="Pressure" value={apiTesterPressure} onChange={(e) => setApiTesterPressure(e.target.value)} />
+                <input style={input} placeholder="IV / Gross BBL" value={apiTesterIv} onChange={(e) => setApiTesterIv(e.target.value)} />
+                <input style={input} placeholder="Meter Factor" value={apiTesterMf} onChange={(e) => setApiTesterMf(e.target.value)} />
+                <input style={input} placeholder="BS&W %" value={apiTesterBsw} onChange={(e) => setApiTesterBsw(e.target.value)} />
+              </div>
+            </div>
+
+            <div style={box}>
+              <h2>Calculated Output</h2>
+              {(() => {
+                const result = getApiTesterResult()
+
+                return (
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                    <div style={card}><strong>API Version</strong><br />{result.api_version_label}</div>
+                    <div style={card}><strong>CTL</strong><br />{Number(result.ctl || 0).toFixed(6)}</div>
+                    <div style={card}><strong>CPL</strong><br />{Number(result.cpl || 0).toFixed(6)}</div>
+                    <div style={card}><strong>CTPL</strong><br />{Number(result.ctpl || 0).toFixed(6)}</div>
+                    <div style={card}><strong>GSV</strong><br />{Number(result.gsv || 0).toFixed(2)}</div>
+                    <div style={card}><strong>NSV</strong><br />{Number(result.nsv || 0).toFixed(2)}</div>
+                    <div style={card}><strong>Formula</strong><br />{result.formula}</div>
+                    <div style={card}><strong>Source</strong><br />{result.correction_source}</div>
+                  </div>
+                )
+              })()}
+            </div>
+
+            <div style={box}>
+              <h2>Audit Output</h2>
+              <pre style={{ ...card, whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
+                {JSON.stringify(getApiTesterResult().audit, null, 2)}
+              </pre>
+            </div>
+          </>
+        )}
+
+        {page === 'contracts' && (
+          <>
+            <h1>Contract Profiles</h1>
+            <div style={box}>
+              <h2>Create / Update Contract Profile</h2>
+              <p style={{ color: '#a8b3bd' }}>Chapter 12 / 2021 uses GSV = IV × CTL × CPL × MF.</p>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                <input style={input} placeholder="Contract Name" value={newContractName} onChange={(e) => setNewContractName(e.target.value)} />
+                <input style={input} placeholder="Transporter Name" value={newContractTransporter} onChange={(e) => setNewContractTransporter(e.target.value)} />
+                <select style={input} value={newContractMethod} onChange={(e) => setNewContractMethod(e.target.value)}>
+                  <option value="chapter12_2021">Chapter 12 / 2021</option>
+                  <option value="flowx_summary">Flow-X Summary Volumes</option>
+                </select>
+                <select style={input} value={newContractApiVersion} onChange={(e) => setNewContractApiVersion(e.target.value)}>
+                  <option value="api_11_1_2004">API 11.1 Version: 2004</option>
+                  <option value="api_11_1_2007">API 11.1 Version: 2007</option>
+                  <option value="api_11_1_2019">API 11.1 Version: 2019</option>
+                  <option value="api_11_1_2021">API 11.1 Version: 2021</option>
+                </select>
+                <select style={input} value={newContractCorrectionSource} onChange={(e) => setNewContractCorrectionSource(e.target.value)}>
+                  <option value="app_calculated">CTL/CPL: App Calculated</option>
+                  <option value="imported_or_pot">CTL/CPL: Imported/POT</option>
+                </select>
+                <input style={input} placeholder="Meter Factor" value={newContractMf} onChange={(e) => setNewContractMf(e.target.value)} />
+                <button style={button} onClick={() => runSafeAction('Saving contract profile', saveContractProfile)}>Save</button>
+              </div>
+            </div>
+            <div style={box}>
+              <h2>Saved Contract Profiles</h2>
+              {contractProfiles.length === 0 && <div style={card}>No contract profiles saved yet.</div>}
+              <div style={{ display: 'grid', gap: 10 }}>
+                {contractProfiles.map((profile: any) => (
+                  <div key={profile.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                    <div>
+                      <strong>{profile.contract_name}</strong>
+                      <div style={{ color: '#a8b3bd', marginTop: 4 }}>
+                        Transporter: {profile.transporter_name || '—'} • Method: {profile.calculation_method || 'chapter12_2021'} • API: {profile.api_version || 'api_11_1_2021'} • CTL/CPL: {profile.correction_source || 'app_calculated'} • MF: {profile.meter_factor || 1}
+                      </div>
+                    </div>
+                    <button style={{ ...button, background: '#dc2626', width: 120 }} onClick={() => deleteContractProfile(profile.id)}>Delete</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
         {page === 'pot_map' && (
           <>
             <h1>Transporter → POT Assignment</h1>

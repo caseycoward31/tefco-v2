@@ -2213,10 +2213,14 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     <div class="section">
       <div class="section-title">Quality / Corrections</div>
       <div class="grid-3">
-        <div class="cell"><div class="small-label">API Gravity</div><div class="value">${formatMeasurementNumber(calc.api_gravity || observed.api_gravity, 2)}</div></div>
-        <div class="cell"><div class="small-label">BS&W %</div><div class="value">${formatMeasurementNumber(calc.bsw_percent || observed.bsw_percent, 4)}</div></div>
+        <div class="cell"><div class="small-label">Observed API</div><div class="value">${formatMeasurementNumber(observed.observed_api_gravity || observed.api_observed || observed.api_gravity_observed, 2)}</div></div>
+        <div class="cell"><div class="small-label">API Gravity @ 60°F</div><div class="value">${formatMeasurementNumber(calc.api_gravity_60 || observed.api_gravity_60 || calc.api_gravity || observed.api_gravity, 2)}</div></div>
+        <div class="cell"><div class="small-label">BS&W %</div><div class="value">${formatMeasurementNumber(calc.bsw_percent || observed.bsw_percent || observed.bsw, 4)}</div></div>
+        <div class="cell"><div class="small-label">Observed Temp °F</div><div class="value">${formatMeasurementNumber(observed.observed_temperature || observed.temperature || observed.average_temperature || calc.average_temperature, 2)}</div></div>
         <div class="cell"><div class="small-label">Average Temp °F</div><div class="value">${formatMeasurementNumber(calc.average_temperature || observed.average_temperature, 2)}</div></div>
+        <div class="cell"><div class="small-label">Observed Pressure</div><div class="value">${formatMeasurementNumber(observed.observed_pressure || observed.pressure || observed.average_pressure || calc.average_pressure, 2)}</div></div>
         <div class="cell"><div class="small-label">Average Pressure</div><div class="value">${formatMeasurementNumber(calc.average_pressure || observed.average_pressure, 2)}</div></div>
+        <div class="cell"><div class="small-label">API Correction Δ</div><div class="value">${formatMeasurementNumber((calc.api_gravity_60 || observed.api_gravity_60 || calc.api_gravity || observed.api_gravity || 0) - (observed.observed_api_gravity || observed.api_observed || observed.api_gravity_observed || 0), 2)}</div></div>
         <div class="cell"><div class="small-label">CTL</div><div class="value">${formatMeasurementNumber(calc.ctl || observed.ctl, 5)}</div></div>
         <div class="cell"><div class="small-label">CPL</div><div class="value">${formatMeasurementNumber(calc.cpl || observed.cpl, 5)}</div></div>
         <div class="cell"><div class="small-label">CTPL</div><div class="value">${formatMeasurementNumber(calc.ctpl || observed.ctpl, 5)}</div></div>

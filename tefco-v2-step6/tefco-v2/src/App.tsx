@@ -8068,13 +8068,13 @@ async function saveUserRole() {
 
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
                   {selectedTicket!.status !== 'approved' && (
-                    <button style={{ ...button, width: 'auto', background: '#16a34a' }} onClick={() => runSafeAction('Approving ticket', () => updateTicketStatus(selectedTicket!.id, 'approved'))}>
+                    <button style={{ ...button, width: 'auto', background: '#16a34a' }} onClick={() => runSafeAction('Approving ticket', () => updateTicketStatus(selectedTicket!, 'approved'))}>
                       Approve Ticket
                     </button>
                   )}
 
                   {selectedTicket!.status === 'draft' && (
-                    <button style={{ ...button, width: 'auto', background: '#2563eb' }} onClick={() => runSafeAction('Submitting ticket', () => updateTicketStatus(selectedTicket!.id, 'submitted'))}>
+                    <button style={{ ...button, width: 'auto', background: '#2563eb' }} onClick={() => runSafeAction('Submitting ticket', () => updateTicketStatus(selectedTicket!, 'submitted'))}>
                       Submit Ticket
                     </button>
                   )}

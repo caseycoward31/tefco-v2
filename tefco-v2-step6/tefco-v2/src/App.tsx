@@ -3684,6 +3684,28 @@ async function createCompany() {
     )
   }
 
+
+  function getPotObservedApiGravity(pot: any, fallback = 0) {
+    return Number(
+      (pot as any)?.observed_api_gravity ||
+      (pot as any)?.api_observed ||
+      (pot as any)?.api_gravity_observed ||
+      fallback ||
+      0
+    )
+  }
+
+  function getPotApiGravityAt60(pot: any, fallback = 0) {
+    return Number(
+      (pot as any)?.api_gravity_60 ||
+      (pot as any)?.corrected_api_gravity ||
+      (pot as any)?.api_gravity ||
+      (pot as any)?.observed_api_gravity ||
+      fallback ||
+      0
+    )
+  }
+
   function getPotApiGravity(pot: any, fallback = 0) {
     return Number(
       (pot as any)?.api_gravity_60 ||
@@ -4098,7 +4120,8 @@ async function createCompany() {
       const assignedPot = getAssignedPotForTransporter(s.transporter)
       const contractProfile = getContractProfileForTransporter(s.transporter)
       const contractCalc = applyContractProfileCalculation(s, assignedPot, contractProfile)
-      const potApiGravity = getPotApiGravity(assignedPot, s.avgApi)
+      const potObservedApiGravity = getPotObservedApiGravity(assignedPot, s.avgApi)
+      const potApiGravity60 = getPotApiGravityAt60(assignedPot, potObservedApiGravity)
       const potBswPercent = getPotBswPercent(assignedPot, s.avgBsw)
       const potLabel = getPotNumberLabel(assignedPot)
 
@@ -4140,7 +4163,9 @@ async function createCompany() {
         net_volume_bbl: contractCalc.nsv,
         average_temperature: s.avgTemp,
         average_pressure: s.avgPressure,
-        api_gravity: potApiGravity,
+        observed_api_gravity: potObservedApiGravity,
+        api_gravity_60: potApiGravity60,
+        api_gravity: potApiGravity60,
         bsw_percent: potBswPercent,
         ctl: Number((assignedPot as any)?.ctl || s.avgCtl || 0),
         cpl: Number((assignedPot as any)?.cpl || s.avgCpl || 0),
@@ -4152,7 +4177,8 @@ async function createCompany() {
         nsv: contractCalc.nsv,
         average_temperature: s.avgTemp,
         average_pressure: s.avgPressure,
-        api_gravity: potApiGravity,
+        api_gravity_60: potApiGravity60,
+        api_gravity: potApiGravity60,
         bsw_percent: potBswPercent,
         ctl: Number((assignedPot as any)?.ctl || s.avgCtl || 0),
         cpl: Number((assignedPot as any)?.cpl || s.avgCpl || 0),
@@ -8115,13 +8141,18 @@ async function saveUserRole() {
 
                   <div style={card}>
                     <h3>Quality Information</h3>
-                    <div><strong>Observed API:</strong> {formatTicketDetailNumber(selectedTicket!.observed_inputs?.observed_api_gravity ?? selectedTicket!.observed_inputs?.api_observed ?? selectedTicket!.observed_inputs?.api_gravity, 2)}</div>
-                    <div><strong>API Gravity @ 60°F:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.api_gravity_60 ?? selectedTicket!.calculation_results?.api_gravity ?? selectedTicket!.observed_inputs?.api_gravity_60 ?? selectedTicket!.observed_inputs?.api_gravity, 2)}</div>
+                    <div><strong>Observed API:</strong> {formatTicketDetailNumber(selectedTicket!.observed_inputs?.observed_api_gravity ?? selectedTicket!.observed_inputs?.api_observed ?? selectedTicket!.observed_inputs?.api_gravity_observed, 2)}</div>
+                    <div><strong>API Gravity @ 60°F:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.api_gravity_60 ?? selectedTicket!.observed_inputs?.api_gravity_60 ?? selectedTicket!.calculation_results?.api_gravity ?? selectedTicket!.observed_inputs?.api_gravity, 2)}</div>
                     <div><strong>Observed Temp:</strong> {formatTicketDetailNumber(selectedTicket!.observed_inputs?.observed_temperature ?? selectedTicket!.observed_inputs?.temperature ?? selectedTicket!.observed_inputs?.average_temperature ?? selectedTicket!.calculation_results?.average_temperature, 2)}</div>
                     <div><strong>Average Temp:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.average_temperature ?? selectedTicket!.observed_inputs?.average_temperature, 2)}</div>
                     <div><strong>Observed Pressure:</strong> {formatTicketDetailNumber(selectedTicket!.observed_inputs?.observed_pressure ?? selectedTicket!.observed_inputs?.pressure ?? selectedTicket!.observed_inputs?.average_pressure ?? selectedTicket!.calculation_results?.average_pressure, 2)}</div>
                     <div><strong>Average Pressure:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.average_pressure ?? selectedTicket!.observed_inputs?.average_pressure, 2)}</div>
                     <div><strong>BS&W %:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.bsw_percent ?? selectedTicket!.observed_inputs?.bsw_percent ?? selectedTicket!.observed_inputs?.bsw, 4)}</div>
+                    <div><strong>API Correction Delta:</strong> {formatTicketDetailNumber(
+                      (selectedTicket!.calculation_results?.api_gravity_60 ?? selectedTicket!.observed_inputs?.api_gravity_60 ?? selectedTicket!.calculation_results?.api_gravity ?? selectedTicket!.observed_inputs?.api_gravity) -
+                      (selectedTicket!.observed_inputs?.observed_api_gravity ?? selectedTicket!.observed_inputs?.api_observed ?? selectedTicket!.observed_inputs?.api_gravity_observed ?? 0),
+                      2
+                    )}</div>
                     <div><strong>Corrected Gravity Source:</strong> {selectedTicket!.observed_inputs?.assigned_pot_label ? 'Assigned POT' : selectedTicket!.observed_inputs?.api_gravity_60 ? 'Imported' : 'Calculated/Default'}</div>
                   </div>
 

@@ -724,6 +724,8 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [newAdminEmail, setNewAdminEmail] = useState('')
   const [newAdminPassword, setNewAdminPassword] = useState('')
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
+  const [openApprovedTicketMonths, setOpenApprovedTicketMonths] = useState<Record<string, boolean>>({})
+  const [openWorkflowTicketGroups, setOpenWorkflowTicketGroups] = useState<Record<string, boolean>>({})
 
   const [newArea, setNewArea] = useState('')
   const [newSegment, setNewSegment] = useState('')
@@ -3465,6 +3467,10 @@ async function createCompany() {
             customer_name: splitTransporter,
             transporter_name: splitTransporter,
             assigned_pot_id: assignedPot?.id || null,
+      contract_profile_id: contractProfile?.id || null,
+      calculation_method: contractCalc.method,
+      api_version: contractCalc.api_version,
+      correction_source: contractCalc.correction_source,
             assigned_pot_sample_date: assignedPot?.sample_date || (assignedPot as any)?.created_at || null,
             split_percent: split.percent,
             gross_volume_bbl: splitGross,
@@ -3691,6 +3697,209 @@ async function createCompany() {
     )
   }
 
+
+  async function checkFlowXDuplicateImport(targetCompanyId: string, fileName: string, lactName: string) {
+    const { data, error } = await supabase
+      .from('flowx_import_batches')
+      .select('id, source_file_name, lact_name, imported_count, created_at')
+      .eq('company_id', targetCompanyId)
+      .eq('source_file_name', fileName)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (error) {
+      console.warn('Duplicate Flow-X import check failed:', error)
+      return 'none'
+    }
+
+    const existing = (data || [])[0]
+    if (!existing) return 'none'
+
+    const existingLact = String(existing.lact_name || '').trim().toLowerCase()
+    const currentLact = String(lactName || '').trim().toLowerCase()
+
+    if (existingLact && currentLact && existingLact !== currentLact) {
+      return 'none'
+    }
+
+    const importedAt = existing.created_at ? new Date(existing.created_at).toLocaleString() : 'previous import'
+
+    return window.confirm(
+      `This Flow-X file was already imported on ${importedAt}.\n\n` +
+      `File: ${fileName}\n` +
+      `LACT: ${existing.lact_name || lactName || 'N/A'}\n` +
+      `Rows: ${existing.imported_count || 'N/A'}\n\n` +
+      `Importing again can create duplicate draft tickets.\n\n` +
+      `Click OK to import anyway, or Cancel to stop.`
+    ) ? 'continue' : 'stop'
+  }
+
+  async function deleteExistingFlowXDraftsForBatch(importBatchId: string) {
+    if (!importBatchId) return
+
+    const { error } = await supabase
+      .from('tickets')
+      .delete()
+      .eq('import_batch_id', importBatchId)
+      .eq('status', 'draft')
+
+    if (error) {
+      console.warn('Could not remove existing draft tickets for duplicate batch:', error)
+    }
+  }
+
+
+
+  function getApiVersionLabel(version: string) {
+    if (version === 'api_11_1_2004') return 'API MPMS 11.1 (2004)'
+    if (version === 'api_11_1_2007') return 'API MPMS 11.1 (2007)'
+    if (version === 'api_11_1_2019') return 'API MPMS 11.1 (2019)'
+    if (version === 'api_11_1_2021') return 'API MPMS 11.1 (2021)'
+    return version || 'API MPMS 11.1'
+  }
+
+  function calculateApi111CorrectionFactors(input: any) {
+    const apiVersion = input.api_version || 'api_11_1_2021'
+    const observedTemp = Number(input.observed_temperature || input.temperature || 60)
+    const observedPressure = Number(input.observed_pressure || input.pressure || 0)
+    const apiGravity = Number(input.api_gravity || 40)
+    const baseTemp = Number(input.base_temperature || 60)
+
+    const tempDelta = observedTemp - baseTemp
+    const gravityAdjustment = Math.max(0.00025, Math.min(0.00065, 0.00045 - ((apiGravity - 40) * 0.000002)))
+    const pressureCompressibility = Math.max(0.000002, Math.min(0.000008, 0.0000045 + ((apiGravity - 40) * 0.00000003)))
+
+    const ctl = 1 / (1 + (gravityAdjustment * tempDelta))
+    const cpl = 1 / (1 - (pressureCompressibility * observedPressure))
+    const ctpl = ctl * cpl
+
+    return {
+      api_version: apiVersion,
+      api_version_label: getApiVersionLabel(apiVersion),
+      ctl,
+      cpl,
+      ctpl,
+      correction_source: 'app_calculated_placeholder',
+      warning: 'API 11.1 framework active. Replace placeholder approximation with licensed/verified API MPMS 11.1 implementation before custody-transfer reliance.',
+      audit: {
+        api_version: apiVersion,
+        observed_temperature: observedTemp,
+        observed_pressure: observedPressure,
+        api_gravity: apiGravity,
+        base_temperature: baseTemp,
+        ctl,
+        cpl,
+        ctpl,
+      },
+    }
+  }
+
+  function calculateChapter122021(input: any) {
+    const iv = Number(input.iv ?? input.gross_volume_bbl ?? 0)
+    const ctl = Number(input.ctl || 1)
+    const cpl = Number(input.cpl || 1)
+    const mf = Number(input.mf || 1)
+    const bswPercent = Number(input.bsw_percent || 0)
+    const gsv = iv * ctl * cpl * mf
+    const nsv = gsv * (1 - (bswPercent / 100))
+    return { iv, ctl, cpl, mf, bsw_percent: bswPercent, gsv, nsv, method: 'chapter12_2021', formula: 'GSV = IV × CTL × CPL × MF; NSV = GSV × (1 - BS&W%)' }
+  }
+
+  function getContractProfileForTransporter(transporterName: string) {
+    const name = String(transporterName || '').trim().toLowerCase()
+    return contractProfiles.find((profile: any) =>
+      String(profile.transporter_name || '').trim().toLowerCase() === name ||
+      String(profile.contract_name || '').trim().toLowerCase() === name
+    ) || null
+  }
+
+  function applyContractProfileCalculation(summary: any, assignedPot: any, profile: any) {
+    const method = profile?.calculation_method || 'chapter12_2021'
+    const apiVersion = profile?.api_version || 'api_11_1_2021'
+    const correctionSource = profile?.correction_source || 'app_calculated'
+    const mf = Number(profile?.meter_factor || profile?.default_mf || 1)
+    const bswPercent = Number((assignedPot as any)?.bsw_percent || (assignedPot as any)?.bsw || summary.avgBsw || 0)
+
+    const factors = correctionSource === 'app_calculated'
+      ? calculateApi111CorrectionFactors({
+          api_version: apiVersion,
+          observed_temperature: summary.avgTemp,
+          observed_pressure: summary.avgPressure,
+          api_gravity: (assignedPot as any)?.api_gravity || (assignedPot as any)?.observed_api_gravity || summary.avgApi,
+        })
+      : {
+          api_version: apiVersion,
+          api_version_label: getApiVersionLabel(apiVersion),
+          ctl: Number((assignedPot as any)?.ctl || summary.avgCtl || 1),
+          cpl: Number((assignedPot as any)?.cpl || summary.avgCpl || 1),
+          ctpl: Number((assignedPot as any)?.ctpl || 1),
+          correction_source: 'imported_or_pot',
+          audit: {},
+        }
+
+    if (method === 'chapter12_2021') {
+      return {
+        ...calculateChapter122021({ iv: summary.gross, ctl: factors.ctl, cpl: factors.cpl, mf, bsw_percent: bswPercent }),
+        api_version: apiVersion,
+        api_version_label: factors.api_version_label,
+        ctpl: factors.ctpl,
+        correction_source: factors.correction_source,
+        calculation_audit: factors.audit,
+      }
+    }
+
+    return {
+      iv: summary.gross,
+      ctl: factors.ctl,
+      cpl: factors.cpl,
+      ctpl: factors.ctpl,
+      mf,
+      bsw_percent: bswPercent,
+      gsv: summary.gross,
+      nsv: summary.net,
+      method,
+      formula: 'Flow-X summary volumes',
+      api_version: apiVersion,
+      api_version_label: factors.api_version_label,
+      correction_source: factors.correction_source,
+      calculation_audit: factors.audit,
+    }
+  }
+
+  async function loadContractProfiles() {
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!targetCompanyId) return
+    const { data, error } = await supabase.from('contract_profiles').select('*').eq('company_id', targetCompanyId).order('contract_name')
+    if (!error) setContractProfiles(data || [])
+  }
+
+  async function saveContractProfile() {
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!targetCompanyId) return alert('No company selected.')
+    if (!newContractName) return alert('Enter a contract name.')
+    const { error } = await supabase.from('contract_profiles').upsert({
+      company_id: targetCompanyId,
+      contract_name: newContractName.trim(),
+      transporter_name: newContractTransporter.trim() || newContractName.trim(),
+      calculation_method: newContractMethod,
+      meter_factor: Number(newContractMf || 1),
+      api_version: newContractApiVersion,
+      correction_source: newContractCorrectionSource,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'company_id,contract_name' })
+    if (error) return alert('Could not save contract profile: ' + error.message)
+    setNewContractName(''); setNewContractTransporter(''); setNewContractMf('1'); setNewContractMethod('chapter12_2021')
+    await loadContractProfiles()
+    alert('Contract profile saved.')
+  }
+
+  async function deleteContractProfile(profileId: string) {
+    const { error } = await supabase.from('contract_profiles').delete().eq('id', profileId)
+    if (error) return alert('Could not delete contract profile: ' + error.message)
+    await loadContractProfiles()
+  }
+
   async function importFlowXTransporterSummaryTickets() {
     if (!flowxCsvFile) {
       alert('Choose a Flow-X CSV file first.')
@@ -3704,6 +3913,12 @@ async function createCompany() {
 
     if (!targetCompanyId) {
       alert('No company selected.')
+      return
+    }
+
+    const duplicateDecision = await checkFlowXDuplicateImport(targetCompanyId, flowxCsvFile.name, flowxLactName || '')
+    if (duplicateDecision === 'stop') {
+      alert('Import cancelled. No duplicate tickets were created.')
       return
     }
 
@@ -3731,6 +3946,8 @@ async function createCompany() {
 
     const ticketPayloads = summaries.map((s: any, i: number) => {
       const assignedPot = getAssignedPotForTransporter(s.transporter)
+      const contractProfile = getContractProfileForTransporter(s.transporter)
+      const contractCalc = applyContractProfileCalculation(s, assignedPot, contractProfile)
       const potApiGravity = getPotApiGravity(assignedPot, s.avgApi)
       const potBswPercent = getPotBswPercent(assignedPot, s.avgBsw)
       const potLabel = getPotNumberLabel(assignedPot)
@@ -3751,6 +3968,14 @@ async function createCompany() {
       lact_name: flowxLactName || null,
       observed_inputs: {
         source: 'flowx_transporter_summary',
+        contract_profile_id: contractProfile?.id || null,
+        contract_name: contractProfile?.contract_name || null,
+        calculation_method: contractCalc.method,
+        calculation_formula: contractCalc.formula,
+        api_version: contractCalc.api_version,
+        api_version_label: contractCalc.api_version_label,
+        correction_source: contractCalc.correction_source,
+        calculation_audit: contractCalc.calculation_audit,
         assigned_pot_id: assignedPot?.id || null,
         assigned_pot_label: potLabel || null,
         lact_name: flowxLactName || null,
@@ -3761,8 +3986,8 @@ async function createCompany() {
         driver_names: s.driverList,
         leases: s.leaseList,
         source_rows: s.rows,
-        gross_volume_bbl: s.gross,
-        net_volume_bbl: s.net,
+        gross_volume_bbl: contractCalc.iv,
+        net_volume_bbl: contractCalc.nsv,
         average_temperature: s.avgTemp,
         average_pressure: s.avgPressure,
         api_gravity: potApiGravity,
@@ -3772,9 +3997,9 @@ async function createCompany() {
         ctpl: Number((assignedPot as any)?.ctpl || s.avgCtpl || 0),
       },
       calculation_results: {
-        gov: s.gross,
-        gsv: s.gross,
-        nsv: s.net,
+        gov: contractCalc.iv,
+        gsv: contractCalc.gsv,
+        nsv: contractCalc.nsv,
         average_temperature: s.avgTemp,
         average_pressure: s.avgPressure,
         api_gravity: potApiGravity,
@@ -5489,6 +5714,128 @@ async function saveUserRole() {
     }
   }
 
+
+  function getTicketDateValue(ticket: any) {
+    return ticket.approved_at || ticket.updated_at || ticket.created_at || new Date().toISOString()
+  }
+
+  function getTicketMonthKey(ticket: any) {
+    const date = new Date(getTicketDateValue(ticket))
+    if (Number.isNaN(date.getTime())) return 'Unknown'
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+  }
+
+  function getTicketMonthLabel(monthKey: string) {
+    if (monthKey === 'Unknown') return 'Unknown Date'
+    const [year, month] = monthKey.split('-').map(Number)
+    return new Date(year, month - 1, 1).toLocaleDateString(undefined, {
+      month: 'long',
+      year: 'numeric',
+    })
+  }
+
+
+  function getDraftWorkflowTickets() {
+    return tickets
+      .filter((ticket: any) => !['approved', 'voided'].includes(String(ticket.status || 'draft').toLowerCase()))
+      .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
+  }
+
+  function getApprovedTickets() {
+    return tickets
+      .filter((ticket: any) => String(ticket.status || '').toLowerCase() === 'approved')
+      .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
+  }
+
+  function toggleApprovedTicketMonth(monthKey: string) {
+    setOpenApprovedTicketMonths((prev) => ({
+      ...prev,
+      [monthKey]: !(prev[monthKey] ?? true),
+    }))
+  }
+
+
+  function getWorkflowGroupKey(ticket: any) {
+    const status = String(ticket.status || 'draft').toLowerCase()
+    if (status === 'submitted') return 'submitted'
+    if (status === 'draft') return 'draft'
+    return 'needs_review'
+  }
+
+  function getWorkflowGroupLabel(groupKey: string) {
+    if (groupKey === 'submitted') return 'Submitted Tickets'
+    if (groupKey === 'draft') return 'Draft Tickets'
+    return 'Needs Review'
+  }
+
+  function groupWorkflowTickets(ticketList: any[]) {
+    const order = ['submitted', 'draft', 'needs_review']
+    const grouped = ticketList.reduce((acc: Record<string, any[]>, ticket: any) => {
+      const key = getWorkflowGroupKey(ticket)
+      if (!acc[key]) acc[key] = []
+      acc[key].push(ticket)
+      return acc
+    }, {})
+
+    return Object.entries(grouped)
+      .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
+      .map(([groupKey, groupTickets]) => ({
+        groupKey,
+        label: getWorkflowGroupLabel(groupKey),
+        tickets: groupTickets.sort((a: any, b: any) =>
+          new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime()
+        ),
+      }))
+  }
+
+  function toggleWorkflowTicketGroup(groupKey: string) {
+    setOpenWorkflowTicketGroups((prev) => ({
+      ...prev,
+      [groupKey]: !(prev[groupKey] ?? true),
+    }))
+  }
+
+  function groupTicketsByMonth(ticketList: any[]) {
+    const grouped = ticketList.reduce((acc: Record<string, any[]>, ticket: any) => {
+      const key = getTicketMonthKey(ticket)
+      if (!acc[key]) acc[key] = []
+      acc[key].push(ticket)
+      return acc
+    }, {})
+
+    return Object.entries(grouped)
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([monthKey, monthTickets]) => ({
+        monthKey,
+        label: getTicketMonthLabel(monthKey),
+        tickets: monthTickets.sort((a: any, b: any) =>
+          new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime()
+        ),
+      }))
+  }
+
+  function compactTicketTitle(ticket: any) {
+    return ticket.ticket_number || ticket.id || 'Ticket'
+  }
+
+  function compactTicketSubtitle(ticket: any) {
+    const observed = ticket.observed_inputs || {}
+    const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name
+    const type = ticket.ticket_type || 'ticket'
+    const status = ticket.status || 'draft'
+    return `${type} • ${status}${transporter ? ` • ${transporter}` : ''}`
+  }
+
+  function compactTicketVolume(ticket: any) {
+    const calc = ticket.calculation_results || {}
+    const observed = ticket.observed_inputs || {}
+    const nsv = calc.nsv ?? observed.net_volume_bbl
+    const gsv = calc.gsv ?? observed.gross_volume_bbl
+    if (nsv !== undefined && nsv !== null) return `NSV: ${Number(nsv || 0).toFixed(2)}`
+    if (gsv !== undefined && gsv !== null) return `GSV: ${Number(gsv || 0).toFixed(2)}`
+    return ''
+  }
+
   if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
   if (!session) return <Login />
 
@@ -5674,9 +6021,9 @@ async function saveUserRole() {
           </div>
         </div>
 
-        {['dashboard', 'admin', 'operations', 'reports', 'readings', 'pot', 'pot_map', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
+        {['dashboard', 'admin', 'operations', 'reports', 'readings', 'pot', 'pot_map', 'contracts', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
           <button key={p} onClick={() => { setPage(p); setMobileNavOpen(false) }} style={button}>
-            {p === 'pot_map' ? 'POT MAP' : p.toUpperCase()}
+            {p === 'pot_map' ? 'POT MAP' : p === 'contracts' ? 'CONTRACTS' : p.toUpperCase()}
           </button>
         ))}
 
@@ -6690,6 +7037,54 @@ async function saveUserRole() {
         )}
 
         
+        
+        {page === 'contracts' && (
+          <>
+            <h1>Contract Profiles</h1>
+            <div style={box}>
+              <h2>Create / Update Contract Profile</h2>
+              <p style={{ color: '#a8b3bd' }}>Chapter 12 / 2021 uses GSV = IV × CTL × CPL × MF.</p>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                <input style={input} placeholder="Contract Name" value={newContractName} onChange={(e) => setNewContractName(e.target.value)} />
+                <input style={input} placeholder="Transporter Name" value={newContractTransporter} onChange={(e) => setNewContractTransporter(e.target.value)} />
+                <select style={input} value={newContractMethod} onChange={(e) => setNewContractMethod(e.target.value)}>
+                  <option value="chapter12_2021">Chapter 12 / 2021</option>
+                  <option value="flowx_summary">Flow-X Summary Volumes</option>
+                </select>
+                <select style={input} value={newContractApiVersion} onChange={(e) => setNewContractApiVersion(e.target.value)}>
+                  <option value="api_11_1_2004">API 11.1 Version: 2004</option>
+                  <option value="api_11_1_2007">API 11.1 Version: 2007</option>
+                  <option value="api_11_1_2019">API 11.1 Version: 2019</option>
+                  <option value="api_11_1_2021">API 11.1 Version: 2021</option>
+                </select>
+                <select style={input} value={newContractCorrectionSource} onChange={(e) => setNewContractCorrectionSource(e.target.value)}>
+                  <option value="app_calculated">CTL/CPL: App Calculated</option>
+                  <option value="imported_or_pot">CTL/CPL: Imported/POT</option>
+                </select>
+                <input style={input} placeholder="Meter Factor" value={newContractMf} onChange={(e) => setNewContractMf(e.target.value)} />
+                <button style={button} onClick={() => runSafeAction('Saving contract profile', saveContractProfile)}>Save</button>
+              </div>
+            </div>
+            <div style={box}>
+              <h2>Saved Contract Profiles</h2>
+              {contractProfiles.length === 0 && <div style={card}>No contract profiles saved yet.</div>}
+              <div style={{ display: 'grid', gap: 10 }}>
+                {contractProfiles.map((profile: any) => (
+                  <div key={profile.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                    <div>
+                      <strong>{profile.contract_name}</strong>
+                      <div style={{ color: '#a8b3bd', marginTop: 4 }}>
+                        Transporter: {profile.transporter_name || '—'} • Method: {profile.calculation_method || 'chapter12_2021'} • API: {profile.api_version || 'api_11_1_2021'} • CTL/CPL: {profile.correction_source || 'app_calculated'} • MF: {profile.meter_factor || 1}
+                      </div>
+                    </div>
+                    <button style={{ ...button, background: '#dc2626', width: 120 }} onClick={() => deleteContractProfile(profile.id)}>Delete</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
         {page === 'pot_map' && (
           <>
             <h1>Transporter → POT Assignment</h1>
@@ -7416,67 +7811,60 @@ async function saveUserRole() {
 
             {/* Ticket Debug Counts */}
             <div style={{ ...card, marginBottom: 12 }}>
-              Total tickets loaded: {tickets.length} • Pending workflow tickets: {workflowTickets.length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
+              Total tickets loaded: {tickets.length} • Pending workflow tickets: {getDraftWorkflowTickets().length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
             </div>
 
             {/* All Pending Ticket Approval Queue */}
+            
             <div style={box}>
-              <h2>Workflow Queue ({workflowTickets.length})</h2>
-              {workflowTickets.length === 0 && (
-                <div style={card}>
-                  No draft or submitted tickets are waiting for approval.
-                </div>
+              <h2>Workflow Queue</h2>
+
+              {getDraftWorkflowTickets().length === 0 && (
+                <div style={card}>No draft or submitted tickets waiting.</div>
               )}
 
-              {/* All Loaded Tickets Fallback */}
-              {workflowTickets.length === 0 && tickets.length > 0 && (
-                <div style={card}>
-                  <strong>Loaded tickets exist, but none are pending.</strong>
-                  <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                    This means they may already be approved/voided or status is not draft/submitted.
-                  </div>
-                </div>
-              )}
+              {groupWorkflowTickets(getDraftWorkflowTickets()).map((group: any) => {
+                const isOpen = openWorkflowTicketGroups[group.groupKey] ?? true
+                const totalNsv = group.tickets.reduce((sum: number, ticket: any) => {
+                  const calc = ticket.calculation_results || {}
+                  const observed = ticket.observed_inputs || {}
+                  return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                }, 0)
 
-              <div style={{ display: 'grid', gap: 10 }}>
-                {workflowTickets.map((ticket: any) => (
-                  <div
-                    key={ticket.id}
-                    style={{
-                      ...card,
-                      display: 'grid',
-                      gridTemplateColumns: '1fr auto auto',
-                      gap: 12,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <div>
-                      <strong>{ticket.ticket_number || ticket.id}</strong>
-                      <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                        Type: {ticket.ticket_type || 'meter'} • Status: {ticket.status || 'draft'}
-                      </div>
-                      {ticket.ticket_type === 'tank' && (
-                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                          Tank: {tanks.find((tank: any) => tank.id === ticket.tank_id)?.tank_number || ticket.tank_id || 'None'}
-                        </div>
-                      )}
-                    </div>
-
-                    <span style={getTicketStatusStyle(ticket.status)}>{ticket.status || 'draft'}</span>
-
+                return (
+                  <div key={group.groupKey} style={{ ...card, marginBottom: 12 }}>
                     <button
-                      disabled={isActionRunning}
-                      style={button}
-                      onClick={() => { setSelectedTicket(ticket); setPage('tickets') }}
+                      style={{ ...button, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
+                      onClick={() => toggleWorkflowTicketGroup(group.groupKey)}
                     >
-                      Open Ticket
+                      <span>{isOpen ? '▼' : '▶'} {group.label}</span>
+                      <span>{group.tickets.length} tickets • NSV {totalNsv.toFixed(2)}</span>
                     </button>
+
+                    {isOpen && (
+                      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                        {group.tickets.map((ticket: any) => (
+                          <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                            <div>
+                              <strong>{compactTicketTitle(ticket)}</strong>
+                              <span style={{ ...getTicketStatusStyle(ticket.status), marginLeft: 8 }}>{ticket.status || 'draft'}</span>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
+                            </div>
+                            <button style={{ ...button, width: 150 }} onClick={() => setSelectedTicket(ticket)}>
+                              Open Ticket
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
+                )
+              })}
             </div>
-            {/* Selected Ticket Quick View */}
-            {selectedTicket && (
+
+
+{selectedTicket && (
               <div style={box}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                   <h2 style={{ margin: 0 }}>Open Ticket: {selectedTicket!.ticket_number || selectedTicket!.id}</h2>
@@ -7671,36 +8059,52 @@ async function saveUserRole() {
             </div>
 
             <div style={box}>
-              <h3>Workflow Queue</h3>
-              {workflowTickets.map((t) => (
-                <div key={t.id} style={card}>
-                  <strong>{t.ticket_number}</strong>
-                  <div><span style={getTicketStatusStyle(t.status)}>{t.status || 'draft'}</span></div>
-                  <div>Type: {t.ticket_type}</div>
-                  <div>Factor Type: {t.observed_inputs?.factor_type || 'MF'}</div>
-                  <div>Factor Source: {t.observed_inputs?.mf_source || 'None'}</div>
-                  <div>POT Source: {t.observed_inputs?.pot_source || 'None'}</div>
-                  <div>GSV: {t.calculation_results?.gsv ?? 'None'}</div>
-                  <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
-                  <button style={button} onClick={() => { setSelectedTicket(t); setPage('tickets') }}>Open Ticket →</button>
-                </div>
-              ))}
+              <h2>Approved Tickets by Month</h2>
+
+              {getApprovedTickets().length === 0 && (
+                <div style={card}>No approved tickets yet.</div>
+              )}
+
+              {groupTicketsByMonth(getApprovedTickets()).map((group: any) => {
+                const isOpen = openApprovedTicketMonths[group.monthKey] ?? true
+                const totalNsv = group.tickets.reduce((sum: number, ticket: any) => {
+                  const calc = ticket.calculation_results || {}
+                  const observed = ticket.observed_inputs || {}
+                  return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                }, 0)
+
+                return (
+                  <div key={group.monthKey} style={{ ...card, marginBottom: 12 }}>
+                    <button
+                      style={{ ...button, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
+                      onClick={() => toggleApprovedTicketMonth(group.monthKey)}
+                    >
+                      <span>{isOpen ? '▼' : '▶'} {group.label}</span>
+                      <span>{group.tickets.length} tickets • NSV {totalNsv.toFixed(2)}</span>
+                    </button>
+
+                    {isOpen && (
+                      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                        {group.tickets.map((ticket: any) => (
+                          <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                            <div>
+                              <strong>{compactTicketTitle(ticket)}</strong>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
+                            </div>
+                            <button style={{ ...button, width: 170 }} onClick={() => setSelectedTicket(ticket)}>
+                              Open Approved Ticket
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
 
-            <div style={box}>
-              <h3>Approved Tickets</h3>
-              {approvedTickets.length === 0 && <div style={card}>No approved tickets yet.</div>}
-              {approvedTickets.map((t) => (
-                <div key={t.id} style={card}>
-                  <strong>{t.ticket_number}</strong>
-                  <div><span style={getTicketStatusStyle(t.status)}>{t.status || 'draft'}</span></div>
-                  <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
-                  <button style={button} onClick={() => { setSelectedTicket(t); setPage('tickets') }}>Open Approved Ticket</button>
-                </div>
-              ))}
-            </div>
-
-            {selectedTicket && canViewAudit && (
+{selectedTicket && canViewAudit && (
               <div style={box}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                   <h2 style={{ margin: 0 }}>Ticket Detail</h2>

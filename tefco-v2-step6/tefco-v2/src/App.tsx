@@ -905,8 +905,20 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
     })
   }
 
-const userIsSuperAdmin = hasLoadedRole('super_admin')
-  const userIsCompanyAdmin = hasLoadedRole('admin', 'company_admin', 'company admin')
+
+  function isActuallyAdminUser() {
+    const current = normalizeRoleName(Role)
+
+    if (current === 'super_admin' || current === 'admin' || current === 'company_admin') return true
+
+    return asArray(userRoles).some((row: any) => {
+      const role = normalizeRoleName(row.role)
+      return row.active !== false && (role === 'super_admin' || role === 'admin' || role === 'company_admin')
+    })
+  }
+
+const userIsSuperAdmin = hasLoadedRole('super_admin') || asArray(userRoles).some((row: any) => row.active !== false && normalizeRoleName(row.role) === 'super_admin')
+  const userIsCompanyAdmin = isActuallyAdminUser() && !userIsSuperAdmin
   const userCanManageCompanySetup = userIsSuperAdmin || userIsCompanyAdmin
   const userCanCreateCompanyScopedUsers = userIsSuperAdmin || userIsCompanyAdmin
 useEffect(() => {
@@ -6752,7 +6764,7 @@ async function saveUserRole() {
         {page === 'dashboard' && (
           <>
             <h1>Dashboard</h1>
-            <div style={{ color: '#a8b3bd', fontSize: 13, marginBottom: 8 }}>{getAreaAccessDebugText()} • Detected role: {String(Role || 'none')}</div>
+            <div style={{ color: '#a8b3bd', fontSize: 13, marginBottom: 8 }}>{getAreaAccessDebugText()} • Detected role: {String(Role || 'none')} • Loaded roles: {asArray(userRoles).map((r: any) => r.role).join(', ') || 'none'}</div>
             <div style={box}>
               <h2>Over / Short Summary</h2>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
@@ -6861,6 +6873,12 @@ async function saveUserRole() {
             <button style={button} onClick={() => setPage('dashboard')}>
               Back to Dashboard
             </button>
+              {isActuallyAdminUser() && (
+                <button style={navButton(page === 'admin')} onClick={() => setPage('admin')}>
+                  ADMIN
+                </button>
+              )}
+
           </div>
         )}
 

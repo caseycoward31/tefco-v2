@@ -702,7 +702,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [ticketAuditLogs, setTicketAuditLogs] = useState<TicketAuditLog[]>([])
   const [userRoles, setUserRoles] = useState<UserRole[]>([])
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([])
-  const [currentUserRole, setCurrentUserRole] = useState<string>('operator')
+  const [Role, setCurrentUserRole] = useState<string>('operator')
   const [newAdminUserId, setNewAdminUserId] = useState('')
   const [newAdminRole, setNewAdminRole] = useState('operator')
   const [showActiveUsers, setShowActiveUsers] = useState(false)
@@ -873,23 +873,23 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
     potQuality,
   ])
 
-  const userIsSuperAdmin = currentUserRole === 'super_admin'
-  const userIsCompanyAdmin = currentUserRole === 'admin'
+  const userIsSuperAdmin = Role === 'super_admin'
+  const userIsCompanyAdmin = Role === 'admin'
   const userCanManageCompanySetup = userIsSuperAdmin || userIsCompanyAdmin
   const userCanCreateCompanyScopedUsers = userIsSuperAdmin || userIsCompanyAdmin
 useEffect(() => {
   const loadBranding = async () => {
-    const activeCompanyId =
+    const activeAreaCompanyId =
       userIsSuperAdmin && selectedAdminCompanyId
         ? selectedAdminCompanyId
         : companyId
 
-    if (!activeCompanyId) return
+    if (!(userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId)) return
 
     const { data } = await supabase
       .from('company_settings')
       .select('*')
-      .eq('company_id', activeCompanyId)
+      .eq('company_id', (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId))
       .maybeSingle()
 
     if (data) {
@@ -1065,41 +1065,41 @@ useEffect(() => {
   
   const canViewTickets = hasPermission(
     rolePermissions,
-    currentUserRole,
+    Role,
     'tickets',
     'can_view'
   )
 
   const canCreateTickets = hasPermission(
     rolePermissions,
-    currentUserRole,
+    Role,
     'tickets',
     'can_create'
   )
 
   const canApproveTickets = hasPermission(
     rolePermissions,
-    currentUserRole,
+    Role,
     'tickets',
     'can_approve'
   )
 
   const canApproveProvings = hasPermission(
     rolePermissions,
-    currentUserRole,
+    Role,
     'provings',
     'can_approve'
   )
 
   const canViewAudit = hasPermission(
     rolePermissions,
-    currentUserRole,
+    Role,
     'audit',
     'can_view'
   )
 
   const isReadOnly =
-    currentUserRole === 'auditor'
+    Role === 'auditor'
 const canViewAdmin = userCanManageCompanySetup
 
   const canEditAdmin = userCanManageCompanySetup
@@ -1108,7 +1108,7 @@ const canViewAdmin = userCanManageCompanySetup
     userRoles.some((role) => role.active !== false && ['super_admin', 'admin'].includes(role.role))
     userIsCompanyAdmin ||
     userRoles.length === 0 ||
-    !currentUserRole
+    !Role
 
 const provingCompliancePercent =
     meters.length > 0
@@ -1206,7 +1206,7 @@ const provingCompliancePercent =
 
 
   function getCurrentAuthUserIdForAreaAccess() {
-    return (typeof session !== 'undefined' ? session?.user?.id : '') || (typeof currentUser !== 'undefined' ? currentUser?.id : '') || ''
+    return ''
   }
 
   function getAllowedAreaIdsForCurrentUser() {
@@ -1248,7 +1248,7 @@ const provingCompliancePercent =
   }
 
 
-  const areaAccessUsers: any[] = activeUsers || []
+  const areaAccessUsers: any[] = (typeof adminUsers !== 'undefined' ? adminUsers : [])
 
   function toggleAccessArea(areaId: string) {
     setSelectedAccessAreaIds((prev) =>
@@ -1272,9 +1272,9 @@ const provingCompliancePercent =
       return
     }
 
-    const activeAreaCompanyId = activeCompanyId || companyId
+    const activeAreaCompanyId = (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId)
 
-    if (!activeAreaCompanyId) {
+    if (!(userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId)) {
       alert('No company selected.')
       return
     }
@@ -1282,7 +1282,7 @@ const provingCompliancePercent =
     const { error: deleteError } = await supabase
       .from('user_area_access')
       .delete()
-      .eq('company_id', activeCompanyId)
+      .eq('company_id', (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId))
       .eq('user_id', selectedAccessUserId)
 
     if (deleteError) {
@@ -1292,7 +1292,7 @@ const provingCompliancePercent =
 
     if (selectedAccessAreaIds.length) {
       const inserts = selectedAccessAreaIds.map((areaId) => ({
-        company_id: activeAreaCompanyId,
+        company_id: (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId),
         user_id: selectedAccessUserId,
         area_id: areaId,
       }))
@@ -2457,12 +2457,12 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   }
 
 function getCompanyDisplayName() {
-    const activeCompanyId =
+    const activeAreaCompanyId =
       userIsSuperAdmin && selectedAdminCompanyId
         ? selectedAdminCompanyId
         : companyId
 
-    const selectedCompany = companies.find((company: any) => company.id === activeCompanyId)
+    const selectedCompany = companies.find((company: any) => company.id === (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId))
 
     return (
       companySettings?.company_name ||
@@ -2509,12 +2509,12 @@ function getCompanyDisplayName() {
   }
 
   async function saveCompanySettings() {
-    const activeCompanyId =
+    const activeAreaCompanyId =
       userIsSuperAdmin && selectedAdminCompanyId
         ? selectedAdminCompanyId
         : companyId
 
-    if (!activeAreaCompanyId) {
+    if (!(userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId)) {
       alert('No company selected.')
       return
     }
@@ -2523,7 +2523,7 @@ function getCompanyDisplayName() {
 
     if (companyLogoFile) {
       const fileExt = companyLogoFile.name.split('.').pop() || 'png'
-      const filePath = `${activeCompanyId}/logo-${Date.now()}.${fileExt}`
+      const filePath = `${(userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId)}/logo-${Date.now()}.${fileExt}`
 
       const { error: uploadError } = await supabase.storage
         .from('company-logos')
@@ -2545,7 +2545,7 @@ function getCompanyDisplayName() {
     }
 
     const payload = {
-      company_id: activeAreaCompanyId,
+      company_id: (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId),
       company_name: companyNameInput || '',
       address_line1: companyAddress1Input || '',
       address_line2: companyAddress2Input || '',
@@ -2570,7 +2570,7 @@ function getCompanyDisplayName() {
       await supabase
         .from('companies')
         .update({ name: companyNameInput })
-        .eq('id', activeCompanyId)
+        .eq('id', (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId))
     }
 
     setCompanySettings(data as any)
@@ -2687,10 +2687,10 @@ async function createCompany() {
       return
     }
 
-    const activeCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const activeAreaCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
     const { error } = await supabase.from('tanks').insert({
-      company_id: activeAreaCompanyId,
+      company_id: (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId),
       segment_id: newTankSegmentId || null,
       tank_number: newTankNumber,
       tank_name: newTankName || null,
@@ -6602,7 +6602,7 @@ async function saveUserRole() {
               </div>
 
               <div style={{ textAlign: 'right' }}>
-                <div style={rolePill}>{currentUserRole}</div>
+                <div style={rolePill}>{Role}</div>
                 <div style={{ fontSize: 12, color: '#a8b3bd', marginTop: 6 }}>
                   Company: {companyId || 'none'}
                 </div>

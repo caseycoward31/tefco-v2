@@ -562,9 +562,17 @@ function isThisMonth(dateValue?: string) {
 }
 
 function getHighestRole(roles: any[]) {
+  const normalizeRole = (value: any) =>
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/-/g, '_')
+
   const rank: Record<string, number> = {
     super_admin: 5,
     admin: 4,
+    company_admin: 4,
     measurement_tech: 3,
     operator: 2,
     auditor: 1,
@@ -576,7 +584,7 @@ function getHighestRole(roles: any[]) {
 
   return activeRoles
     .slice()
-    .sort((a, b) => (rank[b.role] || 0) - (rank[a.role] || 0))[0].role
+    .sort((a, b) => (rank[normalizeRole(b.role)] || 0) - (rank[normalizeRole(a.role)] || 0))[0].role
 }
 
 function App() {
@@ -1145,11 +1153,15 @@ useEffect(() => {
   const isReadOnly = Role === 'auditor'
 
   const currentRoleName = normalizeRoleName(Role)
-  const canViewAdmin =
+  const adminRoleDetected =
     ['super_admin', 'admin', 'company_admin'].includes(currentRoleName) ||
     isActuallyAdminUser()
 
-  const canEditAdmin = canViewAdmin
+  // Keep the Admin module visible for signed-in users so a bad/late role load
+  // does not make the setup page disappear. Write actions below still use
+  // userIsSuperAdmin/userIsCompanyAdmin/canEditAdmin checks.
+  const canViewAdmin = !!session || adminRoleDetected
+  const canEditAdmin = adminRoleDetected
 
 const provingCompliancePercent =
     meters.length > 0

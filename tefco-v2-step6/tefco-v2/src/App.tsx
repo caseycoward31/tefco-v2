@@ -781,6 +781,9 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [readingMovementType, setReadingMovementType] = useState('receipt')
 const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [provingMeter, setProvingMeter] = useState('')
+  const [selectedPotArea, setSelectedPotArea] = useState('')
+  const [selectedPotSegment, setSelectedPotSegment] = useState('')
+  const [selectedPotLease, setSelectedPotLease] = useState('')
   const [selectedProvingArea, setSelectedProvingArea] = useState('')
   const [selectedProvingSegment, setSelectedProvingSegment] = useState('')
   const [selectedProvingLease, setSelectedProvingLease] = useState('')
@@ -1213,7 +1216,7 @@ const provingCompliancePercent =
 
 
   function getCurrentAuthUserIdForAreaAccess() {
-    return ''
+    return authUser?.id || ''
   }
 
   function getAllowedAreaIdsForCurrentUser() {
@@ -1228,8 +1231,11 @@ const provingCompliancePercent =
 
   function getVisibleAreas() {
     const allowed = getAllowedAreaIdsForCurrentUser()
-    if (!allowed.length && !(userIsSuperAdmin || userIsCompanyAdmin)) return []
-    if (userIsSuperAdmin || userIsCompanyAdmin) return areas
+
+    if (userIsSuperAdmin || userIsCompanyAdmin) {
+      return areas
+    }
+
     return areas.filter((area: any) => allowed.includes(String(area.id)))
   }
 
@@ -1508,6 +1514,18 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     setReadingBSW('')
     setReadingMF('')
     loadAll()
+  }
+
+
+  function handlePotAreaSelect(areaId: string) {
+    setSelectedPotArea(areaId)
+    setSelectedPotSegment('')
+    setSelectedPotLease('')
+  }
+
+  function handlePotSegmentSelect(segmentId: string) {
+    setSelectedPotSegment(segmentId)
+    setSelectedPotLease('')
   }
 
   async function savePotQuality() {
@@ -7825,17 +7843,30 @@ async function saveUserRole() {
             </div>
             <div style={box}>
               <h3>New POT Quality</h3>
-              <select style={input} value={potSegment} onChange={(e) => { setPotSegment(e.target.value); setPotProducer(''); setPotLease('') }}>
-                <option value="">Select Segment</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              <select style={input} value={selectedPotArea} onChange={(e) => handlePotAreaSelect(e.target.value)}>
+                <option value="">Select Area</option>
+                {getVisibleAreas().map((area: any) => (
+                  <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                ))}
               </select>
+
+              <select style={input} value={potSegment} onChange={(e) => { handlePotSegmentSelect(e.target.value); setPotLease(e.target.value) }} disabled={!selectedPotArea}>
+                <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
+                {getVisibleSegments(selectedPotArea).map((segment: any) => (
+                  <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
+                ))}
+              </select>
+
               <select style={input} value={potProducer} onChange={(e) => { setPotProducer(e.target.value); setPotLease('') }}>
                 <option value="">Select Producer</option>
                 {filteredPotProducers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-              <select style={input} value={potLease} onChange={(e) => setPotLease(e.target.value)}>
-                <option value="">Select Lease</option>
-                {filteredPotLeases.map((l) => <option key={l.id} value={l.id}>{l.lease_name}</option>)}
+
+              <select style={input} value={potLease} onChange={(e) => { setSelectedPotLease(e.target.value); setPotLease(e.target.value) }} disabled={!selectedPotSegment}>
+                <option value="">{selectedPotSegment ? 'Select Lease' : 'Select segment first'}</option>
+                {getVisibleLeases(selectedPotSegment).map((lease: any) => (
+                  <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                ))}
               </select>
               <input style={input} type="date" value={potDate} onChange={(e) => setPotDate(e.target.value)} />
               <input style={input} placeholder="Observed API Gravity" value={potGravity} onChange={(e) => setPotGravity(e.target.value)} />

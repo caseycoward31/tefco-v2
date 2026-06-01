@@ -1003,12 +1003,13 @@ useEffect(() => {
       }]
     }
 
-    // Emergency owner recovery: if Supabase RLS/schema blocks the role read entirely,
-    // do not lock the signed-in owner out of Admin. Fix the user_roles row/RLS in Admin,
-    // then remove this fallback if you want strict production locking.
+    // IMPORTANT: Do not auto-upgrade unknown users to super_admin.
+    // If no role row is readable, keep the user as operator so company_admin/operator
+    // accounts cannot accidentally inherit owner access. Fix this in Supabase by making
+    // sure each user's user_roles row matches auth.users.id and RLS allows them to read it.
     if (rows.length === 0) {
-      console.warn('No readable role row found for signed-in user. Enabling temporary super_admin recovery mode.')
-      rows = [{ user_id: authUser.id, role: 'super_admin', active: true, company_id: null }]
+      console.warn('No readable role row found for signed-in user. Falling back to operator.')
+      rows = [{ user_id: authUser.id, role: 'operator', active: true, company_id: null }]
     }
 
     setUserRoles(rows)

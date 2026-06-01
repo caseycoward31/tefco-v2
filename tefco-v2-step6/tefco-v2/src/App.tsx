@@ -982,7 +982,6 @@ useEffect(() => {
       .from('user_roles')
       .select('*')
       .eq('user_id', authUser.id)
-      .eq('active', true)
 
     if (error) {
       console.error('Role load error:', error)
@@ -1040,7 +1039,6 @@ useEffect(() => {
     const { data: roleData } = await supabase
       .from('user_roles')
       .select('*')
-      .eq('active', true)
 
     const { data: permissionData } = await supabase
       .from('role_permissions')
@@ -1144,17 +1142,14 @@ useEffect(() => {
     'can_view'
   )
 
-  const isReadOnly =
-    Role === 'auditor'
-const canViewAdmin = userCanManageCompanySetup
+  const isReadOnly = Role === 'auditor'
 
-  const canEditAdmin = userCanManageCompanySetup
-    userIsCompanyAdmin
-    userIsCompanyAdmin ||
-    userRoles.some((role) => role.active !== false && ['super_admin', 'admin'].includes(role.role))
-    userIsCompanyAdmin ||
-    userRoles.length === 0 ||
-    !Role
+  const currentRoleName = normalizeRoleName(Role)
+  const canViewAdmin =
+    ['super_admin', 'admin', 'company_admin'].includes(currentRoleName) ||
+    isActuallyAdminUser()
+
+  const canEditAdmin = canViewAdmin
 
 const provingCompliancePercent =
     meters.length > 0
@@ -6873,11 +6868,6 @@ async function saveUserRole() {
             <button style={button} onClick={() => setPage('dashboard')}>
               Back to Dashboard
             </button>
-              {isActuallyAdminUser() && (
-                <button style={button} onClick={() => setPage('admin')}>
-                  ADMIN
-                </button>
-              )}
 
           </div>
         )}

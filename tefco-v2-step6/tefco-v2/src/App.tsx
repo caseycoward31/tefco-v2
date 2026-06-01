@@ -582,6 +582,9 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
+  const [userAreaAccess, setUserAreaAccess] = useState<any[]>([])
+  const [selectedAccessUserId, setSelectedAccessUserId] = useState('')
+  const [selectedAccessAreaIds, setSelectedAccessAreaIds] = useState<string[]>([])
   const [contractProfiles, setContractProfiles] = useState<any[]>([])
   const [newContractName, setNewContractName] = useState('')
   const [newContractTransporter, setNewContractTransporter] = useState('')
@@ -769,7 +772,10 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [manualClosingReading, setManualClosingReading] = useState('')
   const [autofillPreview, setAutofillPreview] = useState<any>(null)
 
-  const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
+    const [selectedReadingArea, setSelectedReadingArea] = useState('')
+  const [selectedReadingSegment, setSelectedReadingSegment] = useState('')
+  const [readingMovementType, setReadingMovementType] = useState('receipt')
+const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [selectedReadingLease, setSelectedReadingLease] = useState('')
   const [selectedReadingSegment, setSelectedReadingSegment] = useState('')
   const [readingOpen, setReadingOpen] = useState('')
@@ -1197,9 +1203,128 @@ const provingCompliancePercent =
   }
 
 
+
+
+  function getAllowedAreaIdsForCurrentUser() {
+    if (userIsSuperAdmin || userIsCompanyAdmin) return areas.map((area: any) => String(area.id))
+
+    const rows = userAreaAccess.filter((row: any) =>
+      String(row.user_id || row.profile_id || '') === String(currentUserId || user?.id || '')
+    )
+
+    return rows.map((row: any) => String(row.area_id))
+  }
+
+  function getVisibleAreas() {
+    const allowed = getAllowedAreaIdsForCurrentUser()
+    if (!allowed.length && !(userIsSuperAdmin || userIsCompanyAdmin)) return []
+    if (userIsSuperAdmin || userIsCompanyAdmin) return areas
+    return areas.filter((area: any) => allowed.includes(String(area.id)))
+  }
+
+  function userCanAccessArea(areaId: string) {
+    if (userIsSuperAdmin || userIsCompanyAdmin) return true
+    return getAllowedAreaIdsForCurrentUser().includes(String(areaId))
+  }
+
+  function getVisibleSegments(areaId: string) {
+    if (!areaId) return []
+    if (!userCanAccessArea(areaId)) return []
+    return segments.filter((segment: any) => String(segment.area_id || '') === String(areaId))
+  }
+
+  function getVisibleLeases(segmentId: string) {
+    if (!segmentId) return []
+    return leases.filter((lease: any) => String(lease.segment_id || '') === String(segmentId))
+  }
+
+  function getVisibleMeters(leaseId: string) {
+    if (!leaseId) return []
+    return meters.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
+  }
+
+  function toggleAccessArea(areaId: string) {
+    setSelectedAccessAreaIds((prev) =>
+      prev.includes(areaId) ? prev.filter((id) => id !== areaId) : [...prev, areaId]
+    )
+  }
+
+  function beginEditAreaAccess(userId: string) {
+    setSelectedAccessUserId(userId)
+
+    const current = userAreaAccess
+      .filter((row: any) => String(row.user_id || row.profile_id || '') === String(userId))
+      .map((row: any) => String(row.area_id))
+
+    setSelectedAccessAreaIds(current)
+  }
+
+  async function saveUserAreaAccess() {
+    if (!selectedAccessUserId) {
+      alert('Select a user first.')
+      return
+    }
+
+    const activeCompanyId = getActiveCompanyId ? getActiveCompanyId() : companyId
+
+    if (!activeCompanyId) {
+      alert('No company selected.')
+      return
+    }
+
+    const { error: deleteError } = await supabase
+      .from('user_area_access')
+      .delete()
+      .eq('company_id', activeCompanyId)
+      .eq('user_id', selectedAccessUserId)
+
+    if (deleteError) {
+      alert('Could not clear old area access: ' + deleteError.message)
+      return
+    }
+
+    if (selectedAccessAreaIds.length) {
+      const inserts = selectedAccessAreaIds.map((areaId) => ({
+        company_id: activeCompanyId,
+        user_id: selectedAccessUserId,
+        area_id: areaId,
+      }))
+
+      const { error: insertError } = await supabase.from('user_area_access').insert(inserts)
+
+      if (insertError) {
+        alert('Could not save area access: ' + insertError.message)
+        return
+      }
+    }
+
+    await loadAll()
+    alert('Area access saved.')
+  }
+
+  function getSegmentsForSelectedReadingArea() {
+    return getVisibleSegments(selectedReadingArea)
+  }
+
+  function getLeasesForSelectedReadingSegment() {
+    return getVisibleLeases(selectedReadingSegment)
+  }
+
   function getMetersForSelectedReadingLease() {
-    if (!selectedReadingLease) return []
-    return meters.filter((meter: any) => String(meter.lease_id || '') === String(selectedReadingLease))
+    return getVisibleMeters(selectedReadingLease)
+  }
+
+  function handleReadingAreaSelect(areaId: string) {
+    setSelectedReadingArea(areaId)
+    setSelectedReadingSegment('')
+    setSelectedReadingLease('')
+    setSelectedReadingMeter('')
+  }
+
+  function handleReadingSegmentSelect(segmentId: string) {
+    setSelectedReadingSegment(segmentId)
+    setSelectedReadingLease('')
+    setSelectedReadingMeter('')
   }
 
   function handleReadingLeaseSelect(leaseId: string) {
@@ -1230,9 +1355,11 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     await supabase.from('operator_readings').insert({
       company_id: companyId,
+      area_id: selectedReadingArea || null,
+      segment_id: selectedReadingSegment || null,
       lease_id: selectedReadingLease || null,
       meter_id: selectedReadingMeter || null,
-      segment_id: selectedReadingSegment || null,
+      movement_type: readingMovementType,
       opening_reading: Number(readingOpen || 0),
       closing_reading: Number(readingClose || 0),
       indicated_volume: iv,
@@ -6816,7 +6943,47 @@ async function saveUserRole() {
               )}
             </div>
 
-            <div style={box}>
+            
+            {(userIsSuperAdmin || userIsCompanyAdmin) && (
+              <div style={box}>
+                <h2>Area Access Control</h2>
+                <p style={{ color: '#a8b3bd' }}>
+                  Choose which areas each field user can see. This filters Readings, POT, Provings, Tickets, Meters, and Reports by area.
+                </p>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 12, alignItems: 'start' }}>
+                  <select style={input} value={selectedAccessUserId} onChange={(e) => beginEditAreaAccess(e.target.value)}>
+                    <option value="">Select User</option>
+                    {users.map((u: any) => (
+                      <option key={u.id || u.user_id} value={u.id || u.user_id}>
+                        {u.email || u.full_name || u.name || u.user_id || u.id}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div style={{ ...card, display: 'grid', gap: 8 }}>
+                    {areas.length === 0 && <div>No areas created yet.</div>}
+
+                    {areas.map((area: any) => (
+                      <label key={area.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedAccessAreaIds.includes(String(area.id))}
+                          onChange={() => toggleAccessArea(String(area.id))}
+                        />
+                        <span>{area.area_name || area.name}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  <button style={button} onClick={() => runSafeAction('Saving area access', saveUserAreaAccess)}>
+                    Save Access
+                  </button>
+                </div>
+              </div>
+            )}
+
+<div style={box}>
               <button
                 style={sectionToggle}
                 onClick={() => setShowCompanySetupHub(!showCompanySetupHub)}
@@ -7192,9 +7359,23 @@ async function saveUserRole() {
           <>
             <h1>Operator Readings</h1>
             <div style={box}>
-              <select style={input} value={selectedReadingLease} onChange={(e) => handleReadingLeaseSelect(e.target.value)}>
-                <option value="">Select Lease</option>
-                {leases.map((lease: any) => (
+              <select style={input} value={selectedReadingArea} onChange={(e) => handleReadingAreaSelect(e.target.value)}>
+                <option value="">Select Area</option>
+                {getVisibleAreas().map((area: any) => (
+                  <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                ))}
+              </select>
+
+              <select style={input} value={selectedReadingSegment} onChange={(e) => handleReadingSegmentSelect(e.target.value)} disabled={!selectedReadingArea}>
+                <option value="">{selectedReadingArea ? 'Select Segment' : 'Select area first'}</option>
+                {getSegmentsForSelectedReadingArea().map((segment: any) => (
+                  <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
+                ))}
+              </select>
+
+              <select style={input} value={selectedReadingLease} onChange={(e) => handleReadingLeaseSelect(e.target.value)} disabled={!selectedReadingSegment}>
+                <option value="">{selectedReadingSegment ? 'Select Lease' : 'Select segment first'}</option>
+                {getLeasesForSelectedReadingSegment().map((lease: any) => (
                   <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
                 ))}
               </select>
@@ -7208,9 +7389,14 @@ async function saveUserRole() {
                 ))}
               </select>
 
+              <select style={input} value={readingMovementType} onChange={(e) => setReadingMovementType(e.target.value)}>
+                <option value="receipt">Receipt / Inbound</option>
+                <option value="delivery">Delivery / Outbound</option>
+              </select>
+
               {selectedReadingMeter && (
                 <div style={{ color: '#a8b3bd', fontSize: 13 }}>
-                  Auto-selected meter: <strong>{getSelectedReadingMeterNumber()}</strong>
+                  Auto-selected meter: <strong>{getSelectedReadingMeterNumber()}</strong> • Movement: <strong>{readingMovementType === 'receipt' ? 'Receipt / Inbound' : 'Delivery / Outbound'}</strong>
                 </div>
               )}
               <select style={input} value={selectedReadingSegment} onChange={(e) => setSelectedReadingSegment(e.target.value)}>

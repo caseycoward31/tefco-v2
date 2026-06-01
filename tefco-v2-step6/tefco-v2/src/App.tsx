@@ -562,17 +562,9 @@ function isThisMonth(dateValue?: string) {
 }
 
 function getHighestRole(roles: any[]) {
-  const normalizeRole = (value: any) =>
-    String(value || '')
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, '_')
-      .replace(/-/g, '_')
-
   const rank: Record<string, number> = {
     super_admin: 5,
     admin: 4,
-    company_admin: 4,
     measurement_tech: 3,
     operator: 2,
     auditor: 1,
@@ -584,7 +576,7 @@ function getHighestRole(roles: any[]) {
 
   return activeRoles
     .slice()
-    .sort((a, b) => (rank[normalizeRole(b.role)] || 0) - (rank[normalizeRole(a.role)] || 0))[0].role
+    .sort((a, b) => (rank[b.role] || 0) - (rank[a.role] || 0))[0].role
 }
 
 function App() {
@@ -714,7 +706,6 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [ticketAuditLogs, setTicketAuditLogs] = useState<TicketAuditLog[]>([])
   const [userRoles, setUserRoles] = useState<UserRole[]>([])
-  const [allUserRoles, setAllUserRoles] = useState<UserRole[]>([])
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([])
   const [Role, setCurrentUserRole] = useState<string>('operator')
   const [newAdminUserId, setNewAdminUserId] = useState('')
@@ -893,41 +884,8 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
     potQuality,
   ])
 
-  
-  function normalizeRoleName(value: any) {
-    return String(value || '')
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, '_')
-      .replace(/-/g, '_')
-  }
-
-  function hasLoadedRole(...roleNames: string[]) {
-    const wanted = new Set(roleNames.map(normalizeRoleName))
-    const current = normalizeRoleName(Role)
-
-    if (wanted.has(current)) return true
-
-    return asArray(userRoles).some((row: any) => {
-      if (row.active === false) return false
-      return wanted.has(normalizeRoleName(row.role))
-    })
-  }
-
-
-  function isActuallyAdminUser() {
-    const current = normalizeRoleName(Role)
-
-    if (current === 'super_admin' || current === 'admin' || current === 'company_admin') return true
-
-    return asArray(userRoles).some((row: any) => {
-      const role = normalizeRoleName(row.role)
-      return row.active !== false && (role === 'super_admin' || role === 'admin' || role === 'company_admin')
-    })
-  }
-
-const userIsSuperAdmin = hasLoadedRole('super_admin') || asArray(userRoles).some((row: any) => row.active !== false && normalizeRoleName(row.role) === 'super_admin')
-  const userIsCompanyAdmin = isActuallyAdminUser() && !userIsSuperAdmin
+  const userIsSuperAdmin = Role === 'super_admin'
+  const userIsCompanyAdmin = Role === 'admin'
   const userCanManageCompanySetup = userIsSuperAdmin || userIsCompanyAdmin
   const userCanCreateCompanyScopedUsers = userIsSuperAdmin || userIsCompanyAdmin
 useEffect(() => {
@@ -987,93 +945,30 @@ useEffect(() => {
       return
     }
 
-    let rows: any[] = []
-    let allRows: any[] = []
-
-    // First try the normal V2 schema: user_roles.user_id = auth.users.id.
-    const exact = await supabase
+    const { data: roleRows, error } = await supabase
       .from('user_roles')
       .select('*')
       .eq('user_id', authUser.id)
+      .eq('active', true)
 
-    if (exact.error) {
-      console.error('Exact role load error:', exact.error)
-    } else {
-      rows = exact.data || []
+    if (error) {
+      console.error('Role load error:', error)
+      setCurrentUserRole('operator')
+      setUserRoles([])
+      return
     }
 
-    // Fallback: some V2 databases/RLS policies return only rows the logged-in
-    // user is allowed to see. This keeps Super Admin from defaulting to operator
-    // when the role row is stored differently or the exact lookup returns none.
-    if (rows.length === 0) {
-      const broad = await supabase.from('user_roles').select('*')
-      if (broad.error) {
-        console.error('Broad role load error:', broad.error)
-      } else {
-        allRows = broad.data || []
-
-        const authIds = new Set(
-          [
-            authUser.id,
-            (authUser as any)?.user_metadata?.profile_id,
-            (authUser as any)?.user_metadata?.user_id,
-          ]
-            .filter(Boolean)
-            .map((value: any) => String(value))
-        )
-
-        const authEmails = new Set(
-          [authUser.email, (authUser as any)?.user_metadata?.email]
-            .filter(Boolean)
-            .map((value: any) => String(value).trim().toLowerCase())
-        )
-
-        rows = allRows.filter((role: any) => {
-          const rowIds = [role.user_id, role.profile_id, role.auth_user_id, role.auth_id]
-            .filter(Boolean)
-            .map((value: any) => String(value))
-          const rowEmails = [role.email, role.user_email]
-            .filter(Boolean)
-            .map((value: any) => String(value).trim().toLowerCase())
-
-          return rowIds.some((id) => authIds.has(id)) || rowEmails.some((email) => authEmails.has(email))
-        })
-
-        if (rows.length === 0 && allRows.length === 1) rows = allRows
-      }
-    }
-
-    rows = rows.filter((role: any) => role.active !== false)
+    const rows = roleRows || []
     setUserRoles(rows)
 
     const highestRole = getHighestRole(rows)
     setCurrentUserRole(highestRole)
 
     const companyRole =
-      rows.find((role: any) => role.active !== false && normalizeRoleName(role.role) !== 'super_admin' && role.company_id) ||
+      rows.find((role: any) => role.active !== false && role.role !== 'super_admin' && role.company_id) ||
       rows.find((role: any) => role.active !== false && role.company_id)
 
-    // Do not wipe company branding for global Super Admins. They use the selected
-    // admin company for branding/settings. Company-scoped users still get companyId.
-    if (companyRole?.company_id) {
-      setCompanyId(companyRole.company_id)
-    } else if (normalizeRoleName(highestRole) !== 'super_admin') {
-      const companyUser = await supabase
-        .from('company_users')
-        .select('company_id')
-        .eq('user_id', authUser.id)
-        .maybeSingle()
-
-      if (companyUser.data?.company_id) setCompanyId(companyUser.data.company_id)
-      else setCompanyId('')
-    }
-
-    console.log('TEFCO detected role', {
-      authUserId: authUser.id,
-      authEmail: authUser.email,
-      detectedRole: highestRole,
-      matchedRoles: rows.map((role: any) => ({ role: role.role, user_id: role.user_id, company_id: role.company_id, active: role.active })),
-    })
+    setCompanyId(companyRole?.company_id || '')
   }
 
 
@@ -1095,6 +990,9 @@ useEffect(() => {
       }
     }
 
+    const { data: cu } = await supabase.from('company_users').select('company_id').single()
+    if (cu) setCompanyId(cu.company_id)
+
     const { data: areaData } = await supabase.from('areas').select('*').order('name')
     const { data: segData } = await supabase.from('segments').select('*').order('name')
     const { data: leaseData } = await supabase.from('leases').select('*').order('lease_name')
@@ -1109,6 +1007,7 @@ useEffect(() => {
     const { data: roleData } = await supabase
       .from('user_roles')
       .select('*')
+      .eq('active', true)
 
     const { data: permissionData } = await supabase
       .from('role_permissions')
@@ -1132,7 +1031,7 @@ useEffect(() => {
     if (meterData) setMeters(meterData)
     if (ticketData) setTickets(ticketData)
     if (auditData) setTicketAuditLogs(auditData)
-    if (roleData) setAllUserRoles(roleData)
+    if (roleData) setUserRoles(roleData)
     if (permissionData) setRolePermissions(permissionData)
     if (profileData) setProfiles(profileData)
     if (producerData) setProducers(producerData)
@@ -1212,18 +1111,17 @@ useEffect(() => {
     'can_view'
   )
 
-  const isReadOnly = Role === 'auditor'
+  const isReadOnly =
+    Role === 'auditor'
+const canViewAdmin = userCanManageCompanySetup
 
-  const currentRoleName = normalizeRoleName(Role)
-  const adminRoleDetected =
-    ['super_admin', 'admin', 'company_admin'].includes(currentRoleName) ||
-    isActuallyAdminUser()
-
-  // Keep the Admin module visible for signed-in users so a bad/late role load
-  // does not make the setup page disappear. Write actions below still use
-  // userIsSuperAdmin/userIsCompanyAdmin/canEditAdmin checks.
-  const canViewAdmin = !!session || adminRoleDetected
-  const canEditAdmin = adminRoleDetected
+  const canEditAdmin = userCanManageCompanySetup
+    userIsCompanyAdmin
+    userIsCompanyAdmin ||
+    userRoles.some((role) => role.active !== false && ['super_admin', 'admin'].includes(role.role))
+    userIsCompanyAdmin ||
+    userRoles.length === 0 ||
+    !Role
 
 const provingCompliancePercent =
     meters.length > 0
@@ -1321,34 +1219,26 @@ const provingCompliancePercent =
 
 
 
-
-  function asArray(value: any): any[] {
-    return Array.isArray(value) ? value : []
-  }
-
-
   function getCurrentAuthUserIdForAreaAccess() {
-    return currentAuthUserId || asArray(userRoles)?.[0]?.user_id || ''
+    return currentAuthUserId || userRoles?.[0]?.user_id || ''
   }
 
   function getAllowedAreaIdsForCurrentUser() {
-    const areaRows = asArray(areas)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return areaRows.map((area: any) => String(area.id))
+    if (userIsSuperAdmin || userIsCompanyAdmin) return areas.map((area: any) => String(area.id))
 
     const uid = getCurrentAuthUserIdForAreaAccess()
     if (!uid) return []
 
-    return asArray(userAreaAccess)
+    return userAreaAccess
       .filter((row: any) => String(row.user_id || row.profile_id || '') === String(uid))
       .map((row: any) => String(row.area_id))
   }
 
   function getScopedAreas(): any[] {
-    const areaRows = asArray(areas)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return areaRows
+    if (userIsSuperAdmin || userIsCompanyAdmin) return areas
 
     const allowed = getAllowedAreaIdsForCurrentUser()
-    return areaRows.filter((area: any) => allowed.includes(String(area.id)))
+    return areas.filter((area: any) => allowed.includes(String(area.id)))
   }
 
   function getVisibleAreas() {
@@ -1361,27 +1251,24 @@ const provingCompliancePercent =
   }
 
   function getScopedSegments(): any[] {
-    const segmentRows = asArray(segments)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return segmentRows
+    if (userIsSuperAdmin || userIsCompanyAdmin) return segments
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    return segmentRows.filter((segment: any) => areaIds.has(String((segment as any).area_id || '')))
+    return segments.filter((segment: any) => areaIds.has(String((segment as any).area_id || '')))
   }
 
   function getScopedLeases(): any[] {
-    const leaseRows = asArray(leases)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return leaseRows
+    if (userIsSuperAdmin || userIsCompanyAdmin) return leases
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    return leaseRows.filter((lease: any) => areaIds.has(String((lease as any).area_id || '')))
+    return leases.filter((lease: any) => areaIds.has(String((lease as any).area_id || '')))
   }
 
   function getScopedMeters(): any[] {
-    const meterRows = asArray(meters)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return meterRows
+    if (userIsSuperAdmin || userIsCompanyAdmin) return meters
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    return meterRows.filter((meter: any) => areaIds.has(String((meter as any).area_id || '')))
+    return meters.filter((meter: any) => areaIds.has(String((meter as any).area_id || '')))
   }
 
   function getVisibleSegments(areaId: string) {
@@ -1416,14 +1303,13 @@ const provingCompliancePercent =
   }
 
   function getScopedReadings(): any[] {
-    const readingRows = asArray(readings)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return readingRows
+    if (userIsSuperAdmin || userIsCompanyAdmin) return readings
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
     const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
     const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
 
-    return readingRows.filter((reading: any) =>
+    return readings.filter((reading: any) =>
       areaIds.has(String(reading.area_id || '')) ||
       meterIds.has(String(reading.meter_id || '')) ||
       leaseIds.has(String(reading.lease_id || ''))
@@ -1431,15 +1317,14 @@ const provingCompliancePercent =
   }
 
   function getScopedTickets(): any[] {
-    const ticketRows = asArray(tickets)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return ticketRows
+    if (userIsSuperAdmin || userIsCompanyAdmin) return tickets
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
     const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
     const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
     const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
 
-    return ticketRows.filter((ticket: any) =>
+    return getScopedTickets().filter((ticket: any) =>
       areaIds.has(String(ticket.area_id || ticket.observed_inputs?.area_id || '')) ||
       segmentIds.has(String(ticket.segment_id || ticket.observed_inputs?.segment_id || '')) ||
       leaseIds.has(String(ticket.lease_id || ticket.observed_inputs?.lease_id || '')) ||
@@ -1448,7 +1333,7 @@ const provingCompliancePercent =
   }
 
   function getScopedPotQuality(): any[] {
-    const rows = asArray(potQuality)
+    const rows = Array.isArray(potQuality) ? potQuality : []
     if (userIsSuperAdmin || userIsCompanyAdmin) return rows
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
@@ -1463,7 +1348,7 @@ const provingCompliancePercent =
   }
 
   function getScopedProvings(): any[] {
-    const rows = asArray(provings)
+    const rows = Array.isArray(provings) ? provings : []
     if (userIsSuperAdmin || userIsCompanyAdmin) return rows
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
@@ -1482,17 +1367,6 @@ const provingCompliancePercent =
     const uid = getCurrentAuthUserIdForAreaAccess()
     const allowed = getScopedAreas().map((area: any) => area.name || area.area_name || area.id).join(', ')
     return `User ${uid || 'unknown'} allowed areas: ${allowed || 'none assigned'}`
-  }
-
-  function getAreaAccessUsers() {
-    const activeCompany = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
-
-    return asArray(allUserRoles.length ? allUserRoles : userRoles)
-      .filter((role: any) => {
-        const rowCompanyId = role.company_id || role.companyId
-        return !activeCompany || !rowCompanyId || String(rowCompanyId) === String(activeCompany)
-      })
-      .filter((role: any) => role.active !== false)
   }
 
   function toggleAccessArea(areaId: string) {
@@ -1737,8 +1611,8 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   }
 
   async function savePotQuality() {
-    if (!companyId || !selectedPotArea || !(selectedPotSegment || potSegment) || !potProducer || !(selectedPotLease || potLease) || !potDate) {
-      alert('Select area, segment, producer, lease, and sample date first.')
+    if (!companyId || !potSegment || !potProducer || !potLease || !potDate) {
+      alert('Select segment, producer, lease, and sample date first.')
       return
     }
 
@@ -1747,10 +1621,9 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     const { error } = await supabase.from('pot_quality').insert({
       company_id: companyId,
-      area_id: selectedPotArea || null,
-      segment_id: selectedPotSegment || potSegment,
+      segment_id: potSegment,
       producer_id: potProducer,
-      lease_id: selectedPotLease || potLease,
+      lease_id: potLease,
       sample_date: potDate,
       api_gravity: Number(
         calculateApi11Corrections({
@@ -6833,7 +6706,6 @@ async function saveUserRole() {
         {page === 'dashboard' && (
           <>
             <h1>Dashboard</h1>
-            <div style={{ color: '#a8b3bd', fontSize: 13, marginBottom: 8 }}>{getAreaAccessDebugText()} • Detected role: {String(Role || 'none')} • Loaded roles: {asArray(userRoles).map((r: any) => r.role).join(', ') || 'none'}</div>
             <div style={box}>
               <h2>Over / Short Summary</h2>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
@@ -6942,7 +6814,6 @@ async function saveUserRole() {
             <button style={button} onClick={() => setPage('dashboard')}>
               Back to Dashboard
             </button>
-
           </div>
         )}
 
@@ -7209,13 +7080,13 @@ async function saveUserRole() {
                     style={{ ...sectionToggle, marginTop: 14 }}
                     onClick={() => setShowActiveUsers(!showActiveUsers)}
                   >
-                    <span>{showActiveUsers ? '▼' : '▶'} Active Users ({(allUserRoles.length ? allUserRoles : userRoles).length})</span>
+                    <span>{showActiveUsers ? '▼' : '▶'} Active Users ({userRoles.length})</span>
                     <span>Manage</span>
                   </button>
 
                   {showActiveUsers && (
                     <div style={{ display: 'grid', gap: 10 }}>
-                      {(allUserRoles.length ? allUserRoles : userRoles).filter((role: any) => userIsSuperAdmin || !role.company_id || role.company_id === companyId).map((role) => (
+                      {userRoles.filter((role: any) => userIsSuperAdmin || !role.company_id || role.company_id === companyId).map((role) => (
                         <div
                           key={role.id}
                           style={{

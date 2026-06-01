@@ -1248,7 +1248,7 @@ const provingCompliancePercent =
   }
 
 
-  const areaAccessUsers: any[] = (typeof adminUsers !== 'undefined' ? adminUsers : [])
+  const areaAccessUsers: any[] = []
 
   function toggleAccessArea(areaId: string) {
     setSelectedAccessAreaIds((prev) =>

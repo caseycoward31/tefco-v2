@@ -1333,20 +1333,7 @@ const provingCompliancePercent =
     await loadAll()
     alert('Area access saved.')
   }
-
-  function getVisibleSegments(selectedReadingArea) {
-    return getVisibleSegments(selectedReadingArea)
-  }
-
-  function getVisibleLeases(selectedReadingSegment) {
-    return getVisibleLeases(selectedReadingSegment)
-  }
-
-  function getVisibleMeters(selectedReadingLease) {
-    return getVisibleMeters(selectedReadingLease)
-  }
-
-  function handleReadingAreaSelect(areaId: string) {
+function handleReadingAreaSelect(areaId: string) {
     setSelectedReadingArea(areaId)
     setSelectedReadingSegment('')
     setSelectedReadingLease('')
@@ -1531,21 +1518,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     window.open(data.signedUrl, '_blank')
   }
-
-
-  function getVisibleSegments(selectedProvingArea) {
-    return getVisibleSegments(selectedProvingArea)
-  }
-
-  function getVisibleLeases(selectedProvingSegment) {
-    return getVisibleLeases(selectedProvingSegment)
-  }
-
-  function getVisibleMeters(selectedProvingLease) {
-    return getVisibleMeters(selectedProvingLease)
-  }
-
-  function handleProvingAreaSelect(areaId: string) {
+function handleProvingAreaSelect(areaId: string) {
     setSelectedProvingArea(areaId)
     setSelectedProvingSegment('')
     setSelectedProvingLease('')

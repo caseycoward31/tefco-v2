@@ -1243,7 +1243,7 @@ const provingCompliancePercent =
     if (!userCanAccessArea(areaId)) return []
 
     return segments
-      .filter((segment: any) => String(segment.area_id || '') === String(areaId))
+      .filter((segment: any) => String((segment as any).area_id || '') === String(areaId))
       .sort((a: any, b: any) =>
         String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || ''))
       )
@@ -1253,7 +1253,7 @@ const provingCompliancePercent =
     if (!segmentId) return []
 
     return leases
-      .filter((lease: any) => String(lease.segment_id || '') === String(segmentId))
+      .filter((lease: any) => String((lease as any).segment_id || '') === String(segmentId))
       .sort((a: any, b: any) =>
         String(a.lease_name || a.name || a.lease_number || '').localeCompare(String(b.lease_name || b.name || b.lease_number || ''))
       )
@@ -1263,7 +1263,7 @@ const provingCompliancePercent =
     if (!leaseId) return []
 
     return meters
-      .filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
+      .filter((meter: any) => String((meter as any).lease_id || '') === String(leaseId))
       .sort((a: any, b: any) =>
         String(a.meter_number || a.meter_name || '').localeCompare(String(b.meter_number || b.meter_name || ''))
       )
@@ -1332,7 +1332,7 @@ const provingCompliancePercent =
       .from('leases')
       .update({
         segment_id: hierarchyLeaseSegmentId,
-        area_id: selectedSegment?.area_id || null,
+        area_id: (selectedSegment as any)?.area_id || null,
       })
       .eq('id', hierarchyLeaseId)
 
@@ -1359,8 +1359,8 @@ const provingCompliancePercent =
       .from('meters')
       .update({
         lease_id: hierarchyMeterLeaseId,
-        segment_id: selectedLease?.segment_id || null,
-        area_id: selectedLease?.area_id || null,
+        segment_id: (selectedLease as any)?.segment_id || null,
+        area_id: (selectedLease as any)?.area_id || null,
       })
       .eq('id', hierarchyMeterId)
 
@@ -7135,7 +7135,7 @@ async function saveUserRole() {
                     <option value="">Select Segment to assign area</option>
                     {segments.map((segment: any) => (
                       <option key={segment.id} value={segment.id}>
-                        {segment.segment_name || segment.name} {segment.area_id ? '' : '(missing area)'}
+                        {segment.segment_name || segment.name} {(segment as any).area_id ? '' : '(missing area)'}
                       </option>
                     ))}
                   </select>
@@ -7155,7 +7155,7 @@ async function saveUserRole() {
                     <option value="">Select Lease to assign segment</option>
                     {leases.map((lease: any) => (
                       <option key={lease.id} value={lease.id}>
-                        {lease.lease_name || lease.name || lease.lease_number} {lease.segment_id ? '' : '(missing segment)'}
+                        {lease.lease_name || lease.name || lease.lease_number} {(lease as any).segment_id ? '' : '(missing segment)'}
                       </option>
                     ))}
                   </select>
@@ -7175,7 +7175,7 @@ async function saveUserRole() {
                     <option value="">Select Meter to assign lease</option>
                     {meters.map((meter: any) => (
                       <option key={meter.id} value={meter.id}>
-                        {meter.meter_number || meter.meter_name} {meter.lease_id ? '' : '(missing lease)'}
+                        {meter.meter_number || meter.meter_name} {(meter as any).lease_id ? '' : '(missing lease)'}
                       </option>
                     ))}
                   </select>

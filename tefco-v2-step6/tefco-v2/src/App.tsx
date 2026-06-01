@@ -714,6 +714,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [ticketAuditLogs, setTicketAuditLogs] = useState<TicketAuditLog[]>([])
   const [userRoles, setUserRoles] = useState<UserRole[]>([])
+  const [allUserRoles, setAllUserRoles] = useState<UserRole[]>([])
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([])
   const [Role, setCurrentUserRole] = useState<string>('operator')
   const [newAdminUserId, setNewAdminUserId] = useState('')
@@ -986,10 +987,13 @@ useEffect(() => {
       return
     }
 
+    // Load roles broadly, then match them to the signed-in Supabase Auth user.
+    // This fixes the common V2 issue where the row was stored under profile_id,
+    // auth_user_id, or email instead of exactly user_id, causing Super Admins to
+    // be detected as the default operator.
     const { data: roleRows, error } = await supabase
       .from('user_roles')
       .select('*')
-      .eq('user_id', authUser.id)
 
     if (error) {
       console.error('Role load error:', error)
@@ -998,17 +1002,57 @@ useEffect(() => {
       return
     }
 
-    const rows = roleRows || []
+    const allRows = roleRows || []
+    setAllUserRoles(allRows)
+
+    const authIds = new Set(
+      [
+        authUser.id,
+        (authUser as any)?.user_metadata?.profile_id,
+        (authUser as any)?.user_metadata?.user_id,
+      ]
+        .filter(Boolean)
+        .map((value: any) => String(value))
+    )
+
+    const authEmails = new Set(
+      [authUser.email, (authUser as any)?.user_metadata?.email]
+        .filter(Boolean)
+        .map((value: any) => String(value).trim().toLowerCase())
+    )
+
+    let rows = allRows.filter((role: any) => {
+      const rowIds = [role.user_id, role.profile_id, role.auth_user_id, role.auth_id]
+        .filter(Boolean)
+        .map((value: any) => String(value))
+      const rowEmails = [role.email, role.user_email]
+        .filter(Boolean)
+        .map((value: any) => String(value).trim().toLowerCase())
+
+      return rowIds.some((id) => authIds.has(id)) || rowEmails.some((email) => authEmails.has(email))
+    })
+
+    // If RLS only returns the current user's role row and the column name is
+    // unexpected, trust the single visible row rather than falling back to operator.
+    if (rows.length === 0 && allRows.length === 1) rows = allRows
+
     setUserRoles(rows)
 
     const highestRole = getHighestRole(rows)
     setCurrentUserRole(highestRole)
 
     const companyRole =
-      rows.find((role: any) => role.active !== false && role.role !== 'super_admin' && role.company_id) ||
+      rows.find((role: any) => role.active !== false && normalizeRoleName(role.role) !== 'super_admin' && role.company_id) ||
       rows.find((role: any) => role.active !== false && role.company_id)
 
     setCompanyId(companyRole?.company_id || '')
+
+    console.log('TEFCO role detection', {
+      authUserId: authUser.id,
+      authEmail: authUser.email,
+      matchedRoles: rows.map((role: any) => ({ role: role.role, user_id: role.user_id, profile_id: role.profile_id, email: role.email, active: role.active })),
+      detectedRole: highestRole,
+    })
   }
 
 
@@ -1070,7 +1114,7 @@ useEffect(() => {
     if (meterData) setMeters(meterData)
     if (ticketData) setTickets(ticketData)
     if (auditData) setTicketAuditLogs(auditData)
-    if (roleData) setUserRoles(roleData)
+    if (roleData) setAllUserRoles(roleData)
     if (permissionData) setRolePermissions(permissionData)
     if (profileData) setProfiles(profileData)
     if (producerData) setProducers(producerData)
@@ -1425,7 +1469,7 @@ const provingCompliancePercent =
   function getAreaAccessUsers() {
     const activeCompany = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
-    return asArray(userRoles)
+    return asArray(allUserRoles.length ? allUserRoles : userRoles)
       .filter((role: any) => {
         const rowCompanyId = role.company_id || role.companyId
         return !activeCompany || !rowCompanyId || String(rowCompanyId) === String(activeCompany)
@@ -7147,13 +7191,13 @@ async function saveUserRole() {
                     style={{ ...sectionToggle, marginTop: 14 }}
                     onClick={() => setShowActiveUsers(!showActiveUsers)}
                   >
-                    <span>{showActiveUsers ? '▼' : '▶'} Active Users ({userRoles.length})</span>
+                    <span>{showActiveUsers ? '▼' : '▶'} Active Users ({(allUserRoles.length ? allUserRoles : userRoles).length})</span>
                     <span>Manage</span>
                   </button>
 
                   {showActiveUsers && (
                     <div style={{ display: 'grid', gap: 10 }}>
-                      {userRoles.filter((role: any) => userIsSuperAdmin || !role.company_id || role.company_id === companyId).map((role) => (
+                      {(allUserRoles.length ? allUserRoles : userRoles).filter((role: any) => userIsSuperAdmin || !role.company_id || role.company_id === companyId).map((role) => (
                         <div
                           key={role.id}
                           style={{

@@ -627,9 +627,7 @@ function App() {
     segment_name: '',
     gross_volume_bbl: '',
     net_volume_bbl: '',
-    api_gravity: '',
     observed_temperature: '',
-    bsw_percent: '',
     open_datetime: '',
     close_datetime: '',
   })
@@ -1350,8 +1348,36 @@ const provingCompliancePercent =
 
     if (leaseMeters.length === 1) {
       setSelectedReadingMeter(leaseMeters[0].id)
+      autofillOpeningReadingForLease(leaseId, leaseMeters[0].id)
     } else {
       setSelectedReadingMeter('')
+      autofillOpeningReadingForLease(leaseId)
+    }
+  }
+
+
+  function getPreviousClosingReadingForLease(leaseId: string, meterId = '') {
+    const readingRows = typeof readings !== 'undefined' ? readings : []
+
+    const matchingRows = (readingRows || [])
+      .filter((row: any) => {
+        const sameLease = leaseId && String(row.lease_id || '') === String(leaseId)
+        const sameMeter = meterId ? String(row.meter_id || '') === String(meterId) : true
+        return sameLease && sameMeter && row.closing_reading !== null && row.closing_reading !== undefined && row.closing_reading !== ''
+      })
+      .sort((a: any, b: any) => {
+        const ad = new Date(a.created_at || a.reading_date || 0).getTime()
+        const bd = new Date(b.created_at || b.reading_date || 0).getTime()
+        return bd - ad
+      })
+
+    return matchingRows[0]?.closing_reading ?? ''
+  }
+
+  function autofillOpeningReadingForLease(leaseId: string, meterId = '') {
+    const previousClosing = getPreviousClosingReadingForLease(leaseId, meterId)
+    if (previousClosing !== '' && previousClosing !== null && previousClosing !== undefined) {
+      setReadingOpening(String(previousClosing))
     }
   }
 
@@ -1379,11 +1405,8 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       opening_reading: Number(readingOpen || 0),
       closing_reading: Number(readingClose || 0),
       indicated_volume: iv,
-      api_gravity: Number(readingGravity || 0),
-      temperature: Number(readingTemp || 0),
       average_temperature: Number(readingAvgTemp || 0),
       average_pressure: Number(readingAvgPressure || 0),
-      bsw: Number(readingBSW || 0),
       meter_factor: Number(readingMF || 0),
     })
 
@@ -1435,7 +1458,6 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
           averagePressure: 0,
         }).api_gravity_60
       ),
-      bsw: bswNumber,
       csw,
       sample_temperature: Number(potTemp || 0),
       notes: potNotes,
@@ -1958,11 +1980,8 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
         observed_pressure: corrections.observed_pressure,
         api_gravity_60: corrections.api_gravity_60,
         density_60: corrections.density_60,
-        api_gravity: corrections.api_gravity_60,
-        temperature: corrections.observed_temperature,
         average_temperature: corrections.average_temperature,
         average_pressure: corrections.average_pressure,
-        bsw_percent: latestPot?.bsw || null,
         csw,
         mf_source: latestApprovedProving ? 'latest_approved_proving' : 'reading_fallback',
         pot_source: latestPot ? 'latest_pot_quality' : 'none',
@@ -3605,9 +3624,7 @@ async function createCompany() {
           close_datetime: getMappedFlowXDate(row, 'close_datetime'),
           gross_volume_bbl: grossVolume || null,
           net_volume_bbl: netVolume || null,
-          api_gravity: apiGravity || null,
           observed_temperature: observedTemp || null,
-          bsw_percent: bswPercent || null,
           raw_row: row,
         })
         .select()
@@ -3654,9 +3671,7 @@ async function createCompany() {
             split_percent: split.percent,
             gross_volume_bbl: splitGross,
             net_volume_bbl: splitNet,
-            api_gravity: apiGravity || null,
             observed_temperature: observedTemp || null,
-            bsw_percent: bswPercent || null,
           },
           calculation_results: {
             gov: splitGross,
@@ -3955,7 +3970,6 @@ async function createCompany() {
   function getApiTesterResult() {
     const factors = calculateApi111CorrectionFactors({
       api_version: apiTesterVersion,
-      api_gravity: Number(apiTesterGravity || 0),
       observed_temperature: Number(apiTesterTemp || 60),
       observed_pressure: Number(apiTesterPressure || 0),
       base_temperature: 60,
@@ -3966,7 +3980,6 @@ async function createCompany() {
       ctl: factors.ctl,
       cpl: factors.cpl,
       mf: Number(apiTesterMf || 1),
-      bsw_percent: Number(apiTesterBsw || 0),
       api_version: apiTesterVersion,
       ccf: factors.ctpl,
     })
@@ -4089,7 +4102,6 @@ async function createCompany() {
         api_version_label: getApiVersionLabel(apiVersion),
         observed_temperature: observedTemp,
         observed_pressure: observedPressure,
-        api_gravity: apiGravity,
         base_temperature: baseTemp,
         raw_ctl: ctl,
         raw_cpl: cpl,
@@ -4128,7 +4140,6 @@ async function createCompany() {
       mf,
       ccf,
       csw,
-      bsw_percent: bswPercent,
       gsv: gsvRaw,
       nsv: nsvRaw,
       raw_iv: ivRaw,
@@ -4169,7 +4180,6 @@ async function createCompany() {
           api_version: apiVersion,
           observed_temperature: summary.avgTemp,
           observed_pressure: summary.avgPressure,
-          api_gravity: (assignedPot as any)?.api_gravity || (assignedPot as any)?.observed_api_gravity || summary.avgApi,
         })
       : {
           api_version: apiVersion,
@@ -4198,7 +4208,6 @@ async function createCompany() {
       cpl: factors.cpl,
       ctpl: factors.ctpl,
       mf,
-      bsw_percent: bswPercent,
       gsv: summary.gross,
       nsv: summary.net,
       method,
@@ -4337,8 +4346,6 @@ async function createCompany() {
         average_pressure: s.avgPressure,
         observed_api_gravity: potObservedApiGravity,
         api_gravity_60: potApiGravity60,
-        api_gravity: potApiGravity60,
-        bsw_percent: potBswPercent,
         ctl: Number((assignedPot as any)?.ctl || s.avgCtl || 0),
         cpl: Number((assignedPot as any)?.cpl || s.avgCpl || 0),
         ctpl: Number((assignedPot as any)?.ctpl || s.avgCtpl || 0),
@@ -4350,8 +4357,6 @@ async function createCompany() {
         average_temperature: s.avgTemp,
         average_pressure: s.avgPressure,
         api_gravity_60: potApiGravity60,
-        api_gravity: potApiGravity60,
-        bsw_percent: potBswPercent,
         ctl: Number((assignedPot as any)?.ctl || s.avgCtl || 0),
         cpl: Number((assignedPot as any)?.cpl || s.avgCpl || 0),
         ctpl: Number((assignedPot as any)?.ctpl || s.avgCtpl || 0),
@@ -4498,9 +4503,7 @@ async function createCompany() {
           lease_name: leaseName || null,
           gross_volume_bbl: split.gross,
           net_volume_bbl: split.net,
-          api_gravity: apiGravity || null,
           observed_temperature: observedTemp || null,
-          bsw_percent: bswPercent || null,
           source_rows: split.rows.length,
         },
         calculation_results: {
@@ -7400,7 +7403,7 @@ async function saveUserRole() {
                 ))}
               </select>
 
-              <select style={input} value={selectedReadingMeter} onChange={(e) => setSelectedReadingMeter(e.target.value)} disabled={!selectedReadingLease}>
+              <select style={input} value={selectedReadingMeter} onChange={(e) => { setSelectedReadingMeter(e.target.value); autofillOpeningReadingForLease(selectedReadingLease, e.target.value) }} disabled={!selectedReadingLease}>
                 <option value="">{selectedReadingLease ? 'Select Meter' : 'Select lease first'}</option>
                 {getMetersForSelectedReadingLease().map((meter: any) => (
                   <option key={meter.id} value={meter.id}>
@@ -7419,17 +7422,10 @@ async function saveUserRole() {
                   Auto-selected meter: <strong>{getSelectedReadingMeterNumber()}</strong> • Movement: <strong>{readingMovementType === 'receipt' ? 'Receipt / Inbound' : 'Delivery / Outbound'}</strong>
                 </div>
               )}
-              <select style={input} value={selectedReadingSegment} onChange={(e) => setSelectedReadingSegment(e.target.value)}>
-                <option value="">Select Segment</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
               <input style={input} placeholder="Opening Reading" value={readingOpen} onChange={(e) => setReadingOpen(e.target.value)} />
               <input style={input} placeholder="Closing Reading" value={readingClose} onChange={(e) => setReadingClose(e.target.value)} />
-              <input style={input} placeholder="API Gravity" value={readingGravity} onChange={(e) => setReadingGravity(e.target.value)} />
-              <input style={input} placeholder="Temperature" value={readingTemp} onChange={(e) => setReadingTemp(e.target.value)} />
               <input style={input} placeholder="Average Temperature" value={readingAvgTemp} onChange={(e) => setReadingAvgTemp(e.target.value)} />
               <input style={input} placeholder="Average Pressure" value={readingAvgPressure} onChange={(e) => setReadingAvgPressure(e.target.value)} />
-              <input style={input} placeholder="BS&W %" value={readingBSW} onChange={(e) => setReadingBSW(e.target.value)} />
               <input style={input} placeholder="Fallback Meter Factor" value={readingMF} onChange={(e) => setReadingMF(e.target.value)} />
               <div style={{ marginTop: 15 }}>IV: {(Number(readingClose || 0) - Number(readingOpen || 0)).toFixed(2)}</div>
               <button style={button} onClick={saveReading}>Save Reading</button>
@@ -8526,7 +8522,6 @@ async function saveUserRole() {
                     <input style={input} placeholder="Ambient Temp" value={tankAmbientTemp} onChange={(e) => setTankAmbientTemp(e.target.value)} />
                     <input style={input} placeholder="Observed Gravity" value={tankObservedGravity} onChange={(e) => setTankObservedGravity(e.target.value)} />
                     <input style={input} placeholder="Observed Temp" value={tankObservedTemp} onChange={(e) => setTankObservedTemp(e.target.value)} />
-                    <input style={input} placeholder="S&W %" value={tankSwPercent} onChange={(e) => setTankSwPercent(e.target.value)} />
                   </div>
 
                   {selectedTank && tankClosingFeet !== '' && (

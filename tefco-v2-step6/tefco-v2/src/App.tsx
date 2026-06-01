@@ -1218,6 +1218,7 @@ const provingCompliancePercent =
 
 
 
+
   function getCurrentAuthUserIdForAreaAccess() {
     return currentAuthUserId || userRoles?.[0]?.user_id || ''
   }
@@ -1225,19 +1226,23 @@ const provingCompliancePercent =
   function getAllowedAreaIdsForCurrentUser() {
     if (userIsSuperAdmin || userIsCompanyAdmin) return areas.map((area: any) => String(area.id))
 
-    const rows = userAreaAccess.filter((row: any) =>
-      String(row.user_id || row.profile_id || '') === String(getCurrentAuthUserIdForAreaAccess())
-    )
+    const uid = getCurrentAuthUserIdForAreaAccess()
+    if (!uid) return []
 
-    return rows.map((row: any) => String(row.area_id))
+    return userAreaAccess
+      .filter((row: any) => String(row.user_id || row.profile_id || '') === String(uid))
+      .map((row: any) => String(row.area_id))
+  }
+
+  function getScopedAreas(): any[] {
+    if (userIsSuperAdmin || userIsCompanyAdmin) return areas
+
+    const allowed = getAllowedAreaIdsForCurrentUser()
+    return areas.filter((area: any) => allowed.includes(String(area.id)))
   }
 
   function getVisibleAreas() {
-    const allowed = getAllowedAreaIdsForCurrentUser()
-
-    if (userIsSuperAdmin || userIsCompanyAdmin) return areas
-
-    return areas.filter((area: any) => allowed.includes(String(area.id)))
+    return getScopedAreas()
   }
 
   function userCanAccessArea(areaId: string) {
@@ -1245,34 +1250,65 @@ const provingCompliancePercent =
     return getAllowedAreaIdsForCurrentUser().includes(String(areaId))
   }
 
-
-  function getVisibleAreaIdSet() {
-    return new Set(getVisibleAreas().map((area: any) => String(area.id)))
-  }
-
   function getScopedSegments(): any[] {
     if (userIsSuperAdmin || userIsCompanyAdmin) return segments
-    const areaIds = getVisibleAreaIdSet()
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
     return segments.filter((segment: any) => areaIds.has(String((segment as any).area_id || '')))
   }
 
   function getScopedLeases(): any[] {
     if (userIsSuperAdmin || userIsCompanyAdmin) return leases
-    const areaIds = getVisibleAreaIdSet()
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
     return leases.filter((lease: any) => areaIds.has(String((lease as any).area_id || '')))
   }
 
   function getScopedMeters(): any[] {
     if (userIsSuperAdmin || userIsCompanyAdmin) return meters
-    const areaIds = getVisibleAreaIdSet()
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
     return meters.filter((meter: any) => areaIds.has(String((meter as any).area_id || '')))
+  }
+
+  function getVisibleSegments(areaId: string) {
+    if (!areaId) return []
+    if (!userCanAccessArea(areaId)) return []
+
+    return getScopedSegments()
+      .filter((segment: any) => String((segment as any).area_id || '') === String(areaId))
+      .sort((a: any, b: any) =>
+        String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || ''))
+      )
+  }
+
+  function getVisibleLeases(segmentId: string) {
+    if (!segmentId) return []
+
+    return getScopedLeases()
+      .filter((lease: any) => String((lease as any).segment_id || '') === String(segmentId))
+      .sort((a: any, b: any) =>
+        String(a.lease_name || a.name || a.lease_number || '').localeCompare(String(b.lease_name || b.name || b.lease_number || ''))
+      )
+  }
+
+  function getVisibleMeters(leaseId: string) {
+    if (!leaseId) return []
+
+    return getScopedMeters()
+      .filter((meter: any) => String((meter as any).lease_id || '') === String(leaseId))
+      .sort((a: any, b: any) =>
+        String(a.meter_number || a.meter_name || '').localeCompare(String(b.meter_number || b.meter_name || ''))
+      )
   }
 
   function getScopedReadings(): any[] {
     if (userIsSuperAdmin || userIsCompanyAdmin) return readings
-    const areaIds = getVisibleAreaIdSet()
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
     const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
     const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
+
     return readings.filter((reading: any) =>
       areaIds.has(String(reading.area_id || '')) ||
       meterIds.has(String(reading.meter_id || '')) ||
@@ -1282,12 +1318,13 @@ const provingCompliancePercent =
 
   function getScopedTickets(): any[] {
     if (userIsSuperAdmin || userIsCompanyAdmin) return tickets
-    const areaIds = getVisibleAreaIdSet()
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
     const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
     const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
     const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
 
-    return tickets.filter((ticket: any) =>
+    return getScopedTickets().filter((ticket: any) =>
       areaIds.has(String(ticket.area_id || ticket.observed_inputs?.area_id || '')) ||
       segmentIds.has(String(ticket.segment_id || ticket.observed_inputs?.segment_id || '')) ||
       leaseIds.has(String(ticket.lease_id || ticket.observed_inputs?.lease_id || '')) ||
@@ -1298,7 +1335,8 @@ const provingCompliancePercent =
   function getScopedPotQuality(): any[] {
     const rows = Array.isArray(potQuality) ? potQuality : []
     if (userIsSuperAdmin || userIsCompanyAdmin) return rows
-    const areaIds = getVisibleAreaIdSet()
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
     const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
     const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
 
@@ -1312,7 +1350,8 @@ const provingCompliancePercent =
   function getScopedProvings(): any[] {
     const rows = Array.isArray(provings) ? provings : []
     if (userIsSuperAdmin || userIsCompanyAdmin) return rows
-    const areaIds = getVisibleAreaIdSet()
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
     const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
     const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
 
@@ -1323,42 +1362,12 @@ const provingCompliancePercent =
     )
   }
 
-  function getVisibleSegments(areaId: string) {
-    if (!areaId) return []
-    if (!userCanAccessArea(areaId)) return []
-
-    return segments
-      .filter((segment: any) => String((segment as any).area_id || '') === String(areaId))
-      .sort((a: any, b: any) => String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || '')))
+  function getAreaAccessDebugText() {
+    if (userIsSuperAdmin || userIsCompanyAdmin) return 'Admin view: all areas'
+    const uid = getCurrentAuthUserIdForAreaAccess()
+    const allowed = getScopedAreas().map((area: any) => area.name || area.area_name || area.id).join(', ')
+    return `User ${uid || 'unknown'} allowed areas: ${allowed || 'none assigned'}`
   }
-
-  function getVisibleLeases(segmentId: string) {
-    if (!segmentId) return []
-
-    return leases
-      .filter((lease: any) => String((lease as any).segment_id || '') === String(segmentId))
-      .sort((a: any, b: any) => String(a.lease_name || a.name || a.lease_number || '').localeCompare(String(b.lease_name || b.name || b.lease_number || '')))
-  }
-
-  function getVisibleMeters(leaseId: string) {
-    if (!leaseId) return []
-
-    return meters
-      .filter((meter: any) => String((meter as any).lease_id || '') === String(leaseId))
-      .sort((a: any, b: any) => String(a.meter_number || a.meter_name || '').localeCompare(String(b.meter_number || b.meter_name || '')))
-  }
-
-
-
-  function getAreaAccessUsers() {
-    const activeCompany = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
-    return areaAccessUsers.filter((u: any) => {
-      const rowCompanyId = u.company_id || u.companyId
-      return !rowCompanyId || !activeCompany || String(rowCompanyId) === String(activeCompany)
-    })
-  }
-
-  const areaAccessUsers: any[] = userRoles || []
 
   function toggleAccessArea(areaId: string) {
     setSelectedAccessAreaIds((prev) =>
@@ -1602,8 +1611,8 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   }
 
   async function savePotQuality() {
-    if (!companyId || !potSegment || !potProducer || !potLease || !potDate) {
-      alert('Select segment, producer, lease, and sample date first.')
+    if (!companyId || !selectedPotArea || !(selectedPotSegment || potSegment) || !potProducer || !(selectedPotLease || potLease) || !potDate) {
+      alert('Select area, segment, producer, lease, and sample date first.')
       return
     }
 
@@ -1612,9 +1621,10 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     const { error } = await supabase.from('pot_quality').insert({
       company_id: companyId,
-      segment_id: potSegment,
+      area_id: selectedPotArea || null,
+      segment_id: selectedPotSegment || potSegment,
       producer_id: potProducer,
-      lease_id: potLease,
+      lease_id: selectedPotLease || potLease,
       sample_date: potDate,
       api_gravity: Number(
         calculateApi11Corrections({
@@ -4817,7 +4827,7 @@ async function createCompany() {
     return segments
       .filter((segment: any) => !overShortSegmentId || segment.id === overShortSegmentId)
       .map((segment: any) => {
-        const segmentTickets = tickets.filter((ticket: any) =>
+        const segmentTickets = getScopedTickets().filter((ticket: any) =>
           ticket.status === 'approved' &&
           ticket.segment_id === segment.id &&
           isTicketInOverShortRange(ticket)
@@ -4936,7 +4946,7 @@ async function createCompany() {
   }
 
   function getReportFilteredTickets(type?: string) {
-    return tickets.filter((ticket: any) => {
+    return getScopedTickets().filter((ticket: any) => {
       const typeOk = type ? ticket.ticket_type === type : true
       const producerOk = reportProducerId ? ticket.producer_id === reportProducerId : true
       const segmentOk = reportSegmentId ? ticket.segment_id === reportSegmentId : true
@@ -5133,7 +5143,7 @@ async function createCompany() {
 
   function getSegmentInventoryRows() {
     return segments.map((segment: any) => {
-      const segmentTickets = tickets.filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
+      const segmentTickets = getScopedTickets().filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
       const receiptVolume = segmentTickets
         .filter((ticket: any) => {
           const meter = meters.find((m: any) => m.id === ticket.meter_id)
@@ -5606,7 +5616,7 @@ async function saveUserRole() {
       ticket.calculation_profile_snapshot?.producer_id ||
       ''
 
-    const ticketsToExport = tickets.filter((ticket: any) => {
+    const ticketsToExport = getScopedTickets().filter((ticket: any) => {
       const statusOk = ticket.status === 'approved'
       const ticketDateValue = getTicketDate(ticket)
 
@@ -6184,7 +6194,7 @@ async function saveUserRole() {
         tanksMissingCharts.length === 0 ? 'ok' : 'warning'
       )
 
-      const pendingTickets = tickets.filter((ticket: any) => !['approved', 'voided'].includes(String(ticket.status || 'draft').toLowerCase()))
+      const pendingTickets = getScopedTickets().filter((ticket: any) => !['approved', 'voided'].includes(String(ticket.status || 'draft').toLowerCase()))
       addCheck(
         'Pending ticket workflow',
         true,
@@ -6192,7 +6202,7 @@ async function saveUserRole() {
         pendingTickets.length > 0 ? 'warning' : 'ok'
       )
 
-      const approvedUnposted = tickets.filter((ticket: any) =>
+      const approvedUnposted = getScopedTickets().filter((ticket: any) =>
         ticket.status === 'approved' && ticket.observed_inputs?.inventory_posted !== true
       )
       addCheck(
@@ -6697,6 +6707,7 @@ async function saveUserRole() {
         {page === 'dashboard' && (
           <>
             <h1>Dashboard</h1>
+            <div style={{ color: '#a8b3bd', fontSize: 13, marginBottom: 8 }}>{getAreaAccessDebugText()}</div>
             <div style={box}>
               <h2>Over / Short Summary</h2>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
@@ -6714,20 +6725,20 @@ async function saveUserRole() {
             </div>
             {/* Phase 3 Dashboard KPIs */}
             <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
-              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Total Tickets</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.length}</div></div>
+              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Total Tickets</div><div style={{ fontSize: 30, fontWeight: 900 }}>{getScopedTickets().length}</div></div>
               <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Approved</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.filter((t) => t.status === 'approved').length}</div></div>
               <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Draft / Working</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.filter((t) => !t.status || t.status === 'draft').length}</div></div>
-              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Meters</div><div style={{ fontSize: 30, fontWeight: 900 }}>{meters.length}</div></div>
+              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Meters</div><div style={{ fontSize: 30, fontWeight: 900 }}>{getScopedMeters().length}</div></div>
             </div>
             <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 20 }}>
-              <div style={box}>Areas<h2>{areas.length}</h2></div>
-              <div style={box}>Segments<h2>{segments.length}</h2></div>
-              <div style={box}>Leases<h2>{leases.length}</h2></div>
+              <div style={box}>Areas<h2>{getScopedAreas().length}</h2></div>
+              <div style={box}>Segments<h2>{getScopedSegments().length}</h2></div>
+              <div style={box}>Leases<h2>{getScopedLeases().length}</h2></div>
               <div style={box}>Producers<h2>{producers.length}</h2></div>
-              <div style={box}>Meters<h2>{meters.length}</h2></div>
-              <div style={box}>Readings<h2>{readings.length}</h2></div>
-              <div style={box}>Provings<h2>{provings.length}</h2></div>
-              <div style={box}>Tickets<h2>{tickets.length}</h2></div>
+              <div style={box}>Meters<h2>{getScopedMeters().length}</h2></div>
+              <div style={box}>Readings<h2>{getScopedReadings().length}</h2></div>
+              <div style={box}>Provings<h2>{getScopedProvings().length}</h2></div>
+              <div style={box}>Tickets<h2>{getScopedTickets().length}</h2></div>
             </div>
 
             <div style={box}>
@@ -6763,7 +6774,7 @@ async function saveUserRole() {
 
                 <select style={input} value={newTransporterPotId} onChange={(e) => setNewTransporterPotId(e.target.value)}>
                   <option value="">Select POT Quality</option>
-                  {potQuality.map((pot: any) => (
+                  {getScopedPotQuality().map((pot: any) => (
                     <option key={pot.id} value={pot.id}>
                       {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
                     </option>
@@ -7351,7 +7362,7 @@ async function saveUserRole() {
 
                     <select style={input} value={newTransporterPotId} onChange={(e) => setNewTransporterPotId(e.target.value)}>
                       <option value="">Select POT Quality</option>
-                      {potQuality.map((pot: any) => (
+                      {getScopedPotQuality().map((pot: any) => (
                         <option key={pot.id} value={pot.id}>
                           {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
                         </option>
@@ -7852,7 +7863,7 @@ async function saveUserRole() {
 
                 <select style={input} value={newTransporterPotId} onChange={(e) => setNewTransporterPotId(e.target.value)}>
                   <option value="">Select POT Quality</option>
-                  {potQuality.map((pot: any) => (
+                  {getScopedPotQuality().map((pot: any) => (
                     <option key={pot.id} value={pot.id}>
                       {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
                     </option>
@@ -8158,7 +8169,7 @@ async function saveUserRole() {
               <div style={kpiCard}>
                 <div style={{ color: '#a8b3bd', fontSize: 13 }}>Proving Compliance</div>
                 <div style={{ fontSize: 34, fontWeight: 900 }}>{opsProvingCompliancePercent}%</div>
-                <div style={{ color: '#a8b3bd', fontSize: 12 }}>{opsCompliantMeters.length} of {meters.length} meters</div>
+                <div style={{ color: '#a8b3bd', fontSize: 12 }}>{opsCompliantMeters.length} of {getScopedMeters().length} meters</div>
               </div>
 
               <div style={kpiCard}>
@@ -8261,7 +8272,7 @@ async function saveUserRole() {
               </p>
               <div style={{ display: 'grid', gap: 10 }}>
                 {segments.map((segment: any) => {
-                  const segmentTickets = tickets.filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
+                  const segmentTickets = getScopedTickets().filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
                   const receipts = segmentTickets
                     .filter((ticket: any) => {
                       const meter = meters.find((m: any) => m.id === ticket.meter_id)
@@ -8596,7 +8607,7 @@ async function saveUserRole() {
 
             {/* Ticket Debug Counts */}
             <div style={{ ...card, marginBottom: 12 }}>
-              Total tickets loaded: {tickets.length} • Pending workflow tickets: {getDraftWorkflowTickets().length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
+              Total tickets loaded: {getScopedTickets().length} • Pending workflow tickets: {getDraftWorkflowTickets().length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
             </div>
 
             {/* All Pending Ticket Approval Queue */}

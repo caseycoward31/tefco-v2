@@ -777,7 +777,6 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [readingMovementType, setReadingMovementType] = useState('receipt')
 const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [selectedReadingLease, setSelectedReadingLease] = useState('')
-  const [selectedReadingSegment, setSelectedReadingSegment] = useState('')
   const [readingOpen, setReadingOpen] = useState('')
   const [readingClose, setReadingClose] = useState('')
   const [readingGravity, setReadingGravity] = useState('')
@@ -1205,11 +1204,16 @@ const provingCompliancePercent =
 
 
 
+
+  function getCurrentAuthUserIdForAreaAccess() {
+    return (typeof session !== 'undefined' ? session?.user?.id : '') || (typeof currentUser !== 'undefined' ? currentUser?.id : '') || ''
+  }
+
   function getAllowedAreaIdsForCurrentUser() {
     if (userIsSuperAdmin || userIsCompanyAdmin) return areas.map((area: any) => String(area.id))
 
     const rows = userAreaAccess.filter((row: any) =>
-      String(row.user_id || row.profile_id || '') === String(currentUserId || user?.id || '')
+      String(row.user_id || row.profile_id || '') === String(getCurrentAuthUserIdForAreaAccess())
     )
 
     return rows.map((row: any) => String(row.area_id))
@@ -1243,6 +1247,9 @@ const provingCompliancePercent =
     return meters.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
   }
 
+
+  const areaAccessUsers: any[] = activeUsers || []
+
   function toggleAccessArea(areaId: string) {
     setSelectedAccessAreaIds((prev) =>
       prev.includes(areaId) ? prev.filter((id) => id !== areaId) : [...prev, areaId]
@@ -1265,9 +1272,9 @@ const provingCompliancePercent =
       return
     }
 
-    const activeCompanyId = getActiveCompanyId ? getActiveCompanyId() : companyId
+    const activeAreaCompanyId = activeCompanyId || companyId
 
-    if (!activeCompanyId) {
+    if (!activeAreaCompanyId) {
       alert('No company selected.')
       return
     }
@@ -1285,7 +1292,7 @@ const provingCompliancePercent =
 
     if (selectedAccessAreaIds.length) {
       const inserts = selectedAccessAreaIds.map((areaId) => ({
-        company_id: activeCompanyId,
+        company_id: activeAreaCompanyId,
         user_id: selectedAccessUserId,
         area_id: areaId,
       }))
@@ -2507,7 +2514,7 @@ function getCompanyDisplayName() {
         ? selectedAdminCompanyId
         : companyId
 
-    if (!activeCompanyId) {
+    if (!activeAreaCompanyId) {
       alert('No company selected.')
       return
     }
@@ -2538,7 +2545,7 @@ function getCompanyDisplayName() {
     }
 
     const payload = {
-      company_id: activeCompanyId,
+      company_id: activeAreaCompanyId,
       company_name: companyNameInput || '',
       address_line1: companyAddress1Input || '',
       address_line2: companyAddress2Input || '',
@@ -2683,7 +2690,7 @@ async function createCompany() {
     const activeCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
     const { error } = await supabase.from('tanks').insert({
-      company_id: activeCompanyId,
+      company_id: activeAreaCompanyId,
       segment_id: newTankSegmentId || null,
       tank_number: newTankNumber,
       tank_name: newTankName || null,
@@ -6954,7 +6961,7 @@ async function saveUserRole() {
                 <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 12, alignItems: 'start' }}>
                   <select style={input} value={selectedAccessUserId} onChange={(e) => beginEditAreaAccess(e.target.value)}>
                     <option value="">Select User</option>
-                    {users.map((u: any) => (
+                    {areaAccessUsers.map((u: any) => (
                       <option key={u.id || u.user_id} value={u.id || u.user_id}>
                         {u.email || u.full_name || u.name || u.user_id || u.id}
                       </option>

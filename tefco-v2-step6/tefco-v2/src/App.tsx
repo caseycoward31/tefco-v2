@@ -1377,7 +1377,7 @@ const provingCompliancePercent =
   function autofillOpeningReadingForLease(leaseId: string, meterId = '') {
     const previousClosing = getPreviousClosingReadingForLease(leaseId, meterId)
     if (previousClosing !== '' && previousClosing !== null && previousClosing !== undefined) {
-      setReadingOpening(String(previousClosing))
+      setReadingOpen(String(previousClosing))
     }
   }
 

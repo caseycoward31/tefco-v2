@@ -1266,7 +1266,7 @@ const provingCompliancePercent =
     return meters.filter((meter: any) => visibleAreaIds.has(String((meter as any).area_id || '')))
   }
 
-  function getAreaScopedTickets() {
+  function getAreaScopedTickets(): any[] {
     const visibleAreaIds = new Set(getVisibleAreas().map((area: any) => String(area.id)))
     if (userIsSuperAdmin || userIsCompanyAdmin) return tickets
     return getAreaScopedTickets().filter((ticket: any) =>
@@ -1277,7 +1277,7 @@ const provingCompliancePercent =
     )
   }
 
-  function getAreaScopedReadings() {
+  function getAreaScopedReadings(): any[] {
     const visibleAreaIds = new Set(getVisibleAreas().map((area: any) => String(area.id)))
     if (userIsSuperAdmin || userIsCompanyAdmin) return readings
     return readings.filter((reading: any) =>
@@ -1287,17 +1287,17 @@ const provingCompliancePercent =
     )
   }
 
-  function getAreaScopedPotQuality() {
+  function getAreaScopedPotQuality(): any[] {
     const visibleAreaIds = new Set(getVisibleAreas().map((area: any) => String(area.id)))
-    if (userIsSuperAdmin || userIsCompanyAdmin) return potQualities || []
-    return (potQualities || []).filter((pot: any) =>
+    if (userIsSuperAdmin || userIsCompanyAdmin) return Array.isArray(potQuality) ? potQuality : []
+    return (Array.isArray(potQuality) ? potQuality : []).filter((pot: any) =>
       visibleAreaIds.has(String(pot.area_id || ''))
       || getAreaScopedLeases().some((lease: any) => String(lease.id) === String(pot.lease_id || ''))
       || getAreaScopedSegments().some((segment: any) => String(segment.id) === String(pot.segment_id || ''))
     )
   }
 
-  function getAreaScopedProvings() {
+  function getAreaScopedProvings(): any[] {
     const visibleAreaIds = new Set(getVisibleAreas().map((area: any) => String(area.id)))
     if (userIsSuperAdmin || userIsCompanyAdmin) return provings || []
     return (provings || []).filter((proving: any) =>

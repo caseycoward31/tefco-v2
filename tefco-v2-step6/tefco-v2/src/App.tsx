@@ -1219,26 +1219,34 @@ const provingCompliancePercent =
 
 
 
+
+  function asArray(value: any): any[] {
+    return Array.isArray(value) ? value : []
+  }
+
+
   function getCurrentAuthUserIdForAreaAccess() {
-    return currentAuthUserId || userRoles?.[0]?.user_id || ''
+    return currentAuthUserId || asArray(userRoles)?.[0]?.user_id || ''
   }
 
   function getAllowedAreaIdsForCurrentUser() {
-    if (userIsSuperAdmin || userIsCompanyAdmin) return areas.map((area: any) => String(area.id))
+    const areaRows = asArray(areas)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return areaRows.map((area: any) => String(area.id))
 
     const uid = getCurrentAuthUserIdForAreaAccess()
     if (!uid) return []
 
-    return userAreaAccess
+    return asArray(userAreaAccess)
       .filter((row: any) => String(row.user_id || row.profile_id || '') === String(uid))
       .map((row: any) => String(row.area_id))
   }
 
   function getScopedAreas(): any[] {
-    if (userIsSuperAdmin || userIsCompanyAdmin) return areas
+    const areaRows = asArray(areas)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return areaRows
 
     const allowed = getAllowedAreaIdsForCurrentUser()
-    return areas.filter((area: any) => allowed.includes(String(area.id)))
+    return areaRows.filter((area: any) => allowed.includes(String(area.id)))
   }
 
   function getVisibleAreas() {
@@ -1251,24 +1259,27 @@ const provingCompliancePercent =
   }
 
   function getScopedSegments(): any[] {
-    if (userIsSuperAdmin || userIsCompanyAdmin) return segments
+    const segmentRows = asArray(segments)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return segmentRows
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    return segments.filter((segment: any) => areaIds.has(String((segment as any).area_id || '')))
+    return segmentRows.filter((segment: any) => areaIds.has(String((segment as any).area_id || '')))
   }
 
   function getScopedLeases(): any[] {
-    if (userIsSuperAdmin || userIsCompanyAdmin) return leases
+    const leaseRows = asArray(leases)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return leaseRows
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    return leases.filter((lease: any) => areaIds.has(String((lease as any).area_id || '')))
+    return leaseRows.filter((lease: any) => areaIds.has(String((lease as any).area_id || '')))
   }
 
   function getScopedMeters(): any[] {
-    if (userIsSuperAdmin || userIsCompanyAdmin) return meters
+    const meterRows = asArray(meters)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return meterRows
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    return meters.filter((meter: any) => areaIds.has(String((meter as any).area_id || '')))
+    return meterRows.filter((meter: any) => areaIds.has(String((meter as any).area_id || '')))
   }
 
   function getVisibleSegments(areaId: string) {
@@ -1303,13 +1314,14 @@ const provingCompliancePercent =
   }
 
   function getScopedReadings(): any[] {
-    if (userIsSuperAdmin || userIsCompanyAdmin) return readings
+    const readingRows = asArray(readings)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return readingRows
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
     const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
     const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
 
-    return readings.filter((reading: any) =>
+    return readingRows.filter((reading: any) =>
       areaIds.has(String(reading.area_id || '')) ||
       meterIds.has(String(reading.meter_id || '')) ||
       leaseIds.has(String(reading.lease_id || ''))
@@ -1317,14 +1329,15 @@ const provingCompliancePercent =
   }
 
   function getScopedTickets(): any[] {
-    if (userIsSuperAdmin || userIsCompanyAdmin) return tickets
+    const ticketRows = asArray(tickets)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return ticketRows
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
     const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
     const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
     const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
 
-    return getScopedTickets().filter((ticket: any) =>
+    return ticketRows.filter((ticket: any) =>
       areaIds.has(String(ticket.area_id || ticket.observed_inputs?.area_id || '')) ||
       segmentIds.has(String(ticket.segment_id || ticket.observed_inputs?.segment_id || '')) ||
       leaseIds.has(String(ticket.lease_id || ticket.observed_inputs?.lease_id || '')) ||
@@ -1333,7 +1346,7 @@ const provingCompliancePercent =
   }
 
   function getScopedPotQuality(): any[] {
-    const rows = Array.isArray(potQuality) ? potQuality : []
+    const rows = asArray(potQuality)
     if (userIsSuperAdmin || userIsCompanyAdmin) return rows
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
@@ -1348,7 +1361,7 @@ const provingCompliancePercent =
   }
 
   function getScopedProvings(): any[] {
-    const rows = Array.isArray(provings) ? provings : []
+    const rows = asArray(provings)
     if (userIsSuperAdmin || userIsCompanyAdmin) return rows
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
@@ -1369,11 +1382,10 @@ const provingCompliancePercent =
     return `User ${uid || 'unknown'} allowed areas: ${allowed || 'none assigned'}`
   }
 
-
   function getAreaAccessUsers() {
     const activeCompany = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
-    return (userRoles || [])
+    return asArray(userRoles)
       .filter((role: any) => {
         const rowCompanyId = role.company_id || role.companyId
         return !activeCompany || !rowCompanyId || String(rowCompanyId) === String(activeCompany)

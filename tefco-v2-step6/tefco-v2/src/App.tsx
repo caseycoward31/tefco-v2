@@ -774,6 +774,10 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [selectedReadingSegment, setSelectedReadingSegment] = useState('')
   const [readingMovementType, setReadingMovementType] = useState('receipt')
 const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
+  const [provingMeter, setProvingMeter] = useState('')
+  const [selectedProvingArea, setSelectedProvingArea] = useState('')
+  const [selectedProvingSegment, setSelectedProvingSegment] = useState('')
+  const [selectedProvingLease, setSelectedProvingLease] = useState('')
   const [selectedReadingLease, setSelectedReadingLease] = useState('')
   const [readingOpen, setReadingOpen] = useState('')
   const [readingClose, setReadingClose] = useState('')
@@ -784,7 +788,6 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [readingBSW, setReadingBSW] = useState('')
   const [readingMF, setReadingMF] = useState('')
 
-  const [provingMeter, setProvingMeter] = useState('')
   const [provingDate, setProvingDate] = useState('')
   const [proverVolume, setProverVolume] = useState('')
   const [provingIndicatedVolume, setProvingIndicatedVolume] = useState('')
@@ -1548,6 +1551,44 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     window.open(data.signedUrl, '_blank')
   }
 
+
+  function getSegmentsForSelectedProvingArea() {
+    return getVisibleSegments(selectedProvingArea)
+  }
+
+  function getLeasesForSelectedProvingSegment() {
+    return getVisibleLeases(selectedProvingSegment)
+  }
+
+  function getMetersForSelectedProvingLease() {
+    return getVisibleMeters(selectedProvingLease)
+  }
+
+  function handleProvingAreaSelect(areaId: string) {
+    setSelectedProvingArea(areaId)
+    setSelectedProvingSegment('')
+    setSelectedProvingLease('')
+    setProvingMeter('')
+  }
+
+  function handleProvingSegmentSelect(segmentId: string) {
+    setSelectedProvingSegment(segmentId)
+    setSelectedProvingLease('')
+    setProvingMeter('')
+  }
+
+  function handleProvingLeaseSelect(leaseId: string) {
+    setSelectedProvingLease(leaseId)
+
+    const leaseMeters = meters.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
+
+    if (leaseMeters.length === 1) {
+      setProvingMeter(leaseMeters[0].id)
+    } else {
+      setProvingMeter('')
+    }
+  }
+
   async function saveProving() {
     if (!companyId || !provingMeter || !provingDate) {
       alert('Select meter and proving date first.')
@@ -1565,7 +1606,10 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       .from('meter_provings')
       .insert({
         company_id: companyId,
-        meter_id: provingMeter,
+        area_id: selectedProvingArea || null,
+      segment_id: selectedProvingSegment || null,
+      lease_id: selectedProvingLease || null,
+      meter_id: provingMeter,
         proving_date: provingDate,
         prover_volume: Number(proverVolume || 0),
         indicated_volume: Number(provingIndicatedVolume || 0),
@@ -7738,9 +7782,34 @@ async function saveUserRole() {
 
             <div style={box}>
               <h2>New Proving</h2>
-              <select style={input} value={provingMeter} onChange={(e) => setProvingMeter(e.target.value)}>
-                <option value="">Select Meter</option>
-                {meters.map((m) => <option key={m.id} value={m.id}>{m.meter_number}</option>)}
+              <select style={input} value={selectedProvingArea} onChange={(e) => handleProvingAreaSelect(e.target.value)}>
+                <option value="">Select Area</option>
+                {getVisibleAreas().map((area: any) => (
+                  <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                ))}
+              </select>
+
+              <select style={input} value={selectedProvingSegment} onChange={(e) => handleProvingSegmentSelect(e.target.value)} disabled={!selectedProvingArea}>
+                <option value="">{selectedProvingArea ? 'Select Segment' : 'Select area first'}</option>
+                {getSegmentsForSelectedProvingArea().map((segment: any) => (
+                  <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
+                ))}
+              </select>
+
+              <select style={input} value={selectedProvingLease} onChange={(e) => handleProvingLeaseSelect(e.target.value)} disabled={!selectedProvingSegment}>
+                <option value="">{selectedProvingSegment ? 'Select Lease' : 'Select segment first'}</option>
+                {getLeasesForSelectedProvingSegment().map((lease: any) => (
+                  <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                ))}
+              </select>
+
+              <select style={input} value={provingMeter} onChange={(e) => setProvingMeter(e.target.value)} disabled={!selectedProvingLease}>
+                <option value="">{selectedProvingLease ? 'Select Meter' : 'Select lease first'}</option>
+                {getMetersForSelectedProvingLease().map((meter: any) => (
+                  <option key={meter.id} value={meter.id}>
+                    {meter.meter_number || meter.meter_name} {meter.meter_name && meter.meter_number ? `- ${meter.meter_name}` : ''}
+                  </option>
+                ))}
               </select>
               <select style={input} value={provingFactorType} onChange={(e) => setProvingFactorType(e.target.value)}>
                 <option value="MF">MF</option>

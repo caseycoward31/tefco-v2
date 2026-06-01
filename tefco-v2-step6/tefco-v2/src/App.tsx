@@ -582,6 +582,12 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
+  const [hierarchySegmentId, setHierarchySegmentId] = useState('')
+  const [hierarchyAreaId, setHierarchyAreaId] = useState('')
+  const [hierarchyLeaseId, setHierarchyLeaseId] = useState('')
+  const [hierarchyLeaseSegmentId, setHierarchyLeaseSegmentId] = useState('')
+  const [hierarchyMeterId, setHierarchyMeterId] = useState('')
+  const [hierarchyMeterLeaseId, setHierarchyMeterLeaseId] = useState('')
   const [userAreaAccess, setUserAreaAccess] = useState<any[]>([])
   const [selectedAccessUserId, setSelectedAccessUserId] = useState('')
   const [selectedAccessAreaIds, setSelectedAccessAreaIds] = useState<string[]>([])
@@ -1289,6 +1295,84 @@ const provingCompliancePercent =
       .map((row: any) => String(row.area_id))
 
     setSelectedAccessAreaIds(current)
+  }
+
+
+  async function saveSegmentAreaLink() {
+    if (!hierarchySegmentId || !hierarchyAreaId) {
+      alert('Select a segment and area first.')
+      return
+    }
+
+    const { error } = await supabase
+      .from('segments')
+      .update({ area_id: hierarchyAreaId })
+      .eq('id', hierarchySegmentId)
+
+    if (error) {
+      alert('Could not save segment area: ' + error.message)
+      return
+    }
+
+    await loadAll()
+    setHierarchySegmentId('')
+    setHierarchyAreaId('')
+    alert('Segment assigned to area.')
+  }
+
+  async function saveLeaseSegmentLink() {
+    if (!hierarchyLeaseId || !hierarchyLeaseSegmentId) {
+      alert('Select a lease and segment first.')
+      return
+    }
+
+    const selectedSegment = segments.find((s: any) => String(s.id) === String(hierarchyLeaseSegmentId))
+
+    const { error } = await supabase
+      .from('leases')
+      .update({
+        segment_id: hierarchyLeaseSegmentId,
+        area_id: selectedSegment?.area_id || null,
+      })
+      .eq('id', hierarchyLeaseId)
+
+    if (error) {
+      alert('Could not save lease segment: ' + error.message)
+      return
+    }
+
+    await loadAll()
+    setHierarchyLeaseId('')
+    setHierarchyLeaseSegmentId('')
+    alert('Lease assigned to segment.')
+  }
+
+  async function saveMeterLeaseLink() {
+    if (!hierarchyMeterId || !hierarchyMeterLeaseId) {
+      alert('Select a meter and lease first.')
+      return
+    }
+
+    const selectedLease = leases.find((l: any) => String(l.id) === String(hierarchyMeterLeaseId))
+
+    const { error } = await supabase
+      .from('meters')
+      .update({
+        lease_id: hierarchyMeterLeaseId,
+        segment_id: selectedLease?.segment_id || null,
+        area_id: selectedLease?.area_id || null,
+      })
+      .eq('id', hierarchyMeterId)
+
+    if (error) {
+      alert('Could not save meter lease: ' + error.message)
+      return
+    }
+
+    await loadAll()
+    setHierarchyMeterId('')
+    setHierarchyMeterLeaseId('')
+    alert('Meter assigned to lease.')
   }
 
   async function saveUserAreaAccess() {
@@ -7034,6 +7118,82 @@ async function saveUserRole() {
                   <button style={button} onClick={() => runSafeAction('Saving area access', saveUserAreaAccess)}>
                     Save Access
                   </button>
+                </div>
+              </div>
+            )}
+
+
+            {(userIsSuperAdmin || userIsCompanyAdmin) && (
+              <div style={box}>
+                <h2>Hierarchy Cleanup</h2>
+                <p style={{ color: '#a8b3bd' }}>
+                  This controls strict dropdown filtering. Fix these links so Area only shows its own Segments, Segment only shows its own Leases, and Lease only shows its own Meters.
+                </p>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, alignItems: 'center' }}>
+                  <select style={input} value={hierarchySegmentId} onChange={(e) => setHierarchySegmentId(e.target.value)}>
+                    <option value="">Select Segment to assign area</option>
+                    {segments.map((segment: any) => (
+                      <option key={segment.id} value={segment.id}>
+                        {segment.segment_name || segment.name} {segment.area_id ? '' : '(missing area)'}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select style={input} value={hierarchyAreaId} onChange={(e) => setHierarchyAreaId(e.target.value)}>
+                    <option value="">Assign to Area</option>
+                    {areas.map((area: any) => (
+                      <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                    ))}
+                  </select>
+
+                  <button style={button} onClick={() => runSafeAction('Saving segment area', saveSegmentAreaLink)}>
+                    Save Segment → Area
+                  </button>
+
+                  <select style={input} value={hierarchyLeaseId} onChange={(e) => setHierarchyLeaseId(e.target.value)}>
+                    <option value="">Select Lease to assign segment</option>
+                    {leases.map((lease: any) => (
+                      <option key={lease.id} value={lease.id}>
+                        {lease.lease_name || lease.name || lease.lease_number} {lease.segment_id ? '' : '(missing segment)'}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select style={input} value={hierarchyLeaseSegmentId} onChange={(e) => setHierarchyLeaseSegmentId(e.target.value)}>
+                    <option value="">Assign to Segment</option>
+                    {segments.map((segment: any) => (
+                      <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
+                    ))}
+                  </select>
+
+                  <button style={button} onClick={() => runSafeAction('Saving lease segment', saveLeaseSegmentLink)}>
+                    Save Lease → Segment
+                  </button>
+
+                  <select style={input} value={hierarchyMeterId} onChange={(e) => setHierarchyMeterId(e.target.value)}>
+                    <option value="">Select Meter to assign lease</option>
+                    {meters.map((meter: any) => (
+                      <option key={meter.id} value={meter.id}>
+                        {meter.meter_number || meter.meter_name} {meter.lease_id ? '' : '(missing lease)'}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select style={input} value={hierarchyMeterLeaseId} onChange={(e) => setHierarchyMeterLeaseId(e.target.value)}>
+                    <option value="">Assign to Lease</option>
+                    {leases.map((lease: any) => (
+                      <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                    ))}
+                  </select>
+
+                  <button style={button} onClick={() => runSafeAction('Saving meter lease', saveMeterLeaseLink)}>
+                    Save Meter → Lease
+                  </button>
+                </div>
+
+                <div style={{ color: '#a8b3bd', marginTop: 12, fontSize: 13 }}>
+                  Missing links: {segments.filter((s: any) => !s.area_id).length} segments without area • {leases.filter((l: any) => !l.segment_id).length} leases without segment • {meters.filter((m: any) => !m.lease_id).length} meters without lease
                 </div>
               </div>
             )}

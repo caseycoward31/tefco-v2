@@ -1248,7 +1248,16 @@ const provingCompliancePercent =
   }
 
 
-  const areaAccessUsers: any[] = []
+
+  function getAreaAccessUsers() {
+    const activeCompany = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    return areaAccessUsers.filter((u: any) => {
+      const rowCompanyId = u.company_id || u.companyId
+      return !rowCompanyId || !activeCompany || String(rowCompanyId) === String(activeCompany)
+    })
+  }
+
+  const areaAccessUsers: any[] = userRoles || []
 
   function toggleAccessArea(areaId: string) {
     setSelectedAccessAreaIds((prev) =>
@@ -6961,11 +6970,15 @@ async function saveUserRole() {
                 <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 12, alignItems: 'start' }}>
                   <select style={input} value={selectedAccessUserId} onChange={(e) => beginEditAreaAccess(e.target.value)}>
                     <option value="">Select User</option>
-                    {areaAccessUsers.map((u: any) => (
-                      <option key={u.id || u.user_id} value={u.id || u.user_id}>
-                        {u.email || u.full_name || u.name || u.user_id || u.id}
-                      </option>
-                    ))}
+                    {getAreaAccessUsers().map((u: any) => {
+                      const accessUserId = u.user_id || u.id || u.profile_id
+                      const accessLabel = u.email || u.full_name || u.name || `${u.role || 'user'} — ${accessUserId}`
+                      return (
+                        <option key={accessUserId} value={accessUserId}>
+                          {accessLabel}
+                        </option>
+                      )
+                    })}
                   </select>
 
                   <div style={{ ...card, display: 'grid', gap: 8 }}>

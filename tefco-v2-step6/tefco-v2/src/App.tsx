@@ -683,6 +683,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [potCsvEndDate, setPotCsvEndDate] = useState('')
   const [potCsvProducerId, setPotCsvProducerId] = useState('')
   const [companyId, setCompanyId] = useState('')
+  const [currentAuthUserId, setCurrentAuthUserId] = useState('')
   const [companySettings, setCompanySettings] = useState<any>(null)
   const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null)
   const [companyNameInput, setCompanyNameInput] = useState('')
@@ -934,11 +935,13 @@ useEffect(() => {
   async function reloadCurrentUserRole() {
     const authResult = await supabase.auth.getUser()
     const authUser = authResult.data.user
+    setCurrentAuthUserId(authUser?.id || '')
 
     if (!authUser) {
       setCurrentUserRole('operator')
       setUserRoles([])
       setCompanyId('')
+      setCurrentAuthUserId('')
       return
     }
 
@@ -1216,7 +1219,7 @@ const provingCompliancePercent =
 
 
   function getCurrentAuthUserIdForAreaAccess() {
-    return authUser?.id || ''
+    return currentAuthUserId || ''
   }
 
   function getAllowedAreaIdsForCurrentUser() {

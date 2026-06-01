@@ -884,8 +884,8 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
     potQuality,
   ])
 
-  const userIsSuperAdmin = Role === 'super_admin'
-  const userIsCompanyAdmin = Role === 'admin'
+  const userIsSuperAdmin = Role === 'super_admin' || asArray(userRoles).some((role: any) => role.active !== false && role.role === 'super_admin')
+  const userIsCompanyAdmin = Role === 'admin' || Role === 'company_admin' || asArray(userRoles).some((role: any) => role.active !== false && (role.role === 'admin' || role.role === 'company_admin'))
   const userCanManageCompanySetup = userIsSuperAdmin || userIsCompanyAdmin
   const userCanCreateCompanyScopedUsers = userIsSuperAdmin || userIsCompanyAdmin
 useEffect(() => {

@@ -884,8 +884,29 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
     potQuality,
   ])
 
-  const userIsSuperAdmin = Role === 'super_admin' || asArray(userRoles).some((role: any) => role.active !== false && role.role === 'super_admin')
-  const userIsCompanyAdmin = Role === 'admin' || Role === 'company_admin' || asArray(userRoles).some((role: any) => role.active !== false && (role.role === 'admin' || role.role === 'company_admin'))
+  
+  function normalizeRoleName(value: any) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/-/g, '_')
+  }
+
+  function hasLoadedRole(...roleNames: string[]) {
+    const wanted = new Set(roleNames.map(normalizeRoleName))
+    const current = normalizeRoleName(Role)
+
+    if (wanted.has(current)) return true
+
+    return asArray(userRoles).some((row: any) => {
+      if (row.active === false) return false
+      return wanted.has(normalizeRoleName(row.role))
+    })
+  }
+
+const userIsSuperAdmin = hasLoadedRole('super_admin')
+  const userIsCompanyAdmin = hasLoadedRole('admin', 'company_admin', 'company admin')
   const userCanManageCompanySetup = userIsSuperAdmin || userIsCompanyAdmin
   const userCanCreateCompanyScopedUsers = userIsSuperAdmin || userIsCompanyAdmin
 useEffect(() => {
@@ -6731,7 +6752,7 @@ async function saveUserRole() {
         {page === 'dashboard' && (
           <>
             <h1>Dashboard</h1>
-            <div style={{ color: '#a8b3bd', fontSize: 13, marginBottom: 8 }}>{getAreaAccessDebugText()}</div>
+            <div style={{ color: '#a8b3bd', fontSize: 13, marginBottom: 8 }}>{getAreaAccessDebugText()} • Detected role: {String(Role || 'none')}</div>
             <div style={box}>
               <h2>Over / Short Summary</h2>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>

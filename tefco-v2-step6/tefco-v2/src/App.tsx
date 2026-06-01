@@ -1219,7 +1219,7 @@ const provingCompliancePercent =
 
 
   function getCurrentAuthUserIdForAreaAccess() {
-    return currentAuthUserId || ''
+    return currentAuthUserId || userRoles?.[0]?.user_id || ''
   }
 
   function getAllowedAreaIdsForCurrentUser() {
@@ -1235,9 +1235,7 @@ const provingCompliancePercent =
   function getVisibleAreas() {
     const allowed = getAllowedAreaIdsForCurrentUser()
 
-    if (userIsSuperAdmin || userIsCompanyAdmin) {
-      return areas
-    }
+    if (userIsSuperAdmin || userIsCompanyAdmin) return areas
 
     return areas.filter((area: any) => allowed.includes(String(area.id)))
   }
@@ -1247,15 +1245,91 @@ const provingCompliancePercent =
     return getAllowedAreaIdsForCurrentUser().includes(String(areaId))
   }
 
+
+  function getVisibleAreaIdSet() {
+    return new Set(getVisibleAreas().map((area: any) => String(area.id)))
+  }
+
+  function getScopedSegments(): any[] {
+    if (userIsSuperAdmin || userIsCompanyAdmin) return segments
+    const areaIds = getVisibleAreaIdSet()
+    return segments.filter((segment: any) => areaIds.has(String((segment as any).area_id || '')))
+  }
+
+  function getScopedLeases(): any[] {
+    if (userIsSuperAdmin || userIsCompanyAdmin) return leases
+    const areaIds = getVisibleAreaIdSet()
+    return leases.filter((lease: any) => areaIds.has(String((lease as any).area_id || '')))
+  }
+
+  function getScopedMeters(): any[] {
+    if (userIsSuperAdmin || userIsCompanyAdmin) return meters
+    const areaIds = getVisibleAreaIdSet()
+    return meters.filter((meter: any) => areaIds.has(String((meter as any).area_id || '')))
+  }
+
+  function getScopedReadings(): any[] {
+    if (userIsSuperAdmin || userIsCompanyAdmin) return readings
+    const areaIds = getVisibleAreaIdSet()
+    const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
+    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
+    return readings.filter((reading: any) =>
+      areaIds.has(String(reading.area_id || '')) ||
+      meterIds.has(String(reading.meter_id || '')) ||
+      leaseIds.has(String(reading.lease_id || ''))
+    )
+  }
+
+  function getScopedTickets(): any[] {
+    if (userIsSuperAdmin || userIsCompanyAdmin) return tickets
+    const areaIds = getVisibleAreaIdSet()
+    const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
+    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
+    const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
+
+    return tickets.filter((ticket: any) =>
+      areaIds.has(String(ticket.area_id || ticket.observed_inputs?.area_id || '')) ||
+      segmentIds.has(String(ticket.segment_id || ticket.observed_inputs?.segment_id || '')) ||
+      leaseIds.has(String(ticket.lease_id || ticket.observed_inputs?.lease_id || '')) ||
+      meterIds.has(String(ticket.meter_id || ticket.observed_inputs?.meter_id || ''))
+    )
+  }
+
+  function getScopedPotQuality(): any[] {
+    const rows = Array.isArray(potQuality) ? potQuality : []
+    if (userIsSuperAdmin || userIsCompanyAdmin) return rows
+    const areaIds = getVisibleAreaIdSet()
+    const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
+    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
+
+    return rows.filter((pot: any) =>
+      areaIds.has(String(pot.area_id || '')) ||
+      segmentIds.has(String(pot.segment_id || '')) ||
+      leaseIds.has(String(pot.lease_id || ''))
+    )
+  }
+
+  function getScopedProvings(): any[] {
+    const rows = Array.isArray(provings) ? provings : []
+    if (userIsSuperAdmin || userIsCompanyAdmin) return rows
+    const areaIds = getVisibleAreaIdSet()
+    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
+    const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
+
+    return rows.filter((proving: any) =>
+      areaIds.has(String(proving.area_id || '')) ||
+      leaseIds.has(String(proving.lease_id || '')) ||
+      meterIds.has(String(proving.meter_id || ''))
+    )
+  }
+
   function getVisibleSegments(areaId: string) {
     if (!areaId) return []
     if (!userCanAccessArea(areaId)) return []
 
     return segments
       .filter((segment: any) => String((segment as any).area_id || '') === String(areaId))
-      .sort((a: any, b: any) =>
-        String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || ''))
-      )
+      .sort((a: any, b: any) => String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || '')))
   }
 
   function getVisibleLeases(segmentId: string) {
@@ -1263,9 +1337,7 @@ const provingCompliancePercent =
 
     return leases
       .filter((lease: any) => String((lease as any).segment_id || '') === String(segmentId))
-      .sort((a: any, b: any) =>
-        String(a.lease_name || a.name || a.lease_number || '').localeCompare(String(b.lease_name || b.name || b.lease_number || ''))
-      )
+      .sort((a: any, b: any) => String(a.lease_name || a.name || a.lease_number || '').localeCompare(String(b.lease_name || b.name || b.lease_number || '')))
   }
 
   function getVisibleMeters(leaseId: string) {
@@ -1273,9 +1345,7 @@ const provingCompliancePercent =
 
     return meters
       .filter((meter: any) => String((meter as any).lease_id || '') === String(leaseId))
-      .sort((a: any, b: any) =>
-        String(a.meter_number || a.meter_name || '').localeCompare(String(b.meter_number || b.meter_name || ''))
-      )
+      .sort((a: any, b: any) => String(a.meter_number || a.meter_name || '').localeCompare(String(b.meter_number || b.meter_name || '')))
   }
 
 
@@ -8558,7 +8628,7 @@ async function saveUserRole() {
 
                     {isOpen && (
                       <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-                        {group.tickets.map((ticket: any) => (
+                        {group.getScopedTickets().map((ticket: any) => (
                           <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
                             <div>
                               <strong>{compactTicketTitle(ticket)}</strong>
@@ -8862,7 +8932,7 @@ async function saveUserRole() {
 
                     {isOpen && (
                       <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-                        {group.tickets.map((ticket: any) => (
+                        {group.getScopedTickets().map((ticket: any) => (
                           <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
                             <div>
                               <strong>{compactTicketTitle(ticket)}</strong>

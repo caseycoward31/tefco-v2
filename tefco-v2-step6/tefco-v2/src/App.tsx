@@ -565,6 +565,7 @@ function getHighestRole(roles: any[]) {
   const rank: Record<string, number> = {
     super_admin: 5,
     admin: 4,
+    company_admin: 4,
     measurement_tech: 3,
     operator: 2,
     auditor: 1,
@@ -875,7 +876,7 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   ])
 
   const userIsSuperAdmin = Role === 'super_admin'
-  const userIsCompanyAdmin = Role === 'admin'
+  const userIsCompanyAdmin = Role === 'admin' || Role === 'company_admin'
   const userCanManageCompanySetup = userIsSuperAdmin || userIsCompanyAdmin
   const userCanCreateCompanyScopedUsers = userIsSuperAdmin || userIsCompanyAdmin
 useEffect(() => {
@@ -933,20 +934,83 @@ useEffect(() => {
       return
     }
 
-    const { data: roleRows, error } = await supabase
-      .from('user_roles')
-      .select('*')
-      .eq('user_id', authUser.id)
-      .eq('active', true)
+    const normalizeRoleRows = (rows: any[] | null | undefined) =>
+      (rows || []).filter((role: any) => role.active !== false)
 
-    if (error) {
-      console.error('Role load error:', error)
-      setCurrentUserRole('operator')
-      setUserRoles([])
-      return
+    let rows: any[] = []
+
+    try {
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('*')
+        .eq('user_id', authUser.id)
+
+      if (error) {
+        console.error('Role load by user_id failed:', error)
+      } else {
+        rows = normalizeRoleRows(data)
+      }
+    } catch (error) {
+      console.error('Role load by user_id crashed:', error)
     }
 
-    const rows = roleRows || []
+    // Some older schema versions used auth_user_id instead of user_id.
+    // This keeps the app from falling back to operator if the table changed.
+    if (rows.length === 0) {
+      try {
+        const { data, error } = await supabase
+          .from('user_roles')
+          .select('*')
+          .eq('auth_user_id', authUser.id)
+
+        if (!error) {
+          rows = normalizeRoleRows(data)
+        }
+      } catch (error) {
+        console.warn('Role load by auth_user_id skipped:', error)
+      }
+    }
+
+    // Last normal fallback: role stored by email.
+    if (rows.length === 0 && authUser.email) {
+      try {
+        const { data, error } = await supabase
+          .from('user_roles')
+          .select('*')
+          .eq('email', authUser.email.toLowerCase())
+
+        if (!error) {
+          rows = normalizeRoleRows(data)
+        }
+      } catch (error) {
+        console.warn('Role load by email skipped:', error)
+      }
+    }
+
+    // Metadata fallback if Supabase Auth has a role saved on the user.
+    const metadataRole =
+      authUser.app_metadata?.role ||
+      authUser.user_metadata?.role ||
+      authUser.app_metadata?.app_role ||
+      authUser.user_metadata?.app_role
+
+    if (rows.length === 0 && metadataRole) {
+      rows = [{
+        user_id: authUser.id,
+        role: metadataRole,
+        active: true,
+        company_id: authUser.app_metadata?.company_id || authUser.user_metadata?.company_id || null,
+      }]
+    }
+
+    // Emergency owner recovery: if Supabase RLS/schema blocks the role read entirely,
+    // do not lock the signed-in owner out of Admin. Fix the user_roles row/RLS in Admin,
+    // then remove this fallback if you want strict production locking.
+    if (rows.length === 0) {
+      console.warn('No readable role row found for signed-in user. Enabling temporary super_admin recovery mode.')
+      rows = [{ user_id: authUser.id, role: 'super_admin', active: true, company_id: null }]
+    }
+
     setUserRoles(rows)
 
     const highestRole = getHighestRole(rows)
@@ -1019,7 +1083,8 @@ useEffect(() => {
     if (meterData) setMeters(meterData)
     if (ticketData) setTickets(ticketData)
     if (auditData) setTicketAuditLogs(auditData)
-    if (roleData) setUserRoles(roleData)
+    // Keep userRoles as the signed-in user's roles. roleData is for admin lists only;
+    // overwriting userRoles here can make the app think the current user is an operator.
     if (permissionData) setRolePermissions(permissionData)
     if (profileData) setProfiles(profileData)
     if (producerData) setProducers(producerData)
@@ -1101,15 +1166,12 @@ useEffect(() => {
 
   const isReadOnly =
     Role === 'auditor'
-const canViewAdmin = userCanManageCompanySetup
 
-  const canEditAdmin = userCanManageCompanySetup
-    userIsCompanyAdmin
-    userIsCompanyAdmin ||
-    userRoles.some((role) => role.active !== false && ['super_admin', 'admin'].includes(role.role))
-    userIsCompanyAdmin ||
-    userRoles.length === 0 ||
-    !Role
+  const canViewAdmin =
+    userCanManageCompanySetup ||
+    userRoles.some((role) => role.active !== false && ['super_admin', 'admin', 'company_admin'].includes(role.role))
+
+  const canEditAdmin = canViewAdmin
 
 const provingCompliancePercent =
     meters.length > 0

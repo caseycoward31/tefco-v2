@@ -582,6 +582,20 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
+  const [contractProfiles, setContractProfiles] = useState<any[]>([])
+  const [newContractName, setNewContractName] = useState('')
+  const [newContractTransporter, setNewContractTransporter] = useState('')
+  const [newContractMethod, setNewContractMethod] = useState('chapter12_2021')
+  const [newContractMf, setNewContractMf] = useState('1')
+  const [newContractApiVersion, setNewContractApiVersion] = useState('api_11_1_2021')
+  const [newContractCorrectionSource, setNewContractCorrectionSource] = useState('app_calculated')
+  const [apiTesterVersion, setApiTesterVersion] = useState('api_11_1_2021')
+  const [apiTesterGravity, setApiTesterGravity] = useState('40')
+  const [apiTesterTemp, setApiTesterTemp] = useState('80')
+  const [apiTesterPressure, setApiTesterPressure] = useState('50')
+  const [apiTesterIv, setApiTesterIv] = useState('1000')
+  const [apiTesterMf, setApiTesterMf] = useState('1')
+  const [apiTesterBsw, setApiTesterBsw] = useState('0')
   const [systemHealthChecks, setSystemHealthChecks] = useState<any[]>([])
   const [systemHealthRunning, setSystemHealthRunning] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -698,10 +712,8 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [selectedAdminCompanyId, setSelectedAdminCompanyId] = useState('')
   const [newCompanyAdminEmail, setNewCompanyAdminEmail] = useState('')
   const [newCompanyAdminPassword, setNewCompanyAdminPassword] = useState('')
-  const [newContractName, setNewContractName] = useState('')
   const [newContractProducer, setNewContractProducer] = useState('')
   const [newContractStandard, setNewContractStandard] = useState('API 11.1 2021')
-  const [newContractMethod, setNewContractMethod] = useState('CTPL')
   const [newContractFactorType, setNewContractFactorType] = useState('MF')
   const [newContractProductGroup, setNewContractProductGroup] = useState('crude')
   const [newContractApiRounding, setNewContractApiRounding] = useState('1')
@@ -720,10 +732,11 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [transporterPotRules, setTransporterPotRules] = useState<any[]>([])
   const [newTransporterPotName, setNewTransporterPotName] = useState('')
   const [newTransporterPotId, setNewTransporterPotId] = useState('')
-  const [contractProfiles, setContractProfiles] = useState<ContractProfile[]>([])
   const [newAdminEmail, setNewAdminEmail] = useState('')
   const [newAdminPassword, setNewAdminPassword] = useState('')
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
+  const [openApprovedTicketMonths, setOpenApprovedTicketMonths] = useState<Record<string, boolean>>({})
+  const [openWorkflowTicketGroups, setOpenWorkflowTicketGroups] = useState<Record<string, boolean>>({})
 
   const [newArea, setNewArea] = useState('')
   const [newSegment, setNewSegment] = useState('')
@@ -1914,402 +1927,349 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     return `${tank.tank_number || ''}${tank.tank_name ? ` - ${tank.tank_name}` : ''}`
   }
 
-  async function generatePdfPreview(ticket: Ticket) {
-    const companyName = getCompanyDisplayName()
-    const companyLogoUrl = getCompanyLogoUrl()
-    const companyAccent = getCompanyAccentColor()
-    const companyLogoDataUrl = companyLogoUrl ? await getImageDataUrl(companyLogoUrl) : ''
 
-    const producer = producers.find((p) => p.id === ticket.producer_id)
-    const meter = meters.find((m) => m.id === ticket.meter_id)
-    const segment = segments.find((s) => s.id === ticket.segment_id)
+  function formatTicketNumberValue(value: any) {
+    if (value === null || value === undefined || value === '') return '—'
+    return String(value)
+  }
 
-    // Refinery Tank Ticket PDF
-    if (ticket.ticket_type === 'tank') {
-      const tankId = (ticket as any).tank_id || ticket.observed_inputs?.tank_id
-      const tankName = getTankDisplayName(tankId)
-      const openingGauge = (ticket as any).opening_gauge ?? ticket.observed_inputs?.opening_gauge ?? ticket.observed_inputs?.opening_gauge_decimal ?? 0
-      const closingGauge = (ticket as any).closing_gauge ?? ticket.observed_inputs?.closing_gauge ?? ticket.observed_inputs?.closing_gauge_decimal ?? 0
-      const openingBbl = ticket.observed_inputs?.tank_opening_bbl ?? ticket.calculation_results?.tank_opening_bbl ?? 0
-      const closingBbl = ticket.observed_inputs?.tank_closing_bbl ?? ticket.calculation_results?.tank_closing_bbl ?? 0
-      const gov = ticket.calculation_results?.tank_gov ?? ticket.calculation_results?.tank_movement_bbl ?? ticket.calculation_results?.gov ?? 0
-      const gsv = ticket.calculation_results?.tank_gsv ?? ticket.calculation_results?.gsv ?? 0
-      const nsv = ticket.calculation_results?.tank_nsv ?? ticket.calculation_results?.nsv ?? 0
-      const swPercent = ticket.observed_inputs?.tank_sw_percent ?? ticket.calculation_results?.tank_sw_percent ?? ticket.observed_inputs?.bsw_percent ?? ''
-      const avgTemp = ticket.observed_inputs?.tank_average_temp ?? ticket.observed_inputs?.average_temperature ?? ''
-      const ambientTemp = ticket.observed_inputs?.tank_ambient_temp ?? ''
-      const obsGravity = ticket.observed_inputs?.tank_observed_gravity ?? ticket.observed_inputs?.observed_api_gravity ?? ''
-      const obsTemp = ticket.observed_inputs?.tank_observed_temp ?? ticket.observed_inputs?.observed_temperature ?? ''
-      const api60 = ticket.calculation_results?.api_gravity_60 ?? ticket.observed_inputs?.api_gravity_60 ?? ''
-      const ctl = ticket.calculation_results?.ctl ?? ticket.observed_inputs?.ctl ?? ''
-      const cpl = ticket.calculation_results?.cpl ?? ticket.observed_inputs?.cpl ?? ''
-      const ccf = ticket.calculation_results?.ccf ?? ticket.observed_inputs?.ccf ?? ''
-      const direction = (ticket as any).movement_direction || ticket.observed_inputs?.tank_movement_direction || ''
-      const openingDeadwood = getDeadwoodAdjustment(tankId, Number(openingGauge))
-      const closingDeadwood = getDeadwoodAdjustment(tankId, Number(closingGauge))
+  function formatBbl(value: any) {
+    const num = Number(value || 0)
+    return Number.isFinite(num) ? num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'
+  }
 
-      const tankHtml = `
-        <html>
-          <head>
-            <title>${ticket.ticket_number || 'Tank Ticket'}</title>
-            <style>
-              @page { size: letter portrait; margin: 0.35in; }
-              * { box-sizing: border-box; }
-              body { margin: 0; padding: 0; color: #111; font-family: Arial, Helvetica, sans-serif; font-size: 11px; }
-              .page { width: 100%; max-width: 7.8in; margin: 0 auto; }
-              .brand { display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid ${companyAccent}; padding-bottom: 8px; margin-bottom: 10px; }
-              .brand-name { font-size: 24px; font-weight: 900; color: ${companyAccent}; }
-              .subtitle { font-size: 12px; margin-top: 3px; }
-              .logo { max-height: 48px; max-width: 150px; object-fit: contain; }
-              .title { text-align: center; font-size: 24px; font-weight: 900; margin: 10px 0; }
-              .section { border: 1.5px solid #111; margin-bottom: 9px; page-break-inside: avoid; }
-              .section-title { text-align: center; font-weight: 900; font-size: 14px; padding: 5px; border-bottom: 1.2px solid #111; background: #f4f4f4; }
-              .grid { display: grid; grid-template-columns: 1fr 1fr; }
-              .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; }
-              .row { display: grid; grid-template-columns: 48% 52%; min-height: 23px; border-bottom: 1px solid #d6d6d6; }
-              .grid > .row:nth-child(odd), .grid3 > .row:not(:nth-child(3n)) { border-right: 1px solid #111; }
-              .label { font-weight: 900; padding: 5px 7px; }
-              .val { text-align: right; padding: 5px 7px; }
-              .big { font-size: 16px; font-weight: 900; }
-              .footer { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 18px; }
-              .sig { border-top: 1.2px solid #111; padding-top: 6px; min-height: 44px; }
-            </style>
-          </head>
-          <body>
-            <div class="page">
-              <div class="brand">
-                <div>
-                  <div class="brand-name">${companyName}</div>
-                  <div class="subtitle">Refinery Tank Ticket</div>
-                </div>
-                ${companyLogoDataUrl ? `<img class="logo" src="${companyLogoDataUrl}" />` : ''}
-              </div>
+  function formatMeasurementNumber(value: any, digits = 4) {
+    const num = Number(value || 0)
+    return Number.isFinite(num) ? num.toFixed(digits) : '0'
+  }
 
-              <div class="title">${ticket.ticket_number || 'Tank Ticket'}</div>
+  function uniqueCsvCount(value: any) {
+    const items = String(value || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+    return new Set(items).size
+  }
 
-              <div class="section">
-                <div class="grid">
-                  <div class="row"><div class="label">Tank:</div><div class="val">${tankName || '—'}</div></div>
-                  <div class="row"><div class="label">Status:</div><div class="val">${ticket.status || 'draft'}</div></div>
-                  <div class="row"><div class="label">Segment:</div><div class="val">${segment?.name || '—'}</div></div>
-                  <div class="row"><div class="label">Movement:</div><div class="val">${direction || '—'}</div></div>
-                  <div class="row"><div class="label">Producer:</div><div class="val">${producer?.name || '—'}</div></div>
-                  <div class="row"><div class="label">Date:</div><div class="val">${(ticket as any).created_at ? new Date((ticket as any).created_at).toLocaleString() : '—'}</div></div>
-                </div>
-              </div>
+  function generatePdfPreview(ticket: any) {
+    const producer = producers.find((item: any) => item.id === ticket.producer_id)
+    const meter = meters.find((item: any) => item.id === ticket.meter_id)
+    const segment = segments.find((item: any) => item.id === ticket.segment_id)
+    const lease = leases.find((item: any) => item.id === ticket.lease_id)
 
-              <div class="section">
-                <div class="section-title">Gauge / Strapping</div>
-                <div class="grid">
-                  <div class="row"><div class="label">Opening Gauge:</div><div class="val">${formatGaugeFeetInchesEighths(openingGauge)}</div></div>
-                  <div class="row"><div class="label">Closing Gauge:</div><div class="val">${formatGaugeFeetInchesEighths(closingGauge)}</div></div>
-                  <div class="row"><div class="label">Opening BBL:</div><div class="val">${Number(openingBbl || 0).toFixed(2)}</div></div>
-                  <div class="row"><div class="label">Closing BBL:</div><div class="val">${Number(closingBbl || 0).toFixed(2)}</div></div>
-                  <div class="row"><div class="label">Opening Deadwood:</div><div class="val">${Number(openingDeadwood || 0).toFixed(2)}</div></div>
-                  <div class="row"><div class="label">Closing Deadwood:</div><div class="val">${Number(closingDeadwood || 0).toFixed(2)}</div></div>
-                </div>
-              </div>
+    const observed = ticket.observed_inputs || {}
+    const calc = ticket.calculation_results || {}
+    const isFlowX = observed.source === 'flowx_transporter_summary'
 
-              <div class="section">
-                <div class="section-title">Observed Quality / Corrections</div>
-                <div class="grid3">
-                  <div class="row"><div class="label">Avg Temp:</div><div class="val">${avgTemp || '—'}</div></div>
-                  <div class="row"><div class="label">Ambient Temp:</div><div class="val">${ambientTemp || '—'}</div></div>
-                  <div class="row"><div class="label">Obs Temp:</div><div class="val">${obsTemp || '—'}</div></div>
-                  <div class="row"><div class="label">Obs Gravity:</div><div class="val">${obsGravity || '—'}</div></div>
-                  <div class="row"><div class="label">API @60:</div><div class="val">${api60 || '—'}</div></div>
-                  <div class="row"><div class="label">S&W %:</div><div class="val">${swPercent || '—'}</div></div>
-                  <div class="row"><div class="label">CTL:</div><div class="val">${ctl || '—'}</div></div>
-                  <div class="row"><div class="label">CPL:</div><div class="val">${cpl || '—'}</div></div>
-                  <div class="row"><div class="label">CCF:</div><div class="val">${ccf || '—'}</div></div>
-                </div>
-              </div>
+    const companyName = getCompanyDisplayName ? getCompanyDisplayName() : (companySettings?.company_name || 'Measurement Platform')
+    const logoUrl = (typeof getCompanyLogoUrl === 'function' ? getCompanyLogoUrl() : '') || companySettings?.logo_url || ''
+    const ticketNumber = ticket.ticket_number || ticket.id || 'Ticket'
+    const createdAt = ticket.created_at ? new Date(ticket.created_at).toLocaleString() : new Date().toLocaleString()
+    const approvedAt = ticket.approved_at ? new Date(ticket.approved_at).toLocaleString() : 'Pending Approval'
 
-              <div class="section">
-                <div class="section-title">Volumes</div>
-                <div class="grid3">
-                  <div class="row"><div class="label big">GOV:</div><div class="val big">${Number(gov || 0).toFixed(2)}</div></div>
-                  <div class="row"><div class="label big">GSV:</div><div class="val big">${Number(gsv || 0).toFixed(2)}</div></div>
-                  <div class="row"><div class="label big">NSV:</div><div class="val big">${Number(nsv || 0).toFixed(2)}</div></div>
-                </div>
-              </div>
+    const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name || '—'
+    const assignedPot = observed.assigned_pot_label || ticket.assigned_pot_id || '—'
+    const sourceTicketCount = uniqueCsvCount(observed.ticket_numbers)
+    const sourceBatchCount = uniqueCsvCount(observed.batch_numbers)
+    const sourceTruckCount = uniqueCsvCount(observed.truck_numbers)
+    const sourceLeaseCount = uniqueCsvCount(observed.leases)
 
-              <div class="footer">
-                <div class="sig">Operator Signature</div>
-                <div class="sig">Approval Signature / Date</div>
-              </div>
-            </div>
-          </body>
-        </html>
-      `
+    const html = `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${ticketNumber}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #f4f5f7;
+      color: #111827;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12px;
+    }
+    .page {
+      width: 8.5in;
+      min-height: 11in;
+      margin: 0 auto;
+      background: #fff;
+      padding: 0.45in;
+    }
+    .header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      border-bottom: 4px solid #c46a2b;
+      padding-bottom: 14px;
+      margin-bottom: 16px;
+      align-items: center;
+    }
+    .brand { display: flex; gap: 14px; align-items: center; }
+    .logo {
+      width: 110px;
+      max-height: 62px;
+      object-fit: contain;
+    }
+    .brand-title {
+      font-size: 24px;
+      font-weight: 900;
+      letter-spacing: 0.2px;
+      margin-bottom: 4px;
+    }
+    .brand-subtitle {
+      font-size: 12px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+    }
+    .ticket-box {
+      border: 2px solid #111827;
+      padding: 10px 14px;
+      text-align: right;
+      min-width: 220px;
+    }
+    .ticket-box .label {
+      color: #6b7280;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .ticket-box .number {
+      font-size: 19px;
+      font-weight: 900;
+      margin-top: 4px;
+    }
+    .status {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: ${ticket.status === 'approved' ? '#dcfce7' : '#fef3c7'};
+      color: ${ticket.status === 'approved' ? '#166534' : '#92400e'};
+      font-weight: 800;
+      text-transform: uppercase;
+      font-size: 10px;
+    }
+    .section {
+      border: 1px solid #d1d5db;
+      margin-top: 12px;
+      break-inside: avoid;
+    }
+    .section-title {
+      background: #111827;
+      color: #fff;
+      font-weight: 900;
+      padding: 8px 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      font-size: 11px;
+    }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+    .cell {
+      padding: 8px 10px;
+      border-right: 1px solid #e5e7eb;
+      border-bottom: 1px solid #e5e7eb;
+      min-height: 38px;
+    }
+    .cell:nth-child(2n) { border-right: 0; }
+    .grid-3 .cell:nth-child(2n) { border-right: 1px solid #e5e7eb; }
+    .grid-3 .cell:nth-child(3n) { border-right: 0; }
+    .small-label {
+      color: #6b7280;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      margin-bottom: 3px;
+    }
+    .value {
+      font-size: 13px;
+      font-weight: 800;
+      word-break: break-word;
+    }
+    .volume {
+      font-size: 18px;
+      font-weight: 900;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th {
+      background: #f3f4f6;
+      text-align: left;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #374151;
+      padding: 7px 8px;
+      border-bottom: 1px solid #d1d5db;
+    }
+    td {
+      padding: 8px;
+      border-bottom: 1px solid #e5e7eb;
+      font-weight: 700;
+    }
+    .right { text-align: right; }
+    .notes {
+      white-space: pre-wrap;
+      min-height: 45px;
+      padding: 10px;
+    }
+    .signatures {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      margin-top: 34px;
+    }
+    .sig-line {
+      border-top: 1px solid #111827;
+      padding-top: 7px;
+      color: #374151;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+    }
+    .footer {
+      margin-top: 24px;
+      border-top: 1px solid #d1d5db;
+      padding-top: 8px;
+      display: flex;
+      justify-content: space-between;
+      color: #6b7280;
+      font-size: 10px;
+    }
+    @media print {
+      body { background: #fff; }
+      .page { margin: 0; width: auto; min-height: auto; }
+      @page { size: letter; margin: 0.35in; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <div class="brand">
+        ${logoUrl ? `<img class="logo" src="${logoUrl}" />` : ''}
+        <div>
+          <div class="brand-title">${companyName}</div>
+          <div class="brand-subtitle">Measurement Ticket</div>
+        </div>
+      </div>
+      <div class="ticket-box">
+        <div class="label">Ticket Number</div>
+        <div class="number">${ticketNumber}</div>
+        <div class="status">${ticket.status || 'draft'}</div>
+      </div>
+    </div>
 
-      const w = window.open('', '_blank')
-      if (!w) return
+    <div class="section">
+      <div class="section-title">Ticket Information</div>
+      <div class="grid-3">
+        <div class="cell"><div class="small-label">Ticket Type</div><div class="value">${ticket.ticket_type || '—'}</div></div>
+        <div class="cell"><div class="small-label">Created</div><div class="value">${createdAt}</div></div>
+        <div class="cell"><div class="small-label">Approved</div><div class="value">${approvedAt}</div></div>
+        <div class="cell"><div class="small-label">Segment</div><div class="value">${segment?.name || observed.segment_name || '—'}</div></div>
+        <div class="cell"><div class="small-label">Producer</div><div class="value">${producer?.name || observed.producer_name || '—'}</div></div>
+        <div class="cell"><div class="small-label">Lease</div><div class="value">${((lease as any)?.name || (lease as any)?.lease_name || (lease as any)?.lease_number) || observed.lease_name || (isFlowX ? `${sourceLeaseCount || '—'} lease(s)` : '—')}</div></div>
+        <div class="cell"><div class="small-label">Meter / Rack</div><div class="value">${meter?.meter_number || observed.meter_number || '—'}</div></div>
+        <div class="cell"><div class="small-label">Transporter</div><div class="value">${transporter}</div></div>
+        <div class="cell"><div class="small-label">Assigned POT</div><div class="value">${assignedPot}</div></div>
+      </div>
+    </div>
 
-      w.document.write(tankHtml)
-      w.document.close()
-      w.focus()
+    ${isFlowX ? `
+    <div class="section">
+      <div class="section-title">Flow-X Transporter Summary</div>
+      <div class="grid-3">
+        <div class="cell"><div class="small-label">Source Rows</div><div class="value">${observed.source_rows || '—'}</div></div>
+        <div class="cell"><div class="small-label">Source Ticket Count</div><div class="value">${sourceTicketCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">Source Batch Count</div><div class="value">${sourceBatchCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">Truck Count</div><div class="value">${sourceTruckCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">Lease Count</div><div class="value">${sourceLeaseCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">LACT</div><div class="value">${observed.lact_name || ticket.lact_name || '—'}</div></div>
+      </div>
+    </div>
+    ` : ''}
 
-      setTimeout(() => {
-        w.print()
-      }, 500)
+    <div class="section">
+      <div class="section-title">Volumes</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th class="right">Barrels</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Gross Observed / GOV</td><td class="right volume">${formatBbl(calc.gov || observed.gross_volume_bbl)}</td></tr>
+          <tr><td>Gross Standard / GSV</td><td class="right volume">${formatBbl(calc.gsv || observed.gross_volume_bbl)}</td></tr>
+          <tr><td>Net Standard / NSV</td><td class="right volume">${formatBbl(calc.nsv || observed.net_volume_bbl)}</td></tr>
+        </tbody>
+      </table>
+    </div>
 
+    <div class="section">
+      <div class="section-title">Quality / Corrections</div>
+      <div class="grid-3">
+        <div class="cell"><div class="small-label">Observed API</div><div class="value">${formatMeasurementNumber(observed.observed_api_gravity || observed.api_observed || observed.api_gravity_observed, 2)}</div></div>
+        <div class="cell"><div class="small-label">API Gravity @ 60°F</div><div class="value">${formatMeasurementNumber(calc.api_gravity_60 || observed.api_gravity_60 || calc.api_gravity || observed.api_gravity, 2)}</div></div>
+        <div class="cell"><div class="small-label">BS&W %</div><div class="value">${formatMeasurementNumber(calc.bsw_percent || observed.bsw_percent || observed.bsw, 4)}</div></div>
+        <div class="cell"><div class="small-label">Observed Temp °F</div><div class="value">${formatMeasurementNumber(observed.observed_temperature || observed.temperature || observed.average_temperature || calc.average_temperature, 2)}</div></div>
+        <div class="cell"><div class="small-label">Average Temp °F</div><div class="value">${formatMeasurementNumber(calc.average_temperature || observed.average_temperature, 2)}</div></div>
+        <div class="cell"><div class="small-label">Observed Pressure</div><div class="value">${formatMeasurementNumber(observed.observed_pressure || observed.pressure || observed.average_pressure || calc.average_pressure, 2)}</div></div>
+        <div class="cell"><div class="small-label">Average Pressure</div><div class="value">${formatMeasurementNumber(calc.average_pressure || observed.average_pressure, 2)}</div></div>
+        <div class="cell"><div class="small-label">API Correction Δ</div><div class="value">${formatMeasurementNumber((calc.api_gravity_60 || observed.api_gravity_60 || calc.api_gravity || observed.api_gravity || 0) - (observed.observed_api_gravity || observed.api_observed || observed.api_gravity_observed || 0), 2)}</div></div>
+        <div class="cell"><div class="small-label">CTL</div><div class="value">${formatMeasurementNumber(calc.ctl || observed.ctl, 5)}</div></div>
+        <div class="cell"><div class="small-label">CPL</div><div class="value">${formatMeasurementNumber(calc.cpl || observed.cpl, 5)}</div></div>
+        <div class="cell"><div class="small-label">CTPL</div><div class="value">${formatMeasurementNumber(calc.ctpl || observed.ctpl, 5)}</div></div>
+        <div class="cell"><div class="small-label">POT Quality Source</div><div class="value">${assignedPot}</div></div>
+        <div class="cell"><div class="small-label">Calculation Method</div><div class="value">${observed.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'Standard'}</div></div>
+      </div>
+    </div>
+
+    ${isFlowX ? `
+    <div class="section">
+      <div class="section-title">Source Data</div>
+      <div class="notes">
+        Source Flow-X CSV retained separately. This ticket is a transporter summary generated from ${observed.source_rows || '—'} source rows.
+      </div>
+    </div>
+    ` : ''}
+
+    <div class="section">
+      <div class="section-title">Notes</div>
+      <div class="notes">${ticket.notes || observed.notes || ''}</div>
+    </div>
+
+    <div class="signatures">
+      <div class="sig-line">Prepared By</div>
+      <div class="sig-line">Approved By</div>
+    </div>
+
+    <div class="footer">
+      <div>Generated by TEFCO Measurement Platform</div>
+      <div>${new Date().toLocaleString()}</div>
+    </div>
+  </div>
+  <script>
+    window.onload = () => {
+      window.focus();
+    };
+  </script>
+</body>
+</html>`
+
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      alert('Popup blocked. Allow popups to preview PDF.')
       return
     }
 
-    const value = (v: any) => v === null || v === undefined || v === '' ? '—' : v
-    const num = (v: any, decimals = 4) => {
-      const n = Number(v)
-      return Number.isFinite(n) ? n.toFixed(decimals) : value(v)
-    }
-
-    const html = `
-      <html>
-        <head>
-          <title>${ticket.ticket_number || 'Ticket'}</title>
-          <style>
-            @page {
-              size: letter portrait;
-              margin: 0.35in;
-            }
-
-            * {
-              box-sizing: border-box;
-            }
-
-            html,
-            body {
-              margin: 0;
-              padding: 0;
-              background: #fff;
-              color: #111;
-              font-family: Arial, Helvetica, sans-serif;
-              font-size: 10.5px;
-              line-height: 1.15;
-            }
-
-            .page {
-              width: 100%;
-              max-width: 7.8in;
-              margin: 0 auto;
-            }
-
-            .brand-header {
-              border-bottom: 3px solid ${companyAccent};
-              padding-bottom: 6px;
-              margin-bottom: 8px;
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              gap: 16px;
-            }
-
-            .brand-name {
-              font-size: 24px;
-              font-weight: 900;
-              color: ${companyAccent};
-              letter-spacing: 0.2px;
-            }
-
-            .brand-subtitle {
-              font-size: 10.5px;
-              color: #111;
-              margin-top: 2px;
-            }
-
-            .brand-logo {
-              max-height: 42px;
-              max-width: 140px;
-              object-fit: contain;
-            }
-
-            .ticket-title {
-              text-align: center;
-              font-size: 24px;
-              font-weight: 900;
-              margin: 8px 0 10px;
-              letter-spacing: 0.4px;
-            }
-
-            .section {
-              border: 1.4px solid #111;
-              margin-bottom: 10px;
-              page-break-inside: avoid;
-            }
-
-            .section-title {
-              text-align: center;
-              font-size: 14px;
-              font-weight: 900;
-              border-bottom: 1.2px solid #111;
-              padding: 5px 8px;
-              background: #fafafa;
-            }
-
-            .grid-two {
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-            }
-
-            .row {
-              display: grid;
-              grid-template-columns: 48% 52%;
-              min-height: 21px;
-              border-bottom: 1px solid #d6d6d6;
-            }
-
-            .grid-two > .row:nth-child(odd) {
-              border-right: 1px solid #111;
-            }
-
-            .row:last-child,
-            .grid-two > .row:nth-last-child(1),
-            .grid-two > .row:nth-last-child(2) {
-              border-bottom: none;
-            }
-
-            .label {
-              font-weight: 900;
-              padding: 5px 7px;
-            }
-
-            .val {
-              text-align: right;
-              padding: 5px 7px;
-            }
-
-            .footer {
-              border-top: 1.4px solid #111;
-              margin-top: 10px;
-              padding-top: 8px;
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-              gap: 18px;
-              page-break-inside: avoid;
-            }
-
-            .small-line {
-              min-height: 24px;
-            }
-
-            @media print {
-              body {
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-              }
-
-              .page {
-                page-break-after: avoid;
-              }
-            }
-          </style>
-        </head>
-
-        <body>
-          <div class="page">
-            <div class="brand-header">
-              <div>
-                <div class="brand-name">${getCompanyDisplayName()}</div>
-                <div class="brand-subtitle">Custody Transfer Ticket</div>
-              </div>
-              ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}
-            </div>
-
-            <div class="ticket-title">${ticket.ticket_number || 'Ticket'}</div>
-
-            <div class="section">
-              <div class="grid-two">
-                <div class="row"><div class="label">Status:</div><div class="val">${value(ticket.status)}</div></div>
-                <div class="row"><div class="label">Contract Profile:</div><div class="val">${value(ticket.observed_inputs?.contract_profile_name || ticket.calculation_profile_snapshot?.contract_profile?.name || 'Default')}</div></div>
-
-                <div class="row"><div class="label">Type:</div><div class="val">${value(ticket.ticket_type)}</div></div>
-                <div class="row"><div class="label">Calculation Method:</div><div class="val">${value(ticket.observed_inputs?.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL')}</div></div>
-
-                <div class="row"><div class="label">Producer:</div><div class="val">${value(producer?.name)}</div></div>
-                <div class="row"><div class="label">Ticket Created:</div><div class="val">${value((ticket as any).created_at ? new Date((ticket as any).created_at).toLocaleString() : '')}</div></div>
-
-                <div class="row"><div class="label">Meter:</div><div class="val">${value(meter?.meter_number)}</div></div>
-                <div class="row"><div class="label">Created By:</div><div class="val">${value((ticket as any).created_by_name || (ticket as any).created_by_email)}</div></div>
-
-                <div class="row"><div class="label">Segment:</div><div class="val">${value(segment?.name)}</div></div>
-                <div class="row"><div class="label">Last Updated:</div><div class="val">${value((ticket as any).updated_at ? new Date((ticket as any).updated_at).toLocaleString() : '')}</div></div>
-
-                <div class="row"><div class="label">Profile:</div><div class="val">${value(ticket.calculation_profile_snapshot?.name)}</div></div>
-                <div class="row"><div class="label">Updated By:</div><div class="val">${value((ticket as any).updated_by_name || (ticket as any).updated_by_email)}</div></div>
-              </div>
-            </div>
-
-            <div class="section">
-              <div class="section-title">Observed Inputs</div>
-              <div class="grid-two">
-                <div class="row"><div class="label">IV:</div><div class="val">${value(ticket.observed_inputs?.iv)}</div></div>
-                <div class="row"><div class="label">Density @60 kg/m³:</div><div class="val">${value(ticket.observed_inputs?.density_60)}</div></div>
-
-                <div class="row"><div class="label">CTL:</div><div class="val">${value(ticket.observed_inputs?.ctl)}</div></div>
-                <div class="row"><div class="label">Avg Temp (°F):</div><div class="val">${value(ticket.observed_inputs?.average_temperature)}</div></div>
-
-                <div class="row"><div class="label">CPL:</div><div class="val">${value(ticket.observed_inputs?.cpl)}</div></div>
-                <div class="row"><div class="label">Avg Pressure (psi):</div><div class="val">${value(ticket.observed_inputs?.average_pressure)}</div></div>
-
-                <div class="row"><div class="label">CTLP:</div><div class="val">${value(ticket.observed_inputs?.ctlp)}</div></div>
-                <div class="row"><div class="label">BS&W %:</div><div class="val">${value(ticket.observed_inputs?.bsw_percent)}</div></div>
-
-                <div class="row"><div class="label">CMF:</div><div class="val">${value(ticket.observed_inputs?.cmf)}</div></div>
-                <div class="row"><div class="label">CSW:</div><div class="val">${value(ticket.observed_inputs?.csw)}</div></div>
-
-                <div class="row"><div class="label">Observed API Gravity:</div><div class="val">${value(ticket.observed_inputs?.observed_api_gravity)}</div></div>
-                <div class="row"><div class="label">Casing / Line Size:</div><div class="val">${value(ticket.observed_inputs?.line_size || ticket.observed_inputs?.casing_size)}</div></div>
-
-                <div class="row"><div class="label">Observed Temp (°F):</div><div class="val">${value(ticket.observed_inputs?.observed_temperature)}</div></div>
-                <div class="row"><div class="label">Meter Type:</div><div class="val">${value((meter as any)?.meter_type || (meter as any)?.type)}</div></div>
-
-                <div class="row"><div class="label">API Gravity @60°F:</div><div class="val">${value(ticket.observed_inputs?.api_gravity_60 || ticket.observed_inputs?.corrected_api)}</div></div>
-                <div class="row"><div class="label">Meter Factor:</div><div class="val">${value(ticket.observed_inputs?.meter_factor || ticket.observed_inputs?.mf)}</div></div>
-              </div>
-            </div>
-
-            <div class="section">
-              <div class="section-title">Calculated Results</div>
-              <div class="grid-two">
-                <div class="row"><div class="label">CCF:</div><div class="val">${value(ticket.calculation_results?.ccf)}</div></div>
-                <div class="row"><div class="label">Flowing Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.flowing_volume || ticket.calculation_results?.gross_volume)}</div></div>
-
-                <div class="row"><div class="label">GSV:</div><div class="val">${value(ticket.calculation_results?.gsv)}</div></div>
-                <div class="row"><div class="label">Net Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.net_volume || ticket.calculation_results?.nsv)}</div></div>
-
-                <div class="row"><div class="label">NSV:</div><div class="val">${value(ticket.calculation_results?.nsv)}</div></div>
-                <div class="row"><div class="label">Shrink %:</div><div class="val">${value(ticket.calculation_results?.shrink_percent)}</div></div>
-
-                <div class="row"><div class="label">CF (Total):</div><div class="val">${value(ticket.calculation_results?.cf_total || ticket.calculation_results?.ccf)}</div></div>
-                <div class="row"><div class="label">Water Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.water_volume)}</div></div>
-              </div>
-            </div>
-
-            <div class="footer">
-              <div>
-                <strong>Notes:</strong>
-                <div class="small-line">${value((ticket as any).notes)}</div>
-              </div>
-              <div>
-                <div><strong>Approved By:</strong> ${value((ticket as any).approved_by_name || (ticket as any).approved_by_email)}</div>
-                <div style="margin-top: 10px;"><strong>Approved Date:</strong> ${value((ticket as any).approved_at ? new Date((ticket as any).approved_at).toLocaleString() : '')}</div>
-              </div>
-            </div>
-          </div>
-        </body>
-      </html>
-    `
-
-    const w = window.open('', '_blank')
-    if (!w) return
-
-    w.document.write(html)
-    w.document.close()
-    w.focus()
-
-    setTimeout(() => {
-      w.print()
-    }, 500)
+    printWindow.document.open()
+    printWindow.document.write(html)
+    printWindow.document.close()
   }
 
   
@@ -3716,6 +3676,406 @@ async function createCompany() {
     await loadTransporterPotRules()
   }
 
+
+  function getPotNumberLabel(pot: any) {
+    if (!pot) return ''
+    return (
+      (pot as any).pot_number ||
+      (pot as any).sample_id ||
+      (pot as any).sample_number ||
+      (pot as any).id ||
+      ''
+    )
+  }
+
+
+  function getPotObservedApiGravity(pot: any, fallback = 0) {
+    return Number(
+      (pot as any)?.observed_api_gravity ||
+      (pot as any)?.api_observed ||
+      (pot as any)?.api_gravity_observed ||
+      fallback ||
+      0
+    )
+  }
+
+  function getPotApiGravityAt60(pot: any, fallback = 0) {
+    return Number(
+      (pot as any)?.api_gravity_60 ||
+      (pot as any)?.corrected_api_gravity ||
+      (pot as any)?.api_gravity ||
+      (pot as any)?.observed_api_gravity ||
+      fallback ||
+      0
+    )
+  }
+
+  function getPotApiGravity(pot: any, fallback = 0) {
+    return Number(
+      (pot as any)?.api_gravity_60 ||
+      (pot as any)?.api_gravity ||
+      (pot as any)?.observed_api_gravity ||
+      fallback ||
+      0
+    )
+  }
+
+  function getPotBswPercent(pot: any, fallback = 0) {
+    return Number(
+      (pot as any)?.bsw_percent ||
+      (pot as any)?.bsw ||
+      (pot as any)?.sw_percent ||
+      fallback ||
+      0
+    )
+  }
+
+
+  async function checkFlowXDuplicateImport(targetCompanyId: string, fileName: string, lactName: string) {
+    const { data, error } = await supabase
+      .from('flowx_import_batches')
+      .select('id, source_file_name, lact_name, imported_count, created_at')
+      .eq('company_id', targetCompanyId)
+      .eq('source_file_name', fileName)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (error) {
+      console.warn('Duplicate Flow-X import check failed:', error)
+      return 'none'
+    }
+
+    const existing = (data || [])[0]
+    if (!existing) return 'none'
+
+    const existingLact = String(existing.lact_name || '').trim().toLowerCase()
+    const currentLact = String(lactName || '').trim().toLowerCase()
+
+    if (existingLact && currentLact && existingLact !== currentLact) {
+      return 'none'
+    }
+
+    const importedAt = existing.created_at ? new Date(existing.created_at).toLocaleString() : 'previous import'
+
+    return window.confirm(
+      `This Flow-X file was already imported on ${importedAt}.\n\n` +
+      `File: ${fileName}\n` +
+      `LACT: ${existing.lact_name || lactName || 'N/A'}\n` +
+      `Rows: ${existing.imported_count || 'N/A'}\n\n` +
+      `Importing again can create duplicate draft tickets.\n\n` +
+      `Click OK to import anyway, or Cancel to stop.`
+    ) ? 'continue' : 'stop'
+  }
+
+  async function deleteExistingFlowXDraftsForBatch(importBatchId: string) {
+    if (!importBatchId) return
+
+    const { error } = await supabase
+      .from('tickets')
+      .delete()
+      .eq('import_batch_id', importBatchId)
+      .eq('status', 'draft')
+
+    if (error) {
+      console.warn('Could not remove existing draft tickets for duplicate batch:', error)
+    }
+  }
+
+
+
+
+  function getApiTesterResult() {
+    const factors = calculateApi111CorrectionFactors({
+      api_version: apiTesterVersion,
+      api_gravity: Number(apiTesterGravity || 0),
+      observed_temperature: Number(apiTesterTemp || 60),
+      observed_pressure: Number(apiTesterPressure || 0),
+      base_temperature: 60,
+    })
+
+    const volume = calculateChapter122021({
+      iv: Number(apiTesterIv || 0),
+      ctl: factors.ctl,
+      cpl: factors.cpl,
+      mf: Number(apiTesterMf || 1),
+      bsw_percent: Number(apiTesterBsw || 0),
+      api_version: apiTesterVersion,
+      ccf: factors.ctpl,
+    })
+
+    return {
+      ...factors,
+      ...volume,
+      ctpl: factors.ctpl,
+    }
+  }
+
+
+  function roundToDecimals(value: any, decimals: number) {
+    const num = Number(value || 0)
+    if (!Number.isFinite(num)) return 0
+    const factor = 10 ** decimals
+    return Math.round((num + Number.EPSILON) * factor) / factor
+  }
+
+  function getApiVersionRoundingProfile(version: string) {
+    // These are configurable app rounding profiles by API 11.1 generation.
+    // Exact contractual rounding should be verified against the contract/API implementation you are matching.
+    if (version === 'api_11_1_2004') {
+      return {
+        ctlDecimals: 4,
+        cplDecimals: 4,
+        ctplDecimals: 4,
+        gsvDecimals: 1,
+        nsvDecimals: 1,
+        label: 'Legacy 2004 rounding profile',
+      }
+    }
+
+    if (version === 'api_11_1_2007') {
+      return {
+        ctlDecimals: 5,
+        cplDecimals: 5,
+        ctplDecimals: 5,
+        gsvDecimals: 1,
+        nsvDecimals: 1,
+        label: '2007 rounding profile',
+      }
+    }
+
+    if (version === 'api_11_1_2019') {
+      return {
+        ctlDecimals: 5,
+        cplDecimals: 5,
+        ctplDecimals: 5,
+        gsvDecimals: 1,
+        nsvDecimals: 1,
+        label: '2019 rounding profile',
+      }
+    }
+
+    return {
+      ctlDecimals: 6,
+      cplDecimals: 6,
+      ctplDecimals: 6,
+      gsvDecimals: 1,
+      nsvDecimals: 1,
+      label: '2021 rounding profile',
+    }
+  }
+
+  function applyApiVersionRounding(result: any, version: string) {
+    const profile = getApiVersionRoundingProfile(version)
+
+    return {
+      ...result,
+      iv: result.iv !== undefined ? roundToDecimals(result.iv, 1) : result.iv,
+      ctl: roundToDecimals(result.ctl, profile.ctlDecimals),
+      cpl: roundToDecimals(result.cpl, profile.cplDecimals),
+      ctpl: roundToDecimals(result.ctpl, profile.ctplDecimals),
+      gsv: result.gsv !== undefined ? roundToDecimals(result.gsv, profile.gsvDecimals) : result.gsv,
+      nsv: result.nsv !== undefined ? roundToDecimals(result.nsv, profile.nsvDecimals) : result.nsv,
+      rounding_profile: profile,
+    }
+  }
+
+  function getApiVersionLabel(version: string) {
+    if (version === 'api_11_1_2004') return 'API MPMS 11.1 (2004)'
+    if (version === 'api_11_1_2007') return 'API MPMS 11.1 (2007)'
+    if (version === 'api_11_1_2019') return 'API MPMS 11.1 (2019)'
+    if (version === 'api_11_1_2021') return 'API MPMS 11.1 (2021)'
+    return version || 'API MPMS 11.1'
+  }
+
+  function calculateApi111CorrectionFactors(input: any) {
+    const apiVersion = input.api_version || 'api_11_1_2021'
+    const observedTemp = Number(input.observed_temperature || input.temperature || 60)
+    const observedPressure = Number(input.observed_pressure || input.pressure || 0)
+    const apiGravity = Number(input.api_gravity || 40)
+    const baseTemp = Number(input.base_temperature || 60)
+
+    const tempDelta = observedTemp - baseTemp
+    const gravityAdjustment = Math.max(0.00025, Math.min(0.00065, 0.00045 - ((apiGravity - 40) * 0.000002)))
+    const pressureCompressibility = Math.max(0.000002, Math.min(0.000008, 0.0000045 + ((apiGravity - 40) * 0.00000003)))
+
+    const ctl = 1 / (1 + (gravityAdjustment * tempDelta))
+    const cpl = 1 / (1 - (pressureCompressibility * observedPressure))
+    const ctpl = ctl * cpl
+
+    const roundingProfile = getApiVersionRoundingProfile(apiVersion)
+    const roundedCtl = roundToDecimals(ctl, roundingProfile.ctlDecimals)
+    const roundedCpl = roundToDecimals(cpl, roundingProfile.cplDecimals)
+    const roundedCtpl = roundToDecimals(ctpl, roundingProfile.ctplDecimals)
+
+    return {
+      api_version: apiVersion,
+      api_version_label: getApiVersionLabel(apiVersion),
+      ctl: roundedCtl,
+      cpl: roundedCpl,
+      ctpl: roundedCtpl,
+      correction_source: 'app_calculated_placeholder',
+      rounding_profile: roundingProfile,
+      warning: 'API 11.1 framework active. Replace placeholder approximation with licensed/verified API MPMS 11.1 implementation before custody-transfer reliance.',
+      audit: {
+        api_version: apiVersion,
+        api_version_label: getApiVersionLabel(apiVersion),
+        observed_temperature: observedTemp,
+        observed_pressure: observedPressure,
+        api_gravity: apiGravity,
+        base_temperature: baseTemp,
+        raw_ctl: ctl,
+        raw_cpl: cpl,
+        raw_ctpl: ctpl,
+        rounded_ctl: roundedCtl,
+        rounded_cpl: roundedCpl,
+        rounded_ctpl: roundedCtpl,
+        rounding_profile: roundingProfile,
+      },
+    }
+  }
+
+  function calculateChapter122021(input: any) {
+    const ivRaw = Number(input.iv ?? input.gross_volume_bbl ?? 0)
+    const ctl = Number(input.ctl || 1)
+    const cpl = Number(input.cpl || 1)
+    const mf = Number(input.mf || 1)
+    const bswPercent = Number(input.bsw_percent || 0)
+    const apiVersion = input.api_version || 'api_11_1_2021'
+
+    const csw = 1 - (bswPercent / 100)
+    const ccf = Number(input.ccf || input.ctpl || (ctl * cpl * mf))
+
+    const usesCombinedCorrectionFactor = ['api_11_1_2004', 'api_11_1_2007', 'api_11_1_2019'].includes(apiVersion)
+
+    const gsvRaw = usesCombinedCorrectionFactor
+      ? ivRaw * ccf
+      : ivRaw * ctl * cpl * mf
+
+    const nsvRaw = gsvRaw * csw
+
+    const rounded = applyApiVersionRounding({
+      iv: ivRaw,
+      ctl,
+      cpl,
+      mf,
+      ccf,
+      csw,
+      bsw_percent: bswPercent,
+      gsv: gsvRaw,
+      nsv: nsvRaw,
+      raw_iv: ivRaw,
+      raw_gsv: gsvRaw,
+      raw_nsv: nsvRaw,
+      method: usesCombinedCorrectionFactor ? `${apiVersion}_ccf` : 'api_11_1_2021_separate_factors',
+      formula: usesCombinedCorrectionFactor
+        ? 'GSV = IV × CCF; NSV = GSV × CSW'
+        : 'GSV = IV × CTL × CPL × MF; NSV = GSV × CSW',
+      uses_combined_correction_factor: usesCombinedCorrectionFactor,
+    }, apiVersion)
+
+    return {
+      ...rounded,
+      iv: roundToDecimals(ivRaw, 1),
+      gsv: roundToDecimals(rounded.gsv, 1),
+      nsv: roundToDecimals(rounded.nsv, 1),
+    }
+  }
+
+  function getContractProfileForTransporter(transporterName: string) {
+    const name = String(transporterName || '').trim().toLowerCase()
+    return contractProfiles.find((profile: any) =>
+      String((profile as any).transporter_name || '').trim().toLowerCase() === name ||
+      String((profile as any).contract_name || '').trim().toLowerCase() === name
+    ) || null
+  }
+
+  function applyContractProfileCalculation(summary: any, assignedPot: any, profile: any) {
+    const method = profile?.calculation_method || 'chapter12_2021'
+    const apiVersion = profile?.api_version || 'api_11_1_2021'
+    const correctionSource = profile?.correction_source || 'app_calculated'
+    const mf = Number(profile?.meter_factor || profile?.default_mf || 1)
+    const bswPercent = Number((assignedPot as any)?.bsw_percent || (assignedPot as any)?.bsw || summary.avgBsw || 0)
+
+    const factors = correctionSource === 'app_calculated'
+      ? calculateApi111CorrectionFactors({
+          api_version: apiVersion,
+          observed_temperature: summary.avgTemp,
+          observed_pressure: summary.avgPressure,
+          api_gravity: (assignedPot as any)?.api_gravity || (assignedPot as any)?.observed_api_gravity || summary.avgApi,
+        })
+      : {
+          api_version: apiVersion,
+          api_version_label: getApiVersionLabel(apiVersion),
+          ctl: Number((assignedPot as any)?.ctl || summary.avgCtl || 1),
+          cpl: Number((assignedPot as any)?.cpl || summary.avgCpl || 1),
+          ctpl: Number((assignedPot as any)?.ctpl || 1),
+          correction_source: 'imported_or_pot',
+          audit: {},
+        }
+
+    if (method === 'chapter12_2021') {
+      return {
+        ...calculateChapter122021({ iv: summary.gross, ctl: factors.ctl, cpl: factors.cpl, mf, ccf: factors.ctpl, bsw_percent: bswPercent, api_version: apiVersion }),
+        api_version: apiVersion,
+        api_version_label: factors.api_version_label,
+        ctpl: factors.ctpl,
+        correction_source: factors.correction_source,
+        calculation_audit: factors.audit,
+      }
+    }
+
+    return {
+      iv: summary.gross,
+      ctl: factors.ctl,
+      cpl: factors.cpl,
+      ctpl: factors.ctpl,
+      mf,
+      bsw_percent: bswPercent,
+      gsv: summary.gross,
+      nsv: summary.net,
+      method,
+      formula: 'Flow-X summary volumes',
+      api_version: apiVersion,
+      api_version_label: factors.api_version_label,
+      correction_source: factors.correction_source,
+      calculation_audit: factors.audit,
+    }
+  }
+
+  async function loadContractProfiles() {
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!targetCompanyId) return
+    const { data, error } = await supabase.from('contract_profiles').select('*').eq('company_id', targetCompanyId).order('contract_name')
+    if (!error) setContractProfiles(data || [])
+  }
+
+  async function saveContractProfile() {
+    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!targetCompanyId) return alert('No company selected.')
+    if (!newContractName) return alert('Enter a contract name.')
+    const { error } = await supabase.from('contract_profiles').upsert({
+      company_id: targetCompanyId,
+      contract_name: newContractName.trim(),
+      transporter_name: newContractTransporter.trim() || newContractName.trim(),
+      calculation_method: newContractMethod,
+      meter_factor: Number(newContractMf || 1),
+      api_version: newContractApiVersion,
+      correction_source: newContractCorrectionSource,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'company_id,contract_name' })
+    if (error) return alert('Could not save contract profile: ' + error.message)
+    setNewContractName(''); setNewContractTransporter(''); setNewContractMf('1'); setNewContractMethod('chapter12_2021')
+    await loadContractProfiles()
+    alert('Contract profile saved.')
+  }
+
+  async function deleteContractProfile(profileId: string) {
+    const { error } = await supabase.from('contract_profiles').delete().eq('id', profileId)
+    if (error) return alert('Could not delete contract profile: ' + error.message)
+    await loadContractProfiles()
+  }
+
   async function importFlowXTransporterSummaryTickets() {
     if (!flowxCsvFile) {
       alert('Choose a Flow-X CSV file first.')
@@ -3729,6 +4089,12 @@ async function createCompany() {
 
     if (!targetCompanyId) {
       alert('No company selected.')
+      return
+    }
+
+    const duplicateDecision = await checkFlowXDuplicateImport(targetCompanyId, flowxCsvFile.name, flowxLactName || '')
+    if (duplicateDecision === 'stop') {
+      alert('Import cancelled. No duplicate tickets were created.')
       return
     }
 
@@ -3756,6 +4122,12 @@ async function createCompany() {
 
     const ticketPayloads = summaries.map((s: any, i: number) => {
       const assignedPot = getAssignedPotForTransporter(s.transporter)
+      const contractProfile = getContractProfileForTransporter(s.transporter)
+      const contractCalc = applyContractProfileCalculation(s, assignedPot, contractProfile)
+      const potObservedApiGravity = getPotObservedApiGravity(assignedPot, s.avgApi)
+      const potApiGravity60 = getPotApiGravityAt60(assignedPot, potObservedApiGravity)
+      const potBswPercent = getPotBswPercent(assignedPot, s.avgBsw)
+      const potLabel = getPotNumberLabel(assignedPot)
 
       return ({
       company_id: targetCompanyId,
@@ -3773,6 +4145,16 @@ async function createCompany() {
       lact_name: flowxLactName || null,
       observed_inputs: {
         source: 'flowx_transporter_summary',
+        contract_profile_id: contractProfile?.id || null,
+        contract_name: contractProfile?.contract_name || null,
+        calculation_method: contractCalc.method,
+        calculation_formula: contractCalc.formula,
+        api_version: contractCalc.api_version,
+        api_version_label: contractCalc.api_version_label,
+        correction_source: contractCalc.correction_source,
+        calculation_audit: contractCalc.calculation_audit,
+        assigned_pot_id: assignedPot?.id || null,
+        assigned_pot_label: potLabel || null,
         lact_name: flowxLactName || null,
         transporter_name: s.transporter,
         ticket_numbers: s.ticketList,
@@ -3781,27 +4163,30 @@ async function createCompany() {
         driver_names: s.driverList,
         leases: s.leaseList,
         source_rows: s.rows,
-        gross_volume_bbl: s.gross,
-        net_volume_bbl: s.net,
+        gross_volume_bbl: contractCalc.iv,
+        net_volume_bbl: contractCalc.nsv,
         average_temperature: s.avgTemp,
         average_pressure: s.avgPressure,
-        api_gravity: s.avgApi,
-        bsw_percent: s.avgBsw,
-        ctl: s.avgCtl,
-        cpl: s.avgCpl,
-        ctpl: s.avgCtpl,
+        observed_api_gravity: potObservedApiGravity,
+        api_gravity_60: potApiGravity60,
+        api_gravity: potApiGravity60,
+        bsw_percent: potBswPercent,
+        ctl: Number((assignedPot as any)?.ctl || s.avgCtl || 0),
+        cpl: Number((assignedPot as any)?.cpl || s.avgCpl || 0),
+        ctpl: Number((assignedPot as any)?.ctpl || s.avgCtpl || 0),
       },
       calculation_results: {
-        gov: s.gross,
-        gsv: s.gross,
-        nsv: s.net,
+        gov: contractCalc.iv,
+        gsv: contractCalc.gsv,
+        nsv: contractCalc.nsv,
         average_temperature: s.avgTemp,
         average_pressure: s.avgPressure,
-        api_gravity: s.avgApi,
-        bsw_percent: s.avgBsw,
-        ctl: s.avgCtl,
-        cpl: s.avgCpl,
-        ctpl: s.avgCtpl,
+        api_gravity_60: potApiGravity60,
+        api_gravity: potApiGravity60,
+        bsw_percent: potBswPercent,
+        ctl: Number((assignedPot as any)?.ctl || s.avgCtl || 0),
+        cpl: Number((assignedPot as any)?.cpl || s.avgCpl || 0),
+        ctpl: Number((assignedPot as any)?.ctpl || s.avgCtpl || 0),
       },
     })
     })
@@ -3812,7 +4197,7 @@ async function createCompany() {
       return
     }
 
-    alert(`Flow-X summary import complete. Created ${ticketPayloads.length} transporter ticket(s).`)
+    alert(`Flow-X summary import complete. Created ${ticketPayloads.length} transporter ticket(s). POT rules applied where matched.`)
     setFlowxCsvFile(null)
     setFlowxMappingRows([])
     setFlowxMappingHeaders([])
@@ -3988,9 +4373,9 @@ async function createCompany() {
 
   function getTicketVolumeForBalance(ticket: any) {
     return Number(
-      ticket.calculation_results?.nsv ??
+      selectedTicket!.calculation_results?.nsv ??
       ticket.calculation_results?.tank_nsv ??
-      ticket.calculation_results?.gsv ??
+      selectedTicket!.calculation_results?.gsv ??
       ticket.calculation_results?.tank_gsv ??
       ticket.calculation_results?.gov ??
       ticket.calculation_results?.tank_gov ??
@@ -4015,7 +4400,7 @@ async function createCompany() {
     const volume = Number(
       ticket.calculation_results?.tank_nsv ??
       ticket.calculation_results?.tank_movement_bbl ??
-      ticket.calculation_results?.nsv ??
+      selectedTicket!.calculation_results?.nsv ??
       0
     )
 
@@ -4209,8 +4594,8 @@ async function createCompany() {
         producer?.name || '',
         segment?.name || '',
         meter?.meter_number || '',
-        ticket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? '',
-        ticket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? '',
+        selectedTicket!.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? '',
+        selectedTicket!.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? '',
         getTicketReportDate(ticket),
       ]
     })
@@ -4234,8 +4619,8 @@ async function createCompany() {
           producer?.name || '',
           segment?.name || '',
           meter?.meter_number || '',
-          Number(ticket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? 0).toFixed(2),
-          Number(ticket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? 0).toFixed(2),
+          Number(selectedTicket!.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? 0).toFixed(2),
+          Number(selectedTicket!.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? 0).toFixed(2),
           getTicketReportDate(ticket),
         ]
       }),
@@ -4260,10 +4645,10 @@ async function createCompany() {
         ticket.ticket_number || ticket.id,
         ticket.truck_number || ticket.observed_inputs?.truck_number || '',
         ticket.driver_name || ticket.observed_inputs?.driver_name || '',
-        ticket.customer_name || ticket.observed_inputs?.customer_name || '',
+        (ticket as any).customer_name || ticket.observed_inputs?.customer_name || '',
         ticket.split_percent || ticket.observed_inputs?.split_percent || '',
-        Number(ticket.calculation_results?.gsv ?? 0).toFixed(2),
-        Number(ticket.calculation_results?.nsv ?? 0).toFixed(2),
+        Number(selectedTicket!.calculation_results?.gsv ?? 0).toFixed(2),
+        Number(selectedTicket!.calculation_results?.nsv ?? 0).toFixed(2),
         ticket.lact_name || ticket.observed_inputs?.lact_name || '',
         getTicketReportDate(ticket),
       ]),
@@ -4325,7 +4710,7 @@ async function createCompany() {
             getTicketVolumeForBalance(ticket).toFixed(2),
             ticket.ticket_type === 'tank' ? getTankSignedMovement(ticket).toFixed(2) : '',
             getTicketDateForBalance(ticket),
-            ticket.customer_name || ticket.observed_inputs?.customer_name || '',
+            (ticket as any).customer_name || ticket.observed_inputs?.customer_name || '',
           ]),
         ],
       }
@@ -4376,14 +4761,14 @@ async function createCompany() {
           const meter = meters.find((m: any) => m.id === ticket.meter_id)
           return ((meter as any)?.meter_role || (meter as any)?.meter_direction || (meter as any)?.direction) === 'receipt'
         })
-        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || selectedTicket!.calculation_results?.gsv || 0), 0)
 
       const deliveryVolume = segmentTickets
         .filter((ticket: any) => {
           const meter = meters.find((m: any) => m.id === ticket.meter_id)
           return ((meter as any)?.meter_role || (meter as any)?.meter_direction || (meter as any)?.direction) === 'delivery'
         })
-        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || selectedTicket!.calculation_results?.gsv || 0), 0)
 
       const tankMovement = segmentTickets
         .filter((ticket: any) => ticket.ticket_type === 'tank')
@@ -4391,7 +4776,7 @@ async function createCompany() {
 
       const truckVolume = segmentTickets
         .filter((ticket: any) => ticket.ticket_type === 'truck')
-        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || 0), 0)
+        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || 0), 0)
 
       const overShort = receiptVolume - deliveryVolume + tankMovement - truckVolume
 
@@ -4651,59 +5036,6 @@ async function saveUserRole() {
     loadAll()
   }
 
-  async function saveContractProfile() {
-    if (!canEditAdmin) {
-      alert('You do not have permission to manage contract profiles.')
-      return
-    }
-
-    if (!companyId || !newContractName) {
-      alert('Enter a contract profile name.')
-      return
-    }
-
-    const { error } = await supabase.from('contract_profiles').insert({
-      company_id: companyId,
-      producer_id: newContractProducer || null,
-      name: newContractName,
-      standard: newContractStandard,
-      calculation_method: newContractMethod,
-      factor_type: newContractFactorType,
-      product_group: newContractProductGroup,
-      api_rounding: Number(newContractApiRounding || 1),
-      ctl_rounding: Number(newContractCtlRounding || 5),
-      cpl_rounding: Number(newContractCplRounding || 5),
-      ctlp_rounding: Number(newContractCtlpRounding || 5),
-      volume_rounding: Number(newContractVolumeRounding || 2),
-      use_pressure: newContractUsePressure,
-      use_shrink: newContractUseShrink,
-      shrink_factor: Number(newContractShrinkFactor || 1),
-      active: true,
-    })
-
-    if (error) {
-      alert('Could not save contract profile: ' + error.message)
-      return
-    }
-
-    setNewContractName('')
-    setNewContractProducer('')
-    setNewContractStandard('API 11.1 2021')
-    setNewContractMethod('CTPL')
-    setNewContractFactorType('MF')
-    setNewContractProductGroup('crude')
-    setNewContractApiRounding('1')
-    setNewContractCtlRounding('5')
-    setNewContractCplRounding('5')
-    setNewContractCtlpRounding('5')
-    setNewContractVolumeRounding('2')
-    setNewContractUsePressure(true)
-    setNewContractUseShrink(false)
-    setNewContractShrinkFactor('1')
-
-    alert('Contract profile saved.')
-    loadAll()
-  }
 
   async function deactivateContractProfile(profileId: string) {
     if (!canEditAdmin) {
@@ -5001,9 +5333,9 @@ async function saveUserRole() {
                 <div class="grid-two">
                   <div class="row"><div class="label">CCF:</div><div class="val">${value(ticket.calculation_results?.ccf)}</div></div>
                   <div class="row"><div class="label">Flowing Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.flowing_volume || ticket.calculation_results?.gross_volume)}</div></div>
-                  <div class="row"><div class="label">GSV:</div><div class="val">${value(ticket.calculation_results?.gsv)}</div></div>
-                  <div class="row"><div class="label">Net Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.net_volume || ticket.calculation_results?.nsv)}</div></div>
-                  <div class="row"><div class="label">NSV:</div><div class="val">${value(ticket.calculation_results?.nsv)}</div></div>
+                  <div class="row"><div class="label">GSV:</div><div class="val">${value(selectedTicket!.calculation_results?.gsv)}</div></div>
+                  <div class="row"><div class="label">Net Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.net_volume || selectedTicket!.calculation_results?.nsv)}</div></div>
+                  <div class="row"><div class="label">NSV:</div><div class="val">${value(selectedTicket!.calculation_results?.nsv)}</div></div>
                   <div class="row"><div class="label">Water Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.water_volume)}</div></div>
                 </div>
               </div>
@@ -5509,6 +5841,154 @@ async function saveUserRole() {
     }
   }
 
+
+  function getTicketDateValue(ticket: any) {
+    return ticket.approved_at || ticket.updated_at || ticket.created_at || new Date().toISOString()
+  }
+
+  function getTicketMonthKey(ticket: any) {
+    const date = new Date(getTicketDateValue(ticket))
+    if (Number.isNaN(date.getTime())) return 'Unknown'
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+  }
+
+  function getTicketMonthLabel(monthKey: string) {
+    if (monthKey === 'Unknown') return 'Unknown Date'
+    const [year, month] = monthKey.split('-').map(Number)
+    return new Date(year, month - 1, 1).toLocaleDateString(undefined, {
+      month: 'long',
+      year: 'numeric',
+    })
+  }
+
+
+  function getDraftWorkflowTickets() {
+    return tickets
+      .filter((ticket: any) => !['approved', 'voided'].includes(String(ticket.status || 'draft').toLowerCase()))
+      .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
+  }
+
+  function getApprovedTickets() {
+    return tickets
+      .filter((ticket: any) => String(ticket.status || '').toLowerCase() === 'approved')
+      .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
+  }
+
+  function toggleApprovedTicketMonth(monthKey: string) {
+    setOpenApprovedTicketMonths((prev) => ({
+      ...prev,
+      [monthKey]: !(prev[monthKey] ?? true),
+    }))
+  }
+
+
+  function getWorkflowGroupKey(ticket: any) {
+    const status = String(ticket.status || 'draft').toLowerCase()
+    if (status === 'submitted') return 'submitted'
+    if (status === 'draft') return 'draft'
+    return 'needs_review'
+  }
+
+  function getWorkflowGroupLabel(groupKey: string) {
+    if (groupKey === 'submitted') return 'Submitted Tickets'
+    if (groupKey === 'draft') return 'Draft Tickets'
+    return 'Needs Review'
+  }
+
+  function groupWorkflowTickets(ticketList: any[]) {
+    const order = ['submitted', 'draft', 'needs_review']
+    const grouped = ticketList.reduce((acc: Record<string, any[]>, ticket: any) => {
+      const key = getWorkflowGroupKey(ticket)
+      if (!acc[key]) acc[key] = []
+      acc[key].push(ticket)
+      return acc
+    }, {})
+
+    return Object.entries(grouped)
+      .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
+      .map(([groupKey, groupTickets]) => ({
+        groupKey,
+        label: getWorkflowGroupLabel(groupKey),
+        tickets: groupTickets.sort((a: any, b: any) =>
+          new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime()
+        ),
+      }))
+  }
+
+  function toggleWorkflowTicketGroup(groupKey: string) {
+    setOpenWorkflowTicketGroups((prev) => ({
+      ...prev,
+      [groupKey]: !(prev[groupKey] ?? true),
+    }))
+  }
+
+  function groupTicketsByMonth(ticketList: any[]) {
+    const grouped = ticketList.reduce((acc: Record<string, any[]>, ticket: any) => {
+      const key = getTicketMonthKey(ticket)
+      if (!acc[key]) acc[key] = []
+      acc[key].push(ticket)
+      return acc
+    }, {})
+
+    return Object.entries(grouped)
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([monthKey, monthTickets]) => ({
+        monthKey,
+        label: getTicketMonthLabel(monthKey),
+        tickets: monthTickets.sort((a: any, b: any) =>
+          new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime()
+        ),
+      }))
+  }
+
+
+  function formatTicketDetailNumber(value: any, digits = 1) {
+    const num = Number(value)
+    if (!Number.isFinite(num)) return '—'
+    return num.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })
+  }
+
+  function formatFactorDetail(value: any, digits = 6) {
+    const num = Number(value)
+    if (!Number.isFinite(num)) return '—'
+    return num.toFixed(digits)
+  }
+
+  function getTicketAssignedPotLabel(ticket: any) {
+    return ticket?.observed_inputs?.assigned_pot_label || ticket?.assigned_pot_id || '—'
+  }
+
+  function getTicketContractName(ticket: any) {
+    return ticket?.observed_inputs?.contract_name || ticket?.calculation_profile_snapshot?.contract_name || '—'
+  }
+
+  function getTicketApiVersionLabel(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    return observed.api_version_label || getApiVersionLabel(observed.api_version || ticket?.api_version || '') || '—'
+  }
+
+  function compactTicketTitle(ticket: any) {
+    return ticket.ticket_number || ticket.id || 'Ticket'
+  }
+
+  function compactTicketSubtitle(ticket: any) {
+    const observed = ticket.observed_inputs || {}
+    const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name
+    const type = ticket.ticket_type || 'ticket'
+    const status = ticket.status || 'draft'
+    return `${type} • ${status}${transporter ? ` • ${transporter}` : ''}`
+  }
+
+  function compactTicketVolume(ticket: any) {
+    const calc = ticket.calculation_results || {}
+    const observed = ticket.observed_inputs || {}
+    const nsv = calc.nsv ?? observed.net_volume_bbl
+    const gsv = calc.gsv ?? observed.gross_volume_bbl
+    if (nsv !== undefined && nsv !== null) return `NSV: ${Number(nsv || 0).toFixed(2)}`
+    if (gsv !== undefined && gsv !== null) return `GSV: ${Number(gsv || 0).toFixed(2)}`
+    return ''
+  }
+
   if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
   if (!session) return <Login />
 
@@ -5694,9 +6174,9 @@ async function saveUserRole() {
           </div>
         </div>
 
-        {['dashboard', 'admin', 'operations', 'reports', 'readings', 'pot', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
+        {['dashboard', 'admin', 'operations', 'reports', 'readings', 'pot', 'pot_map', 'contracts', 'api_engine', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
           <button key={p} onClick={() => { setPage(p); setMobileNavOpen(false) }} style={button}>
-            {p.toUpperCase()}
+            {p === 'pot_map' ? 'POT MAP' : p === 'contracts' ? 'CONTRACTS' : p === 'api_engine' ? 'API ENGINE' : p.toUpperCase()}
           </button>
         ))}
 
@@ -6302,7 +6782,7 @@ async function saveUserRole() {
                       <div key={profile.id} style={card}>
                         <strong>{profile.name}</strong>
                         <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                          {profile.standard} / {profile.calculation_method}
+                          {profile.standard} / {(profile as any).calculation_method}
                         </div>
                       </div>
                     ))}
@@ -6709,6 +7189,184 @@ async function saveUserRole() {
           </>
         )}
 
+        
+        
+        
+        {page === 'api_engine' && (
+          <>
+            <h1>API 11.1 Engine Tester</h1>
+
+            <div style={box}>
+              <h2>Correction Factor Test</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Test API version routing, CTL, CPL, CTPL, GSV, and NSV before applying contract profiles to tickets.
+              </p>
+
+              <div style={{ ...card, border: '1px solid rgba(245,158,11,0.45)', marginBottom: 12 }}>
+                <strong>Important:</strong> This screen currently uses the app-owned API 11.1 framework placeholder.
+                Plug in licensed/verified API MPMS Chapter 11.1 formulas or tables before custody-transfer reliance.
+              </div>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                <select style={input} value={apiTesterVersion} onChange={(e) => setApiTesterVersion(e.target.value)}>
+                  <option value="api_11_1_2004">API 11.1 2004</option>
+                  <option value="api_11_1_2007">API 11.1 2007</option>
+                  <option value="api_11_1_2019">API 11.1 2019</option>
+                  <option value="api_11_1_2021">API 11.1 2021</option>
+                </select>
+
+                <input style={input} placeholder="API Gravity" value={apiTesterGravity} onChange={(e) => setApiTesterGravity(e.target.value)} />
+                <input style={input} placeholder="Observed Temp °F" value={apiTesterTemp} onChange={(e) => setApiTesterTemp(e.target.value)} />
+                <input style={input} placeholder="Pressure" value={apiTesterPressure} onChange={(e) => setApiTesterPressure(e.target.value)} />
+                <input style={input} placeholder="IV / Gross BBL" value={apiTesterIv} onChange={(e) => setApiTesterIv(e.target.value)} />
+                <input style={input} placeholder="Meter Factor" value={apiTesterMf} onChange={(e) => setApiTesterMf(e.target.value)} />
+                <input style={input} placeholder="BS&W %" value={apiTesterBsw} onChange={(e) => setApiTesterBsw(e.target.value)} />
+              </div>
+            </div>
+
+            <div style={box}>
+              <h2>Calculated Output</h2>
+              {(() => {
+                const result = getApiTesterResult()
+
+                return (
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                    <div style={card}><strong>API Version</strong><br />{result.api_version_label}</div>
+                    <div style={card}><strong>CTL</strong><br />{Number(result.ctl || 0).toFixed(result.rounding_profile?.ctlDecimals ?? 6)}</div>
+                    <div style={card}><strong>CPL</strong><br />{Number(result.cpl || 0).toFixed(result.rounding_profile?.cplDecimals ?? 6)}</div>
+                    <div style={card}><strong>CTPL</strong><br />{Number(result.ctpl || 0).toFixed(result.rounding_profile?.ctplDecimals ?? 6)}</div>
+                    <div style={card}><strong>CCF</strong><br />{Number(result.ccf || 0).toFixed(6)}</div>
+                    <div style={card}><strong>CSW</strong><br />{Number(result.csw || 0).toFixed(6)}</div>
+                    <div style={card}><strong>IV</strong><br />{Number(result.iv || 0).toFixed(1)}</div>
+                    <div style={card}><strong>GSV</strong><br />{Number(result.gsv || 0).toFixed(result.rounding_profile?.gsvDecimals ?? 2)}</div>
+                    <div style={card}><strong>NSV</strong><br />{Number(result.nsv || 0).toFixed(result.rounding_profile?.nsvDecimals ?? 2)}</div>
+                    <div style={card}><strong>Formula</strong><br />{result.formula}</div>
+                    <div style={card}><strong>Correction Path</strong><br />{result.uses_combined_correction_factor ? 'Combined CCF' : 'Separate CTL × CPL × MF'}</div>
+                    <div style={card}><strong>Source</strong><br />{result.correction_source}</div>
+                    <div style={card}><strong>Rounding Profile</strong><br />{result.rounding_profile?.label || '—'}</div>
+                  </div>
+                )
+              })()}
+            </div>
+
+            <div style={box}>
+              <h2>Audit Output</h2>
+              <pre style={{ ...card, whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
+                {JSON.stringify(getApiTesterResult().audit, null, 2)}
+              </pre>
+            </div>
+          </>
+        )}
+
+        {page === 'contracts' && (
+          <>
+            <h1>Contract Profiles</h1>
+            <div style={box}>
+              <h2>Create / Update Contract Profile</h2>
+              <p style={{ color: '#a8b3bd' }}>API 11.1 routing: 2004 / 2007 / 2019 use IV × CCF; 2021 uses IV × CTL × CPL × MF. IV/GSV/NSV round to 1 decimal.</p>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                <input style={input} placeholder="Contract Name" value={newContractName} onChange={(e) => setNewContractName(e.target.value)} />
+                <input style={input} placeholder="Transporter Name" value={newContractTransporter} onChange={(e) => setNewContractTransporter(e.target.value)} />
+                <select style={input} value={newContractMethod} onChange={(e) => setNewContractMethod(e.target.value)}>
+                  <option value="chapter12_2021">Chapter 12 / 2021</option>
+                  <option value="flowx_summary">Flow-X Summary Volumes</option>
+                </select>
+                <select style={input} value={newContractApiVersion} onChange={(e) => setNewContractApiVersion(e.target.value)}>
+                  <option value="api_11_1_2004">API 11.1 Version: 2004</option>
+                  <option value="api_11_1_2007">API 11.1 Version: 2007</option>
+                  <option value="api_11_1_2019">API 11.1 Version: 2019</option>
+                  <option value="api_11_1_2021">API 11.1 Version: 2021</option>
+                </select>
+                <select style={input} value={newContractCorrectionSource} onChange={(e) => setNewContractCorrectionSource(e.target.value)}>
+                  <option value="app_calculated">CTL/CPL: App Calculated</option>
+                  <option value="imported_or_pot">CTL/CPL: Imported/POT</option>
+                </select>
+                <input style={input} placeholder="Meter Factor" value={newContractMf} onChange={(e) => setNewContractMf(e.target.value)} />
+                <button style={button} onClick={() => runSafeAction('Saving contract profile', saveContractProfile)}>Save</button>
+              </div>
+            </div>
+            <div style={box}>
+              <h2>Saved Contract Profiles</h2>
+              {contractProfiles.length === 0 && <div style={card}>No contract profiles saved yet.</div>}
+              <div style={{ display: 'grid', gap: 10 }}>
+                {contractProfiles.map((profile: any) => (
+                  <div key={profile.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                    <div>
+                      <strong>{(profile as any).contract_name}</strong>
+                      <div style={{ color: '#a8b3bd', marginTop: 4 }}>
+                        Transporter: {(profile as any).transporter_name || '—'} • Method: {(profile as any).calculation_method || 'chapter12_2021'} • API: {(profile as any).api_version || 'api_11_1_2021'} • CTL/CPL: {(profile as any).correction_source || 'app_calculated'} • MF: {(profile as any).meter_factor || 1}
+                      </div>
+                    </div>
+                    <button style={{ ...button, background: '#dc2626', width: 120 }} onClick={() => deleteContractProfile(profile.id)}>Delete</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {page === 'pot_map' && (
+          <>
+            <h1>Transporter → POT Assignment</h1>
+
+            <div style={box}>
+              <h2>Assign Transporter to POT</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Set which POT quality record should be used when Flow-X transporter summary tickets are generated.
+              </p>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12 }}>
+                <input
+                  style={input}
+                  placeholder="Transporter Name exactly as Flow-X shows it"
+                  value={newTransporterPotName}
+                  onChange={(e) => setNewTransporterPotName(e.target.value)}
+                />
+
+                <select style={input} value={newTransporterPotId} onChange={(e) => setNewTransporterPotId(e.target.value)}>
+                  <option value="">Select POT Quality</option>
+                  {potQuality.map((pot: any) => (
+                    <option key={pot.id} value={pot.id}>
+                      {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
+                    </option>
+                  ))}
+                </select>
+
+                <button style={button} onClick={() => runSafeAction('Saving transporter POT rule', saveTransporterPotRule)}>
+                  Save Rule
+                </button>
+              </div>
+            </div>
+
+            <div style={box}>
+              <h2>Saved Rules</h2>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {transporterPotRules.length === 0 && (
+                  <div style={card}>No transporter POT rules saved yet.</div>
+                )}
+
+                {transporterPotRules.map((rule: any) => {
+                  const pot = potQuality.find((item: any) => item.id === rule.pot_quality_id)
+
+                  return (
+                    <div key={rule.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                      <div>
+                        <strong>{rule.transporter_name}</strong>
+                        <div style={{ color: '#a8b3bd' }}>
+                          POT: {pot ? ((pot as any).pot_number || (pot as any).sample_id || pot.id) : rule.pot_quality_id}
+                        </div>
+                      </div>
+                      <button style={{ ...button, background: '#dc2626', width: 110 }} onClick={() => deleteTransporterPotRule(rule.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </>
+        )}
+
         {page === 'pot' && (
           <>
             <h1>POT Quality</h1>
@@ -7044,13 +7702,13 @@ async function saveUserRole() {
                       const meter = meters.find((m: any) => m.id === ticket.meter_id)
                       return (meter as any)?.direction === 'receipt'
                     })
-                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+                    .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || selectedTicket!.calculation_results?.gsv || 0), 0)
                   const deliveries = segmentTickets
                     .filter((ticket: any) => {
                       const meter = meters.find((m: any) => m.id === ticket.meter_id)
                       return (meter as any)?.direction === 'delivery'
                     })
-                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+                    .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || selectedTicket!.calculation_results?.gsv || 0), 0)
                   const tankMovements = segmentTickets
                     .filter((ticket: any) => ticket.ticket_type === 'tank')
                     .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.tank_movement_bbl || 0), 0)
@@ -7373,112 +8031,168 @@ async function saveUserRole() {
 
             {/* Ticket Debug Counts */}
             <div style={{ ...card, marginBottom: 12 }}>
-              Total tickets loaded: {tickets.length} • Pending workflow tickets: {workflowTickets.length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
+              Total tickets loaded: {tickets.length} • Pending workflow tickets: {getDraftWorkflowTickets().length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
             </div>
 
             {/* All Pending Ticket Approval Queue */}
+            
             <div style={box}>
-              <h2>Workflow Queue ({workflowTickets.length})</h2>
-              {workflowTickets.length === 0 && (
-                <div style={card}>
-                  No draft or submitted tickets are waiting for approval.
-                </div>
+              <h2>Workflow Queue</h2>
+
+              {getDraftWorkflowTickets().length === 0 && (
+                <div style={card}>No draft or submitted tickets waiting.</div>
               )}
 
-              {/* All Loaded Tickets Fallback */}
-              {workflowTickets.length === 0 && tickets.length > 0 && (
-                <div style={card}>
-                  <strong>Loaded tickets exist, but none are pending.</strong>
-                  <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                    This means they may already be approved/voided or status is not draft/submitted.
-                  </div>
-                </div>
-              )}
+              {groupWorkflowTickets(getDraftWorkflowTickets()).map((group: any) => {
+                const isOpen = openWorkflowTicketGroups[group.groupKey] ?? true
+                const totalNsv = group.tickets.reduce((sum: number, ticket: any) => {
+                  const calc = ticket.calculation_results || {}
+                  const observed = ticket.observed_inputs || {}
+                  return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                }, 0)
 
-              <div style={{ display: 'grid', gap: 10 }}>
-                {workflowTickets.map((ticket: any) => (
-                  <div
-                    key={ticket.id}
-                    style={{
-                      ...card,
-                      display: 'grid',
-                      gridTemplateColumns: '1fr auto auto',
-                      gap: 12,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <div>
-                      <strong>{ticket.ticket_number || ticket.id}</strong>
-                      <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                        Type: {ticket.ticket_type || 'meter'} • Status: {ticket.status || 'draft'}
-                      </div>
-                      {ticket.ticket_type === 'tank' && (
-                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                          Tank: {tanks.find((tank: any) => tank.id === ticket.tank_id)?.tank_number || ticket.tank_id || 'None'}
-                        </div>
-                      )}
-                    </div>
-
-                    <span style={getTicketStatusStyle(ticket.status)}>{ticket.status || 'draft'}</span>
-
+                return (
+                  <div key={group.groupKey} style={{ ...card, marginBottom: 12 }}>
                     <button
-                      disabled={isActionRunning}
-                      style={button}
-                      onClick={() => { setSelectedTicket(ticket); setPage('tickets') }}
+                      style={{ ...button, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
+                      onClick={() => toggleWorkflowTicketGroup(group.groupKey)}
                     >
-                      Open Ticket
+                      <span>{isOpen ? '▼' : '▶'} {group.label}</span>
+                      <span>{group.tickets.length} tickets • NSV {totalNsv.toFixed(2)}</span>
                     </button>
+
+                    {isOpen && (
+                      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                        {group.tickets.map((ticket: any) => (
+                          <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                            <div>
+                              <strong>{compactTicketTitle(ticket)}</strong>
+                              <span style={{ ...getTicketStatusStyle(ticket.status), marginLeft: 8 }}>{ticket.status || 'draft'}</span>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
+                            </div>
+                            <button style={{ ...button, width: 150 }} onClick={() => setSelectedTicket(ticket)}>
+                              Open Ticket
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
+                )
+              })}
             </div>
-            {/* Selected Ticket Quick View */}
-            {selectedTicket && (
+
+
+{selectedTicket && (
               <div style={box}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <h2 style={{ margin: 0 }}>Open Ticket: {selectedTicket.ticket_number || selectedTicket.id}</h2>
-                  <span style={getTicketStatusStyle(selectedTicket.status)}>{selectedTicket.status || 'draft'}</span>
+                  <div>
+                    <h2 style={{ margin: 0 }}>Ticket Review: {selectedTicket!.ticket_number || selectedTicket!.id}</h2>
+                    <div style={{ color: '#a8b3bd', marginTop: 4 }}>
+                      {selectedTicket!.ticket_type || 'ticket'} • {selectedTicket!.observed_inputs?.transporter_name || (selectedTicket as any).transporter_name || (selectedTicket as any).customer_name || 'No transporter'}
+                    </div>
+                  </div>
+                  <span style={getTicketStatusStyle(selectedTicket!.status)}>{selectedTicket!.status || 'draft'}</span>
                 </div>
 
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginTop: 12 }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
+                  {selectedTicket!.status !== 'approved' && (
+                    <button style={{ ...button, width: 'auto', background: '#16a34a' }} onClick={() => runSafeAction('Approving ticket', () => updateTicketStatus(selectedTicket!, 'approved'))}>
+                      Approve Ticket
+                    </button>
+                  )}
+
+                  {selectedTicket!.status === 'draft' && (
+                    <button style={{ ...button, width: 'auto', background: '#2563eb' }} onClick={() => runSafeAction('Submitting ticket', () => updateTicketStatus(selectedTicket!, 'submitted'))}>
+                      Submit Ticket
+                    </button>
+                  )}
+                  <button style={{ ...button, width: 'auto' }} onClick={() => generatePdfPreview(selectedTicket)}>
+                    Generate Customer PDF
+                  </button>
+                  <button style={{ ...button, width: 'auto' }} onClick={() => navigator.clipboard?.writeText(JSON.stringify(selectedTicket, null, 2))}>
+                    Copy Ticket JSON
+                  </button>
+                  <button style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => setSelectedTicket(null)}>
+                    Close Ticket
+                  </button>
+                </div>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginTop: 14 }}>
                   <div style={card}>
-                    <h3>Ticket Info</h3>
-                    <div>Type: {selectedTicket.ticket_type}</div>
-                    <div>Producer ID: {selectedTicket.producer_id || 'None'}</div>
-                    <div>Meter ID: {selectedTicket.meter_id || 'None'}</div>
-                    <div>Segment ID: {selectedTicket.segment_id || 'None'}</div>
+                    <h3>Ticket Information</h3>
+                    <div><strong>Ticket #:</strong> {selectedTicket!.ticket_number || selectedTicket!.id}</div>
+                    <div><strong>Type:</strong> {selectedTicket!.ticket_type || '—'}</div>
+                    <div><strong>Status:</strong> {selectedTicket!.status || 'draft'}</div>
+                    <div><strong>Transporter:</strong> {selectedTicket!.observed_inputs?.transporter_name || (selectedTicket as any).transporter_name || (selectedTicket as any).customer_name || '—'}</div>
+                    <div><strong>LACT:</strong> {selectedTicket!.observed_inputs?.lact_name || (selectedTicket as any).lact_name || '—'}</div>
+                    <div><strong>Source Rows:</strong> {selectedTicket!.observed_inputs?.source_rows || '—'}</div>
                   </div>
 
                   <div style={card}>
-                    <h3>Volumes</h3>
-                    {selectedTicket.ticket_type === 'tank' && (
-                      <>
-                        <div><strong>Tank Results</strong></div>
-                        <div>Opening Gauge: {(selectedTicket as any).opening_gauge ?? selectedTicket.observed_inputs?.opening_gauge ?? 'None'}</div>
-                        <div>Closing Gauge: {(selectedTicket as any).closing_gauge ?? selectedTicket.observed_inputs?.closing_gauge ?? 'None'}</div>
-                        <div>GOV: {selectedTicket.calculation_results?.tank_gov ?? selectedTicket.calculation_results?.tank_movement_bbl ?? 'None'}</div>
-                      </>
-                    )}
-                    <div>GSV: {selectedTicket.calculation_results?.gsv ?? 'None'}</div>
-                    <div>NSV: {selectedTicket.calculation_results?.nsv ?? 'None'}</div>
-                    <div>CCF: {selectedTicket.calculation_results?.ccf ?? 'None'}</div>
+                    <h3>Volume Calculation</h3>
+                    <div><strong>IV:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.iv ?? selectedTicket!.calculation_results?.gov ?? selectedTicket!.observed_inputs?.gross_volume_bbl, 1)}</div>
+                    <div><strong>CTL:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</div>
+                    <div><strong>CPL:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</div>
+                    <div><strong>CCF:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.ccf ?? selectedTicket!.observed_inputs?.ccf ?? selectedTicket!.calculation_results?.ctpl, 6)}</div>
+                    <div><strong>MF:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.mf ?? selectedTicket!.observed_inputs?.mf, 6)}</div>
+                    <div><strong>CSW:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.csw ?? selectedTicket!.observed_inputs?.csw, 6)}</div>
+                    <hr style={{ borderColor: '#1f2937' }} />
+                    <div><strong>GSV:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.gsv, 1)}</div>
+                    <div><strong>NSV:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.nsv, 1)}</div>
                   </div>
 
                   <div style={card}>
-                    <h3>Inputs</h3>
-                    <div>IV: {selectedTicket.observed_inputs?.iv ?? 'None'}</div>
-                    <div>CTL: {selectedTicket.observed_inputs?.ctl ?? 'None'}</div>
-                    <div>CPL: {selectedTicket.observed_inputs?.cpl ?? 'None'}</div>
-                    <div>API @ 60: {selectedTicket.observed_inputs?.api_gravity_60 ?? selectedTicket.observed_inputs?.corrected_api ?? 'None'}</div>
+                    <h3>Quality Information</h3>
+                    <div><strong>Observed API:</strong> {formatTicketDetailNumber(selectedTicket!.observed_inputs?.observed_api_gravity ?? selectedTicket!.observed_inputs?.api_observed ?? selectedTicket!.observed_inputs?.api_gravity_observed, 2)}</div>
+                    <div><strong>API Gravity @ 60°F:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.api_gravity_60 ?? selectedTicket!.observed_inputs?.api_gravity_60 ?? selectedTicket!.calculation_results?.api_gravity ?? selectedTicket!.observed_inputs?.api_gravity, 2)}</div>
+                    <div><strong>Observed Temp:</strong> {formatTicketDetailNumber(selectedTicket!.observed_inputs?.observed_temperature ?? selectedTicket!.observed_inputs?.temperature ?? selectedTicket!.observed_inputs?.average_temperature ?? selectedTicket!.calculation_results?.average_temperature, 2)}</div>
+                    <div><strong>Average Temp:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.average_temperature ?? selectedTicket!.observed_inputs?.average_temperature, 2)}</div>
+                    <div><strong>Observed Pressure:</strong> {formatTicketDetailNumber(selectedTicket!.observed_inputs?.observed_pressure ?? selectedTicket!.observed_inputs?.pressure ?? selectedTicket!.observed_inputs?.average_pressure ?? selectedTicket!.calculation_results?.average_pressure, 2)}</div>
+                    <div><strong>Average Pressure:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.average_pressure ?? selectedTicket!.observed_inputs?.average_pressure, 2)}</div>
+                    <div><strong>BS&W %:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.bsw_percent ?? selectedTicket!.observed_inputs?.bsw_percent ?? selectedTicket!.observed_inputs?.bsw, 4)}</div>
+                    <div><strong>API Correction Delta:</strong> {formatTicketDetailNumber(
+                      (selectedTicket!.calculation_results?.api_gravity_60 ?? selectedTicket!.observed_inputs?.api_gravity_60 ?? selectedTicket!.calculation_results?.api_gravity ?? selectedTicket!.observed_inputs?.api_gravity) -
+                      (selectedTicket!.observed_inputs?.observed_api_gravity ?? selectedTicket!.observed_inputs?.api_observed ?? selectedTicket!.observed_inputs?.api_gravity_observed ?? 0),
+                      2
+                    )}</div>
+                    <div><strong>Corrected Gravity Source:</strong> {selectedTicket!.observed_inputs?.assigned_pot_label ? 'Assigned POT' : selectedTicket!.observed_inputs?.api_gravity_60 ? 'Imported' : 'Calculated/Default'}</div>
+                  </div>
+
+                  <div style={card}>
+                    <h3>POT Assignment</h3>
+                    <div><strong>Assigned POT:</strong> {getTicketAssignedPotLabel(selectedTicket)}</div>
+                    <div><strong>POT ID:</strong> {(selectedTicket as any).assigned_pot_id || selectedTicket!.observed_inputs?.assigned_pot_id || '—'}</div>
+                    <div><strong>POT Source:</strong> {selectedTicket!.observed_inputs?.pot_source || 'Transporter POT Map'}</div>
+                  </div>
+
+                  <div style={card}>
+                    <h3>Contract Information</h3>
+                    <div><strong>Contract:</strong> {getTicketContractName(selectedTicket)}</div>
+                    <div><strong>API Version:</strong> {getTicketApiVersionLabel(selectedTicket)}</div>
+                    <div><strong>Method:</strong> {selectedTicket!.observed_inputs?.calculation_method || (selectedTicket as any).calculation_method || '—'}</div>
+                    <div><strong>Formula:</strong> {selectedTicket!.observed_inputs?.calculation_formula || selectedTicket!.calculation_results?.formula || '—'}</div>
+                    <div><strong>Correction Source:</strong> {selectedTicket!.observed_inputs?.correction_source || (selectedTicket as any).correction_source || '—'}</div>
+                  </div>
+
+                  <div style={card}>
+                    <h3>Source Summary</h3>
+                    <div><strong>Ticket Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.ticket_numbers) || '—'}</div>
+                    <div><strong>Batch Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.batch_numbers) || '—'}</div>
+                    <div><strong>Truck Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.truck_numbers) || '—'}</div>
+                    <div><strong>Lease Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.leases) || '—'}</div>
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginTop: 12 }}>
-                  <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Submitting ticket', () => updateTicketStatus(selectedTicket, 'submitted'))}>Submit</button>
-                  <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Approving ticket', () => updateTicketStatus(selectedTicket, 'approved'))}>Approve Tank/Draft Ticket</button>
-                  <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Generating PDF preview', () => generatePdfPreview(selectedTicket))}>PDF Preview</button>
-                  <button style={{ ...button, background: '#374151', borderColor: '#4b5563' }} onClick={() => setSelectedTicket(null)}>Close</button>
-                </div>
+                {selectedTicket!.observed_inputs?.calculation_audit && (
+                  <div style={{ ...card, marginTop: 12 }}>
+                    <h3>Calculation Audit</h3>
+                    <pre style={{ whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
+                      {JSON.stringify(selectedTicket!.observed_inputs?.calculation_audit, null, 2)}
+                    </pre>
+                  </div>
+                )}
               </div>
             )}
             {hasLocalTicketDraft && (
@@ -7628,49 +8342,65 @@ async function saveUserRole() {
             </div>
 
             <div style={box}>
-              <h3>Workflow Queue</h3>
-              {workflowTickets.map((t) => (
-                <div key={t.id} style={card}>
-                  <strong>{t.ticket_number}</strong>
-                  <div><span style={getTicketStatusStyle(t.status)}>{t.status || 'draft'}</span></div>
-                  <div>Type: {t.ticket_type}</div>
-                  <div>Factor Type: {t.observed_inputs?.factor_type || 'MF'}</div>
-                  <div>Factor Source: {t.observed_inputs?.mf_source || 'None'}</div>
-                  <div>POT Source: {t.observed_inputs?.pot_source || 'None'}</div>
-                  <div>GSV: {t.calculation_results?.gsv ?? 'None'}</div>
-                  <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
-                  <button style={button} onClick={() => { setSelectedTicket(t); setPage('tickets') }}>Open Ticket →</button>
-                </div>
-              ))}
+              <h2>Approved Tickets by Month</h2>
+
+              {getApprovedTickets().length === 0 && (
+                <div style={card}>No approved tickets yet.</div>
+              )}
+
+              {groupTicketsByMonth(getApprovedTickets()).map((group: any) => {
+                const isOpen = openApprovedTicketMonths[group.monthKey] ?? true
+                const totalNsv = group.tickets.reduce((sum: number, ticket: any) => {
+                  const calc = ticket.calculation_results || {}
+                  const observed = ticket.observed_inputs || {}
+                  return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                }, 0)
+
+                return (
+                  <div key={group.monthKey} style={{ ...card, marginBottom: 12 }}>
+                    <button
+                      style={{ ...button, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
+                      onClick={() => toggleApprovedTicketMonth(group.monthKey)}
+                    >
+                      <span>{isOpen ? '▼' : '▶'} {group.label}</span>
+                      <span>{group.tickets.length} tickets • NSV {totalNsv.toFixed(2)}</span>
+                    </button>
+
+                    {isOpen && (
+                      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                        {group.tickets.map((ticket: any) => (
+                          <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                            <div>
+                              <strong>{compactTicketTitle(ticket)}</strong>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
+                            </div>
+                            <button style={{ ...button, width: 170 }} onClick={() => setSelectedTicket(ticket)}>
+                              Open Approved Ticket
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
 
-            <div style={box}>
-              <h3>Approved Tickets</h3>
-              {approvedTickets.length === 0 && <div style={card}>No approved tickets yet.</div>}
-              {approvedTickets.map((t) => (
-                <div key={t.id} style={card}>
-                  <strong>{t.ticket_number}</strong>
-                  <div><span style={getTicketStatusStyle(t.status)}>{t.status || 'draft'}</span></div>
-                  <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
-                  <button style={button} onClick={() => { setSelectedTicket(t); setPage('tickets') }}>Open Approved Ticket</button>
-                </div>
-              ))}
-            </div>
-
-            {selectedTicket && canViewAudit && (
+{selectedTicket && canViewAudit && (
               <div style={box}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                   <h2 style={{ margin: 0 }}>Ticket Detail</h2>
-                  <span style={getTicketStatusStyle(selectedTicket.status)}>{selectedTicket.status || 'draft'}</span>
+                  <span style={getTicketStatusStyle(selectedTicket!.status)}>{selectedTicket!.status || 'draft'}</span>
                 </div>
-                <div><strong>Ticket:</strong> {selectedTicket.ticket_number}</div>
+                <div><strong>Ticket:</strong> {selectedTicket!.ticket_number}</div>
                 <div><strong>Locked:</strong> {(selectedTicket as any).is_locked ? 'Yes' : 'No'}</div>
                 <div><strong>Locked At:</strong> {selectedTicket.locked_at || 'N/A'}</div>
-                <div><strong>Status:</strong> {selectedTicket.status}</div>
-                <div><strong>Type:</strong> {selectedTicket.ticket_type}</div>
+                <div><strong>Status:</strong> {selectedTicket!.status}</div>
+                <div><strong>Type:</strong> {selectedTicket!.ticket_type}</div>
                 <div><strong>Profile:</strong> {selectedTicket.calculation_profile_snapshot?.name || 'None'}</div>
-                <div><strong>Contract Profile:</strong> {selectedTicket.observed_inputs?.contract_profile_name || selectedTicket.calculation_profile_snapshot?.contract_profile?.name || 'Default'}</div>
-                <div><strong>Calculation Method:</strong> {selectedTicket.observed_inputs?.calculation_method || selectedTicket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL'}</div>
+                <div><strong>Contract Profile:</strong> {selectedTicket!.observed_inputs?.contract_profile_name || selectedTicket.calculation_profile_snapshot?.contract_profile?.name || 'Default'}</div>
+                <div><strong>Calculation Method:</strong> {selectedTicket!.observed_inputs?.calculation_method || selectedTicket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL'}</div>
 
                 {selectedTicket.approved_at && (
                   <div style={{ color: '#86efac', marginTop: 10 }}>
@@ -7678,7 +8408,7 @@ async function saveUserRole() {
                   </div>
                 )}
 
-                {selectedTicket.status === 'approved' && (
+                {selectedTicket!.status === 'approved' && (
                   <div style={{ background: '#14532d', padding: 12, borderRadius: 8, marginTop: 12 }}>
                     Approved ticket is locked for custody transfer.
                   </div>
@@ -7686,24 +8416,24 @@ async function saveUserRole() {
 
                 <div style={card}>
                   <h3>Observed Inputs</h3>
-                  <div>IV: {selectedTicket.observed_inputs?.iv}</div>
-                  <div>CTL: {selectedTicket.observed_inputs?.ctl}</div>
-                  <div>CPL: {selectedTicket.observed_inputs?.cpl}</div>
-                  <div>CTLP: {selectedTicket.observed_inputs?.ctlp}</div>
-                  <div>{selectedTicket.observed_inputs?.factor_type || 'MF'}: {selectedTicket.observed_inputs?.mf}</div>
-                  <div>API Gravity: {selectedTicket.observed_inputs?.api_gravity}</div>
-                  <div>Temp: {selectedTicket.observed_inputs?.temperature}</div>
-                  <div>Avg Temp: {selectedTicket.observed_inputs?.average_temperature}</div>
-                  <div>Avg Pressure: {selectedTicket.observed_inputs?.average_pressure}</div>
-                  <div>BS&W %: {selectedTicket.observed_inputs?.bsw_percent}</div>
-                  <div>CSW: {selectedTicket.observed_inputs?.csw}</div>
+                  <div>IV: {selectedTicket!.observed_inputs?.iv}</div>
+                  <div>CTL: {selectedTicket!.observed_inputs?.ctl}</div>
+                  <div>CPL: {selectedTicket!.observed_inputs?.cpl}</div>
+                  <div>CTLP: {selectedTicket!.observed_inputs?.ctlp}</div>
+                  <div>{selectedTicket!.observed_inputs?.factor_type || 'MF'}: {selectedTicket!.observed_inputs?.mf}</div>
+                  <div>API Gravity: {selectedTicket!.observed_inputs?.api_gravity}</div>
+                  <div>Temp: {selectedTicket!.observed_inputs?.temperature}</div>
+                  <div>Avg Temp: {selectedTicket!.observed_inputs?.average_temperature}</div>
+                  <div>Avg Pressure: {selectedTicket!.observed_inputs?.average_pressure}</div>
+                  <div>BS&W %: {selectedTicket!.observed_inputs?.bsw_percent}</div>
+                  <div>CSW: {selectedTicket!.observed_inputs?.csw}</div>
                 </div>
 
                 <div style={card}>
                   <h3>Calculated Results</h3>
-                  <div>CCF: {selectedTicket.calculation_results?.ccf}</div>
-                  <div>GSV: {selectedTicket.calculation_results?.gsv}</div>
-                  <div>NSV: {selectedTicket.calculation_results?.nsv}</div>
+                  <div>CCF: {selectedTicket!.calculation_results?.ccf}</div>
+                  <div>GSV: {selectedTicket!.calculation_results?.gsv}</div>
+                  <div>NSV: {selectedTicket!.calculation_results?.nsv}</div>
                 </div>
 
                 {(selectedTicket as any).is_locked && (
@@ -7736,14 +8466,14 @@ async function saveUserRole() {
                 <div style={card}>
                   <h3>Ticket Audit Timeline</h3>
 
-                  {getTicketAuditRows(selectedTicket.id).length === 0 && (
+                  {getTicketAuditRows(selectedTicket!.id).length === 0 && (
                     <div style={{ color: '#a8b3bd' }}>
                       No audit events recorded yet.
                     </div>
                   )}
 
                   <div style={{ display: 'grid', gap: 12 }}>
-                    {getTicketAuditRows(selectedTicket.id).map((log: any) => (
+                    {getTicketAuditRows(selectedTicket!.id).map((log: any) => (
                       <div
                         key={log.id}
                         style={{

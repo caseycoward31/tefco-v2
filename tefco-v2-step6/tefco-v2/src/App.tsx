@@ -873,17 +873,17 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const userCanCreateCompanyScopedUsers = userIsSuperAdmin || userIsCompanyAdmin
 useEffect(() => {
   const loadBranding = async () => {
-    const targetCompanyId =
+    const activeCompanyId =
       userIsSuperAdmin && selectedAdminCompanyId
         ? selectedAdminCompanyId
         : companyId
 
-    if (!targetCompanyId) return
+    if (!activeCompanyId) return
 
     const { data } = await supabase
       .from('company_settings')
       .select('*')
-      .eq('company_id', targetCompanyId)
+      .eq('company_id', activeCompanyId)
       .maybeSingle()
 
     if (data) {
@@ -2298,12 +2298,12 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   }
 
 function getCompanyDisplayName() {
-    const targetCompanyId =
+    const activeCompanyId =
       userIsSuperAdmin && selectedAdminCompanyId
         ? selectedAdminCompanyId
         : companyId
 
-    const selectedCompany = companies.find((company: any) => company.id === targetCompanyId)
+    const selectedCompany = companies.find((company: any) => company.id === activeCompanyId)
 
     return (
       companySettings?.company_name ||
@@ -2350,12 +2350,12 @@ function getCompanyDisplayName() {
   }
 
   async function saveCompanySettings() {
-    const targetCompanyId =
+    const activeCompanyId =
       userIsSuperAdmin && selectedAdminCompanyId
         ? selectedAdminCompanyId
         : companyId
 
-    if (!targetCompanyId) {
+    if (!activeCompanyId) {
       alert('No company selected.')
       return
     }
@@ -2364,7 +2364,7 @@ function getCompanyDisplayName() {
 
     if (companyLogoFile) {
       const fileExt = companyLogoFile.name.split('.').pop() || 'png'
-      const filePath = `${targetCompanyId}/logo-${Date.now()}.${fileExt}`
+      const filePath = `${activeCompanyId}/logo-${Date.now()}.${fileExt}`
 
       const { error: uploadError } = await supabase.storage
         .from('company-logos')
@@ -2386,7 +2386,7 @@ function getCompanyDisplayName() {
     }
 
     const payload = {
-      company_id: targetCompanyId,
+      company_id: activeCompanyId,
       company_name: companyNameInput || '',
       address_line1: companyAddress1Input || '',
       address_line2: companyAddress2Input || '',
@@ -2411,7 +2411,7 @@ function getCompanyDisplayName() {
       await supabase
         .from('companies')
         .update({ name: companyNameInput })
-        .eq('id', targetCompanyId)
+        .eq('id', activeCompanyId)
     }
 
     setCompanySettings(data as any)
@@ -2528,10 +2528,10 @@ async function createCompany() {
       return
     }
 
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const activeCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
     const { error } = await supabase.from('tanks').insert({
-      company_id: targetCompanyId,
+      company_id: activeCompanyId,
       segment_id: newTankSegmentId || null,
       tank_number: newTankNumber,
       tank_name: newTankName || null,
@@ -2555,10 +2555,10 @@ async function createCompany() {
       return
     }
 
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
     const { error } = await supabase.from('line_fills').insert({
-      company_id: targetCompanyId,
+      company_id: activeCompanyID,
       segment_id: newLineFillSegmentId || null,
       line_name: newLineFillName,
       capacity_bbl: newLineFillCapacity ? Number(newLineFillCapacity) : null,
@@ -2588,7 +2588,7 @@ async function createCompany() {
       return
     }
 
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
     const calibration = getActiveTankCalibration(deadwoodTankId)
 
     if (!calibration) {
@@ -2597,7 +2597,7 @@ async function createCompany() {
     }
 
     const { error } = await supabase.from('tank_deadwood_rules').insert({
-      company_id: targetCompanyId,
+      company_id: activeCompanyID,
       tank_id: deadwoodTankId,
       calibration_version_id: calibration.id,
       start_gauge: Number(deadwoodStartGauge),
@@ -2868,7 +2868,7 @@ async function createCompany() {
       return
     }
 
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
     const { data: latestVersions } = await supabase
       .from('tank_calibration_versions')
@@ -2882,7 +2882,7 @@ async function createCompany() {
     const { data: version, error: versionError } = await supabase
       .from('tank_calibration_versions')
       .insert({
-        company_id: targetCompanyId,
+        company_id: activeCompanyID,
         tank_id: selectedStrappingTankId,
         version_number: nextVersion,
         name: `Version ${nextVersion}`,
@@ -2917,7 +2917,7 @@ async function createCompany() {
         if (!Number.isFinite(gaugeDecimal) || !Number.isFinite(barrels)) return null
 
         return {
-          company_id: targetCompanyId,
+          company_id: activeCompanyID,
           tank_id: selectedStrappingTankId,
           calibration_version_id: version.id,
           gauge_decimal: gaugeDecimal,
@@ -3376,9 +3376,9 @@ async function createCompany() {
       alert('No transporter volumes found in the CSV. Check Transporter and NSV/GSV column mapping, or enable manual override.')
       return
     }
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
-    if (!targetCompanyId) {
+    if (!activeCompanyID) {
       alert('No company selected.')
       return
     }
@@ -3386,7 +3386,7 @@ async function createCompany() {
     const { data: batch, error: batchError } = await supabase
       .from('flowx_import_batches')
       .insert({
-        company_id: targetCompanyId,
+        company_id: activeCompanyID,
         lact_name: flowxLactName || null,
         source_file_name: flowxCsvFile.name,
         imported_count: parsed.data.length,
@@ -3421,7 +3421,7 @@ async function createCompany() {
       const { data: flowxRow } = await supabase
         .from('flowx_truck_import_rows')
         .insert({
-          company_id: targetCompanyId,
+          company_id: activeCompanyID,
           import_batch_id: batch.id,
           lact_name: flowxLactName || null,
           batch_number: batchNumber || null,
@@ -3447,7 +3447,7 @@ async function createCompany() {
 
       for (const split of splits) {
         const { data: generatedNumber } = await supabase.rpc('generate_ticket_number', {
-          p_company_id: targetCompanyId,
+          p_company_id: activeCompanyID,
         })
 
         const splitTransporter = split.transporter || split.customer || transporterName
@@ -3456,7 +3456,7 @@ async function createCompany() {
         const splitNet = netVolume * split.normalizedPercent
 
         const ticketPayload: any = {
-          company_id: targetCompanyId,
+          company_id: activeCompanyID,
           ticket_number: generatedNumber || `${sourceTicketNumber || batchNumber}-${splitTransporter}`,
           ticket_type: 'truck',
           status: 'draft',
@@ -3622,22 +3622,22 @@ async function createCompany() {
   }
 
   async function loadTransporterPotRules() {
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
-    if (!targetCompanyId) return
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!activeCompanyID) return
 
     const { data, error } = await supabase
       .from('transporter_pot_rules')
       .select('*')
-      .eq('company_id', targetCompanyId)
+      .eq('company_id', activeCompanyID)
       .order('transporter_name')
 
     if (!error) setTransporterPotRules(data || [])
   }
 
   async function saveTransporterPotRule() {
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
-    if (!targetCompanyId) {
+    if (!activeCompanyID) {
       alert('No company selected.')
       return
     }
@@ -3650,7 +3650,7 @@ async function createCompany() {
     const { error } = await supabase
       .from('transporter_pot_rules')
       .upsert({
-        company_id: targetCompanyId,
+        company_id: activeCompanyID,
         transporter_name: newTransporterPotName.trim(),
         pot_quality_id: newTransporterPotId,
         updated_at: new Date().toISOString(),
@@ -3731,11 +3731,11 @@ async function createCompany() {
   }
 
 
-  async function checkFlowXDuplicateImport(targetCompanyId: string, fileName: string, lactName: string) {
+  async function checkFlowXDuplicateImport(activeCompanyID: string, fileName: string, lactName: string) {
     const { data, error } = await supabase
       .from('flowx_import_batches')
       .select('id, source_file_name, lact_name, imported_count, created_at')
-      .eq('company_id', targetCompanyId)
+      .eq('company_id', activeCompanyID)
       .eq('source_file_name', fileName)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -4043,18 +4043,18 @@ async function createCompany() {
   }
 
   async function loadContractProfiles() {
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
-    if (!targetCompanyId) return
-    const { data, error } = await supabase.from('contract_profiles').select('*').eq('company_id', targetCompanyId).order('contract_name')
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!activeCompanyID) return
+    const { data, error } = await supabase.from('contract_profiles').select('*').eq('company_id', activeCompanyID).order('contract_name')
     if (!error) setContractProfiles(data || [])
   }
 
   async function saveContractProfile() {
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
-    if (!targetCompanyId) return alert('No company selected.')
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!activeCompanyID) return alert('No company selected.')
     if (!newContractName) return alert('Enter a contract name.')
     const { error } = await supabase.from('contract_profiles').upsert({
-      company_id: targetCompanyId,
+      company_id: activeCompanyID,
       contract_name: newContractName.trim(),
       transporter_name: newContractTransporter.trim() || newContractName.trim(),
       calculation_method: newContractMethod,
@@ -4085,14 +4085,14 @@ async function createCompany() {
     const csvText = await flowxCsvFile.text()
     const parsed = parseFlowXCsvForMapping(csvText)
     const summaries = buildFlowXTransporterSummaries(parsed.data || [])
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
-    if (!targetCompanyId) {
+    if (!activeCompanyID) {
       alert('No company selected.')
       return
     }
 
-    const duplicateDecision = await checkFlowXDuplicateImport(targetCompanyId, flowxCsvFile.name, flowxLactName || '')
+    const duplicateDecision = await checkFlowXDuplicateImport(activeCompanyID, flowxCsvFile.name, flowxLactName || '')
     if (duplicateDecision === 'stop') {
       alert('Import cancelled. No duplicate tickets were created.')
       return
@@ -4106,7 +4106,7 @@ async function createCompany() {
     const { data: batch, error: batchError } = await supabase
       .from('flowx_import_batches')
       .insert({
-        company_id: targetCompanyId,
+        company_id: activeCompanyID,
         lact_name: flowxLactName || null,
         source_file_name: flowxCsvFile.name,
         imported_count: parsed.data.length,
@@ -4130,7 +4130,7 @@ async function createCompany() {
       const potLabel = getPotNumberLabel(assignedPot)
 
       return ({
-      company_id: targetCompanyId,
+      company_id: activeCompanyID,
       ticket_number: `FLOWX-${flowxLactName || 'LACT'}-${s.transporter}-${Date.now()}-${i + 1}`,
       ticket_type: 'truck',
       status: 'draft',
@@ -4213,9 +4213,9 @@ async function createCompany() {
 
     const csvText = await flowxCsvFile.text()
     const parsed = parseFlowXCsvForMapping(csvText)
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
-    if (!targetCompanyId) {
+    if (!activeCompanyID) {
       alert('No company selected.')
       return
     }
@@ -4274,7 +4274,7 @@ async function createCompany() {
     const { data: batch, error: batchError } = await supabase
       .from('flowx_import_batches')
       .insert({
-        company_id: targetCompanyId,
+        company_id: activeCompanyID,
         lact_name: flowxLactName || null,
         source_file_name: flowxCsvFile.name,
         imported_count: rows.length,
@@ -4302,11 +4302,11 @@ async function createCompany() {
       const bswPercent = Number(firstRow['BS&W'] || firstRow['Driver Obs BS&W'] || 0)
 
       const { data: generatedNumber } = await supabase.rpc('generate_ticket_number', {
-        p_company_id: targetCompanyId,
+        p_company_id: activeCompanyID,
       })
 
       const ticketPayload: any = {
-        company_id: targetCompanyId,
+        company_id: activeCompanyID,
         ticket_number: generatedNumber || `FLOWX-${split.transporter}-${Date.now()}`,
         ticket_type: 'truck',
         status: 'draft',
@@ -4797,9 +4797,9 @@ async function createCompany() {
       return
     }
 
-    const targetCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
-    if (!targetCompanyId) {
+    if (!activeCompanyID) {
       alert('Select or load a company before importing.')
       return
     }
@@ -4866,7 +4866,7 @@ async function createCompany() {
           await supabase
             .from('meters')
             .update({
-              company_id: targetCompanyId,
+              company_id: activeCompanyID,
               area_id: area?.id || existingMeter.area_id || null,
               segment_id: segment?.id || existingMeter.segment_id || null,
               producer_id: producer?.id || existingMeter.producer_id || null,
@@ -4881,7 +4881,7 @@ async function createCompany() {
             .eq('id', existingMeter.id)
         } else {
           const { error } = await supabase.from('meters').insert({
-            company_id: targetCompanyId,
+            company_id: activeCompanyID,
             meter_number: meterNumber,
             area_id: area?.id || null,
             segment_id: segment?.id || null,
@@ -5749,13 +5749,13 @@ async function saveUserRole() {
       checks.push({ name, ok, detail, severity })
     }
 
-    const targetCompanyId =
+    const activeCompanyID =
       userIsSuperAdmin && selectedAdminCompanyId
         ? selectedAdminCompanyId
         : companyId
 
     try {
-      addCheck('Company selected', !!targetCompanyId, targetCompanyId ? `Company ID: ${targetCompanyId}` : 'No company is selected.')
+      addCheck('Company selected', !!activeCompanyID, activeCompanyID ? `Company ID: ${activeCompanyID}` : 'No company is selected.')
 
       const requiredTables = [
         'companies',

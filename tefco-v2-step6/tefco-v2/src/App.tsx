@@ -1232,7 +1232,41 @@ const provingCompliancePercent =
   function getVisibleSegments(areaId: string) {
     if (!areaId) return []
     if (!userCanAccessArea(areaId)) return []
-    return segments.filter((segment: any) => String(segment.area_id || '') === String(areaId))
+
+    const directSegments = segments.filter((segment: any) => String(segment.area_id || '') === String(areaId))
+
+    const leaseSegmentIds = new Set(
+      leases
+        .filter((lease: any) => String(lease.area_id || '') === String(areaId))
+        .map((lease: any) => String(lease.segment_id || ''))
+        .filter(Boolean)
+    )
+
+    const meterLeaseIds = new Set(
+      meters
+        .filter((meter: any) => String(meter.area_id || '') === String(areaId))
+        .map((meter: any) => String(meter.lease_id || ''))
+        .filter(Boolean)
+    )
+
+    leases
+      .filter((lease: any) => meterLeaseIds.has(String(lease.id)))
+      .forEach((lease: any) => {
+        if (lease.segment_id) leaseSegmentIds.add(String(lease.segment_id))
+      })
+
+    const inferredSegments = segments.filter((segment: any) => leaseSegmentIds.has(String(segment.id)))
+
+    const combined = [...directSegments, ...inferredSegments]
+    const unique = new Map<string, any>()
+
+    combined.forEach((segment: any) => {
+      if (segment?.id) unique.set(String(segment.id), segment)
+    })
+
+    return Array.from(unique.values()).sort((a: any, b: any) =>
+      String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || ''))
+    )
   }
 
   function getVisibleLeases(segmentId: string) {

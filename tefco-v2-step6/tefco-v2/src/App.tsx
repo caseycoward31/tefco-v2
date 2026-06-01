@@ -987,55 +987,63 @@ useEffect(() => {
       return
     }
 
-    // Load roles broadly, then match them to the signed-in Supabase Auth user.
-    // This fixes the common V2 issue where the row was stored under profile_id,
-    // auth_user_id, or email instead of exactly user_id, causing Super Admins to
-    // be detected as the default operator.
-    const { data: roleRows, error } = await supabase
+    let rows: any[] = []
+    let allRows: any[] = []
+
+    // First try the normal V2 schema: user_roles.user_id = auth.users.id.
+    const exact = await supabase
       .from('user_roles')
       .select('*')
+      .eq('user_id', authUser.id)
 
-    if (error) {
-      console.error('Role load error:', error)
-      setCurrentUserRole('operator')
-      setUserRoles([])
-      return
+    if (exact.error) {
+      console.error('Exact role load error:', exact.error)
+    } else {
+      rows = exact.data || []
     }
 
-    const allRows = roleRows || []
-    setAllUserRoles(allRows)
+    // Fallback: some V2 databases/RLS policies return only rows the logged-in
+    // user is allowed to see. This keeps Super Admin from defaulting to operator
+    // when the role row is stored differently or the exact lookup returns none.
+    if (rows.length === 0) {
+      const broad = await supabase.from('user_roles').select('*')
+      if (broad.error) {
+        console.error('Broad role load error:', broad.error)
+      } else {
+        allRows = broad.data || []
 
-    const authIds = new Set(
-      [
-        authUser.id,
-        (authUser as any)?.user_metadata?.profile_id,
-        (authUser as any)?.user_metadata?.user_id,
-      ]
-        .filter(Boolean)
-        .map((value: any) => String(value))
-    )
+        const authIds = new Set(
+          [
+            authUser.id,
+            (authUser as any)?.user_metadata?.profile_id,
+            (authUser as any)?.user_metadata?.user_id,
+          ]
+            .filter(Boolean)
+            .map((value: any) => String(value))
+        )
 
-    const authEmails = new Set(
-      [authUser.email, (authUser as any)?.user_metadata?.email]
-        .filter(Boolean)
-        .map((value: any) => String(value).trim().toLowerCase())
-    )
+        const authEmails = new Set(
+          [authUser.email, (authUser as any)?.user_metadata?.email]
+            .filter(Boolean)
+            .map((value: any) => String(value).trim().toLowerCase())
+        )
 
-    let rows = allRows.filter((role: any) => {
-      const rowIds = [role.user_id, role.profile_id, role.auth_user_id, role.auth_id]
-        .filter(Boolean)
-        .map((value: any) => String(value))
-      const rowEmails = [role.email, role.user_email]
-        .filter(Boolean)
-        .map((value: any) => String(value).trim().toLowerCase())
+        rows = allRows.filter((role: any) => {
+          const rowIds = [role.user_id, role.profile_id, role.auth_user_id, role.auth_id]
+            .filter(Boolean)
+            .map((value: any) => String(value))
+          const rowEmails = [role.email, role.user_email]
+            .filter(Boolean)
+            .map((value: any) => String(value).trim().toLowerCase())
 
-      return rowIds.some((id) => authIds.has(id)) || rowEmails.some((email) => authEmails.has(email))
-    })
+          return rowIds.some((id) => authIds.has(id)) || rowEmails.some((email) => authEmails.has(email))
+        })
 
-    // If RLS only returns the current user's role row and the column name is
-    // unexpected, trust the single visible row rather than falling back to operator.
-    if (rows.length === 0 && allRows.length === 1) rows = allRows
+        if (rows.length === 0 && allRows.length === 1) rows = allRows
+      }
+    }
 
+    rows = rows.filter((role: any) => role.active !== false)
     setUserRoles(rows)
 
     const highestRole = getHighestRole(rows)
@@ -1045,13 +1053,26 @@ useEffect(() => {
       rows.find((role: any) => role.active !== false && normalizeRoleName(role.role) !== 'super_admin' && role.company_id) ||
       rows.find((role: any) => role.active !== false && role.company_id)
 
-    setCompanyId(companyRole?.company_id || '')
+    // Do not wipe company branding for global Super Admins. They use the selected
+    // admin company for branding/settings. Company-scoped users still get companyId.
+    if (companyRole?.company_id) {
+      setCompanyId(companyRole.company_id)
+    } else if (normalizeRoleName(highestRole) !== 'super_admin') {
+      const companyUser = await supabase
+        .from('company_users')
+        .select('company_id')
+        .eq('user_id', authUser.id)
+        .maybeSingle()
 
-    console.log('TEFCO role detection', {
+      if (companyUser.data?.company_id) setCompanyId(companyUser.data.company_id)
+      else setCompanyId('')
+    }
+
+    console.log('TEFCO detected role', {
       authUserId: authUser.id,
       authEmail: authUser.email,
-      matchedRoles: rows.map((role: any) => ({ role: role.role, user_id: role.user_id, profile_id: role.profile_id, email: role.email, active: role.active })),
       detectedRole: highestRole,
+      matchedRoles: rows.map((role: any) => ({ role: role.role, user_id: role.user_id, company_id: role.company_id, active: role.active })),
     })
   }
 
@@ -1073,9 +1094,6 @@ useEffect(() => {
         setSelectedAdminCompanyId(companiesData[0].id)
       }
     }
-
-    const { data: cu } = await supabase.from('company_users').select('company_id').single()
-    if (cu) setCompanyId(cu.company_id)
 
     const { data: areaData } = await supabase.from('areas').select('*').order('name')
     const { data: segData } = await supabase.from('segments').select('*').order('name')

@@ -1369,6 +1369,18 @@ const provingCompliancePercent =
     return `User ${uid || 'unknown'} allowed areas: ${allowed || 'none assigned'}`
   }
 
+
+  function getAreaAccessUsers() {
+    const activeCompany = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    return (userRoles || [])
+      .filter((role: any) => {
+        const rowCompanyId = role.company_id || role.companyId
+        return !activeCompany || !rowCompanyId || String(rowCompanyId) === String(activeCompany)
+      })
+      .filter((role: any) => role.active !== false)
+  }
+
   function toggleAccessArea(areaId: string) {
     setSelectedAccessAreaIds((prev) =>
       prev.includes(areaId) ? prev.filter((id) => id !== areaId) : [...prev, areaId]

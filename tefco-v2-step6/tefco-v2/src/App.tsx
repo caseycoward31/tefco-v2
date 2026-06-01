@@ -1236,50 +1236,31 @@ const provingCompliancePercent =
     if (!areaId) return []
     if (!userCanAccessArea(areaId)) return []
 
-    const directSegments = segments.filter((segment: any) => String(segment.area_id || '') === String(areaId))
-
-    const leaseSegmentIds = new Set(
-      leases
-        .filter((lease: any) => String(lease.area_id || '') === String(areaId))
-        .map((lease: any) => String(lease.segment_id || ''))
-        .filter(Boolean)
-    )
-
-    const meterLeaseIds = new Set(
-      meters
-        .filter((meter: any) => String(meter.area_id || '') === String(areaId))
-        .map((meter: any) => String(meter.lease_id || ''))
-        .filter(Boolean)
-    )
-
-    leases
-      .filter((lease: any) => meterLeaseIds.has(String(lease.id)))
-      .forEach((lease: any) => {
-        if (lease.segment_id) leaseSegmentIds.add(String(lease.segment_id))
-      })
-
-    const inferredSegments = segments.filter((segment: any) => leaseSegmentIds.has(String(segment.id)))
-
-    const combined = [...directSegments, ...inferredSegments]
-    const unique = new Map<string, any>()
-
-    combined.forEach((segment: any) => {
-      if (segment?.id) unique.set(String(segment.id), segment)
-    })
-
-    return Array.from(unique.values()).sort((a: any, b: any) =>
-      String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || ''))
-    )
+    return segments
+      .filter((segment: any) => String(segment.area_id || '') === String(areaId))
+      .sort((a: any, b: any) =>
+        String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || ''))
+      )
   }
 
   function getVisibleLeases(segmentId: string) {
     if (!segmentId) return []
-    return leases.filter((lease: any) => String(lease.segment_id || '') === String(segmentId))
+
+    return leases
+      .filter((lease: any) => String(lease.segment_id || '') === String(segmentId))
+      .sort((a: any, b: any) =>
+        String(a.lease_name || a.name || a.lease_number || '').localeCompare(String(b.lease_name || b.name || b.lease_number || ''))
+      )
   }
 
   function getVisibleMeters(leaseId: string) {
     if (!leaseId) return []
-    return meters.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
+
+    return meters
+      .filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
+      .sort((a: any, b: any) =>
+        String(a.meter_number || a.meter_name || '').localeCompare(String(b.meter_number || b.meter_name || ''))
+      )
   }
 
 
@@ -1353,15 +1334,15 @@ const provingCompliancePercent =
     alert('Area access saved.')
   }
 
-  function getSegmentsForSelectedReadingArea() {
+  function getVisibleSegments(selectedReadingArea) {
     return getVisibleSegments(selectedReadingArea)
   }
 
-  function getLeasesForSelectedReadingSegment() {
+  function getVisibleLeases(selectedReadingSegment) {
     return getVisibleLeases(selectedReadingSegment)
   }
 
-  function getMetersForSelectedReadingLease() {
+  function getVisibleMeters(selectedReadingLease) {
     return getVisibleMeters(selectedReadingLease)
   }
 
@@ -1381,7 +1362,7 @@ const provingCompliancePercent =
   function handleReadingLeaseSelect(leaseId: string) {
     setSelectedReadingLease(leaseId)
 
-    const leaseMeters = meters.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
+    const leaseMeters = getVisibleMeters(leaseId)
 
     if (leaseMeters.length === 1) {
       setSelectedReadingMeter(leaseMeters[0].id)
@@ -1552,15 +1533,15 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   }
 
 
-  function getSegmentsForSelectedProvingArea() {
+  function getVisibleSegments(selectedProvingArea) {
     return getVisibleSegments(selectedProvingArea)
   }
 
-  function getLeasesForSelectedProvingSegment() {
+  function getVisibleLeases(selectedProvingSegment) {
     return getVisibleLeases(selectedProvingSegment)
   }
 
-  function getMetersForSelectedProvingLease() {
+  function getVisibleMeters(selectedProvingLease) {
     return getVisibleMeters(selectedProvingLease)
   }
 
@@ -1580,7 +1561,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   function handleProvingLeaseSelect(leaseId: string) {
     setSelectedProvingLease(leaseId)
 
-    const leaseMeters = meters.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
+    const leaseMeters = getVisibleMeters(leaseId)
 
     if (leaseMeters.length === 1) {
       setProvingMeter(leaseMeters[0].id)
@@ -7469,21 +7450,21 @@ async function saveUserRole() {
 
               <select style={input} value={selectedReadingSegment} onChange={(e) => handleReadingSegmentSelect(e.target.value)} disabled={!selectedReadingArea}>
                 <option value="">{selectedReadingArea ? 'Select Segment' : 'Select area first'}</option>
-                {getSegmentsForSelectedReadingArea().map((segment: any) => (
+                {getVisibleSegments(selectedReadingArea).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
               </select>
 
               <select style={input} value={selectedReadingLease} onChange={(e) => handleReadingLeaseSelect(e.target.value)} disabled={!selectedReadingSegment}>
                 <option value="">{selectedReadingSegment ? 'Select Lease' : 'Select segment first'}</option>
-                {getLeasesForSelectedReadingSegment().map((lease: any) => (
+                {getVisibleLeases(selectedReadingSegment).map((lease: any) => (
                   <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
                 ))}
               </select>
 
               <select style={input} value={selectedReadingMeter} onChange={(e) => { setSelectedReadingMeter(e.target.value); autofillOpeningReadingForLease(selectedReadingLease, e.target.value) }} disabled={!selectedReadingLease}>
                 <option value="">{selectedReadingLease ? 'Select Meter' : 'Select lease first'}</option>
-                {getMetersForSelectedReadingLease().map((meter: any) => (
+                {getVisibleMeters(selectedReadingLease).map((meter: any) => (
                   <option key={meter.id} value={meter.id}>
                     {meter.meter_number || meter.meter_name} {meter.meter_name && meter.meter_number ? `- ${meter.meter_name}` : ''}
                   </option>
@@ -7791,21 +7772,21 @@ async function saveUserRole() {
 
               <select style={input} value={selectedProvingSegment} onChange={(e) => handleProvingSegmentSelect(e.target.value)} disabled={!selectedProvingArea}>
                 <option value="">{selectedProvingArea ? 'Select Segment' : 'Select area first'}</option>
-                {getSegmentsForSelectedProvingArea().map((segment: any) => (
+                {getVisibleSegments(selectedProvingArea).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
               </select>
 
               <select style={input} value={selectedProvingLease} onChange={(e) => handleProvingLeaseSelect(e.target.value)} disabled={!selectedProvingSegment}>
                 <option value="">{selectedProvingSegment ? 'Select Lease' : 'Select segment first'}</option>
-                {getLeasesForSelectedProvingSegment().map((lease: any) => (
+                {getVisibleLeases(selectedProvingSegment).map((lease: any) => (
                   <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
                 ))}
               </select>
 
               <select style={input} value={provingMeter} onChange={(e) => setProvingMeter(e.target.value)} disabled={!selectedProvingLease}>
                 <option value="">{selectedProvingLease ? 'Select Meter' : 'Select lease first'}</option>
-                {getMetersForSelectedProvingLease().map((meter: any) => (
+                {getVisibleMeters(selectedProvingLease).map((meter: any) => (
                   <option key={meter.id} value={meter.id}>
                     {meter.meter_number || meter.meter_name} {meter.meter_name && meter.meter_number ? `- ${meter.meter_name}` : ''}
                   </option>

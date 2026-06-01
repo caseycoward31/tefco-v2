@@ -5603,7 +5603,10 @@ async function saveUserRole() {
     { key: 'provings', label: 'Provings', description: 'Meter proving records' },
     { key: 'reports', label: 'Reports', description: 'Reports Center' },
     { key: 'system_health', label: 'System Health', description: 'Setup checks' },
-    ...(canViewAdmin ? [{ key: 'admin', label: 'Admin', description: 'Company setup and imports' }] : []),
+    const canViewAdmin = userCanManageCompanySetup || userIsSuperAdmin || userIsCompanyAdmin,
+    ...(canViewAdmin || userIsSuperAdmin || userIsCompanyAdmin || isActuallyAdminUser()
+  ? [{ key: 'admin', label: 'Admin', description: 'Company setup and imports' }]
+  : []),
     { key: 'operations', label: 'Operations', description: 'Over / short and alerts' },
   ]
 

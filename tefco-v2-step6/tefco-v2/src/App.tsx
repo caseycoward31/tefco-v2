@@ -1277,30 +1277,30 @@ const provingCompliancePercent =
 
   const approvedTickets = tickets.filter((t) => t.status === 'approved')
 
+  const selectedTicketSegmentLeases = selectedSegment ? getVisibleLeases(selectedSegment) : getScopedLeases()
+
   const filteredProducers = selectedSegment
-    ? producers.filter((p) => getScopedLeases().some((l: any) => String(l.segment_id || '') === String(selectedSegment) && String(l.producer_id || '') === String(p.id)))
+    ? producers.filter((p) => selectedTicketSegmentLeases.some((l: any) => String(l.producer_id || '') === String(p.id)))
     : producers
 
-  const filteredLeases = getScopedLeases().filter(
-    (l: any) =>
-      (!selectedSegment || String(l.segment_id || '') === String(selectedSegment)) &&
-      (!selectedProducer || String(l.producer_id || '') === String(selectedProducer))
+  const filteredLeases = selectedTicketSegmentLeases.filter(
+    (l: any) => !selectedProducer || String(l.producer_id || '') === String(selectedProducer)
   )
 
-  const filteredMeters = getScopedMeters().filter(
-    (m: any) =>
-      (!selectedProducer || String(m.producer_id || '') === String(selectedProducer)) &&
-      (!selectedLease || String(m.lease_id || '') === String(selectedLease))
+  const selectedTicketLeaseMeters = selectedLease ? getVisibleMeters(selectedLease) : getScopedMeters()
+
+  const filteredMeters = selectedTicketLeaseMeters.filter(
+    (m: any) => !selectedProducer || String(m.producer_id || '') === String(selectedProducer)
   )
+
+  const selectedPotSegmentLeases = potSegment ? getVisibleLeases(potSegment) : getScopedLeases()
 
   const filteredPotProducers = potSegment
-    ? producers.filter((p) => leases.some((l) => l.segment_id === potSegment && l.producer_id === p.id))
+    ? producers.filter((p) => selectedPotSegmentLeases.some((l: any) => String(l.producer_id || '') === String(p.id)))
     : producers
 
-  const filteredPotLeases = leases.filter(
-    (l) =>
-      (!potSegment || l.segment_id === potSegment) &&
-      (!potProducer || l.producer_id === potProducer)
+  const filteredPotLeases = selectedPotSegmentLeases.filter(
+    (l: any) => !potProducer || String(l.producer_id || '') === String(potProducer)
   )
 
   async function addArea() {
@@ -1465,23 +1465,15 @@ const provingCompliancePercent =
   }
 
   function getVisibleSegments(areaId: string) {
-    if (!areaId) return []
-    if (!userCanAccessArea(areaId)) return []
+    // Admin/company users should be able to choose any segment in their company.
+    // Operators/measurement users are already narrowed by getScopedSegments() through area access.
+    // Do not hide valid segments just because old segment rows are missing area_id links.
+    const scopedSegmentRows = getScopedSegments()
+    const rows = (areaId && !userCanAccessArea(areaId)) ? [] : scopedSegmentRows
 
-    const leaseSegmentIdsForArea = new Set(
-      asArray(leases)
-        .filter((lease: any) => String(lease.area_id || '') === String(areaId))
-        .map((lease: any) => String(lease.segment_id || ''))
-        .filter(Boolean)
+    return rows.sort((a: any, b: any) =>
+      String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || ''))
     )
-
-    return getScopedSegments()
-      .filter((segment: any) =>
-        String(segment.area_id || '') === String(areaId) || leaseSegmentIdsForArea.has(String(segment.id))
-      )
-      .sort((a: any, b: any) =>
-        String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || ''))
-      )
   }
 
   function sortLeasesForDropdown(rows: any[]) {
@@ -1501,44 +1493,47 @@ const provingCompliancePercent =
 
     const scopedLeaseRows = getScopedLeases()
     const selectedSegmentRow: any = asArray(segments).find((segment: any) => String(segment.id || '') === String(segmentId))
-    const selectedAreaId = String(selectedSegmentRow?.area_id || '')
+    const selectedSegmentName = String(selectedSegmentRow?.segment_name || selectedSegmentRow?.name || '').trim().toLowerCase()
 
+    // Primary behavior: selecting a segment only shows leases linked to that segment.
     const exactSegmentMatches = scopedLeaseRows.filter((lease: any) => String(lease.segment_id || '') === String(segmentId))
     if (exactSegmentMatches.length > 0) return sortLeasesForDropdown(exactSegmentMatches)
 
-    const areaMatches = selectedAreaId
-      ? scopedLeaseRows.filter((lease: any) => String(lease.area_id || '') === selectedAreaId)
+    // Legacy data safety: support old rows that stored the segment name instead of segment_id.
+    // Do NOT fall back to all leases here, because that defeats segment segregation.
+    const nameMatches = selectedSegmentName
+      ? scopedLeaseRows.filter((lease: any) => {
+          const leaseSegmentName = String(
+            lease.segment_name || lease.segment || lease.route_segment || lease.system_segment || ''
+          ).trim().toLowerCase()
+          return leaseSegmentName === selectedSegmentName
+        })
       : []
-    if (areaMatches.length > 0) return sortLeasesForDropdown(areaMatches)
 
-    // Legacy data safety: if old lease rows are missing segment_id/area_id links, do not leave the operator dropdown blank.
-    // The Supabase repair SQL below backfills the real links; this fallback keeps the screen usable until every row is cleaned up.
-    return sortLeasesForDropdown(scopedLeaseRows)
+    return sortLeasesForDropdown(nameMatches)
   }
 
   function getVisibleMeters(leaseId: string) {
     if (!leaseId) return []
 
     const scopedMeterRows = getScopedMeters()
+
+    // Primary behavior: selecting a lease only shows meters linked to that lease.
     const exactLeaseMatches = scopedMeterRows.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
     if (exactLeaseMatches.length > 0) return sortMetersForDropdown(exactLeaseMatches)
 
+    // Legacy data safety: support old rows that stored the lease name/number instead of lease_id.
+    // Do NOT fall back to all meters here, because that defeats lease segregation.
     const selectedLeaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(leaseId))
-    const selectedSegmentId = String(selectedLeaseRow?.segment_id || '')
-    const selectedAreaId = String(selectedLeaseRow?.area_id || '')
+    const selectedLeaseName = String(selectedLeaseRow?.lease_name || selectedLeaseRow?.name || '').trim().toLowerCase()
+    const selectedLeaseNumber = String(selectedLeaseRow?.lease_number || '').trim().toLowerCase()
 
-    const segmentMatches = selectedSegmentId
-      ? scopedMeterRows.filter((meter: any) => String(meter.segment_id || '') === selectedSegmentId)
-      : []
-    if (segmentMatches.length > 0) return sortMetersForDropdown(segmentMatches)
+    const nameMatches = scopedMeterRows.filter((meter: any) => {
+      const meterLeaseName = String(meter.lease_name || meter.lease || meter.lease_number || '').trim().toLowerCase()
+      return Boolean(meterLeaseName) && (meterLeaseName === selectedLeaseName || meterLeaseName === selectedLeaseNumber)
+    })
 
-    const areaMatches = selectedAreaId
-      ? scopedMeterRows.filter((meter: any) => String(meter.area_id || '') === selectedAreaId)
-      : []
-    if (areaMatches.length > 0) return sortMetersForDropdown(areaMatches)
-
-    // Legacy data safety for meters missing lease_id links.
-    return sortMetersForDropdown(scopedMeterRows)
+    return sortMetersForDropdown(nameMatches)
   }
 
   function getScopedReadings(): any[] {

@@ -998,30 +998,59 @@ useEffect(() => {
       return emptyScope
     }
 
-    const { data: roleRows, error } = await supabase
-      .from('user_roles')
-      .select('*')
-      .eq('user_id', authUser.id)
+    // Read the logged-in user's role two ways:
+    // 1) direct table read when RLS allows it
+    // 2) SECURITY DEFINER RPC helper when RLS hides the row from the browser
+    const [roleResult, rpcRoleResult, rpcCompanyResult] = await Promise.all([
+      supabase
+        .from('user_roles')
+        .select('*')
+        .eq('user_id', authUser.id),
+      supabase.rpc('tefco_current_role'),
+      supabase.rpc('tefco_current_company_id'),
+    ])
 
-    if (error) {
-      console.error('Role load error:', error)
-      setCurrentUserRole('operator')
-      setUserRoles([])
-      setCompanyId('')
-      return { ...emptyScope, authUserId: authUser.id }
+    if (roleResult.error) {
+      console.error('Role table load error:', roleResult.error)
+    }
+    if (rpcRoleResult.error) {
+      console.warn('Role RPC fallback unavailable:', rpcRoleResult.error)
+    }
+    if (rpcCompanyResult.error) {
+      console.warn('Company RPC fallback unavailable:', rpcCompanyResult.error)
     }
 
-    const rows = (roleRows || []).filter((role: any) => role.active !== false)
-    setUserRoles(rows)
+    const directRows = (roleResult.data || []).filter((role: any) => role.active !== false)
+    const rpcRole = normalizeRoleName(rpcRoleResult.data || '')
+    const rpcCompanyId = String(rpcCompanyResult.data || '')
 
-    const highestRole = getHighestRole(rows)
-    setCurrentUserRole(highestRole)
+    let highestRole = getHighestRole(directRows)
+
+    // If the direct RLS table read returns nothing/operator but the server helper knows
+    // the real role, trust the helper. This prevents valid admins from falling back to operator.
+    if (rpcRole && rpcRole !== 'operator') {
+      const directRank = getHighestRole([{ role: highestRole, active: true }])
+      const rpcRank = getHighestRole([{ role: rpcRole, active: true }])
+      const rankValue: Record<string, number> = {
+        super_admin: 6,
+        admin: 5,
+        company_admin: 5,
+        measurement_tech: 3,
+        operator: 2,
+        auditor: 1,
+      }
+      if ((rankValue[rpcRank] || 0) >= (rankValue[directRank] || 0)) {
+        highestRole = rpcRank
+      }
+    }
+
+    let resolvedCompanyId = ''
 
     const companyRole =
-      rows.find((role: any) => normalizeRoleName(role.role) !== 'super_admin' && role.company_id) ||
-      rows.find((role: any) => role.company_id)
+      directRows.find((role: any) => normalizeRoleName(role.role) !== 'super_admin' && role.company_id) ||
+      directRows.find((role: any) => role.company_id)
 
-    let resolvedCompanyId = companyRole?.company_id || ''
+    resolvedCompanyId = companyRole?.company_id || rpcCompanyId || ''
 
     if (!resolvedCompanyId) {
       const { data: companyUserRow, error: companyUserError } = await supabase
@@ -1035,6 +1064,20 @@ useEffect(() => {
       }
     }
 
+    const rowsForState = directRows.length > 0
+      ? directRows
+      : highestRole !== 'operator'
+        ? [{
+            id: `runtime-${authUser.id}`,
+            user_id: authUser.id,
+            role: highestRole,
+            company_id: resolvedCompanyId || null,
+            active: true,
+          }]
+        : []
+
+    setUserRoles(rowsForState)
+    setCurrentUserRole(highestRole)
     setCompanyId(resolvedCompanyId)
 
     const normalizedRole = normalizeRoleName(highestRole)
@@ -1042,7 +1085,7 @@ useEffect(() => {
     return {
       authUserId: authUser.id,
       role: highestRole,
-      roles: rows,
+      roles: rowsForState,
       companyId: resolvedCompanyId,
       isSuperAdmin: normalizedRole === 'super_admin',
       isCompanyAdmin: normalizedRole === 'admin' || normalizedRole === 'company_admin',

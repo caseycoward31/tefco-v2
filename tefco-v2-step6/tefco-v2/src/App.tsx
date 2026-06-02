@@ -561,10 +561,18 @@ function isThisMonth(dateValue?: string) {
   return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
 }
 
+function normalizeRoleValue(value: any) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/-/g, '_')
+}
+
 function getHighestRole(roles: any[]) {
   const rank: Record<string, number> = {
-    super_admin: 5,
-    admin: 4,
+    super_admin: 6,
+    admin: 5,
     company_admin: 4,
     measurement_tech: 3,
     operator: 2,
@@ -575,14 +583,26 @@ function getHighestRole(roles: any[]) {
 
   if (activeRoles.length === 0) return 'operator'
 
-  return activeRoles
+  const bestRole = activeRoles
     .slice()
-    .sort((a, b) => (rank[b.role] || 0) - (rank[a.role] || 0))[0].role
+    .sort((a, b) => {
+      const aRole = normalizeRoleValue(a.role)
+      const bRole = normalizeRoleValue(b.role)
+      return (rank[bRole] || 0) - (rank[aRole] || 0)
+    })[0]
+
+  return normalizeRoleValue(bestRole?.role) || 'operator'
 }
 
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
+  const [hierarchySegmentId, setHierarchySegmentId] = useState('')
+  const [hierarchyAreaId, setHierarchyAreaId] = useState('')
+  const [hierarchyLeaseId, setHierarchyLeaseId] = useState('')
+  const [hierarchyLeaseSegmentId, setHierarchyLeaseSegmentId] = useState('')
+  const [hierarchyMeterId, setHierarchyMeterId] = useState('')
+  const [hierarchyMeterLeaseId, setHierarchyMeterLeaseId] = useState('')
   const [userAreaAccess, setUserAreaAccess] = useState<any[]>([])
   const [selectedAccessUserId, setSelectedAccessUserId] = useState('')
   const [selectedAccessAreaIds, setSelectedAccessAreaIds] = useState<string[]>([])
@@ -678,6 +698,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [potCsvEndDate, setPotCsvEndDate] = useState('')
   const [potCsvProducerId, setPotCsvProducerId] = useState('')
   const [companyId, setCompanyId] = useState('')
+  const [currentAuthUserId, setCurrentAuthUserId] = useState('')
   const [companySettings, setCompanySettings] = useState<any>(null)
   const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null)
   const [companyNameInput, setCompanyNameInput] = useState('')
@@ -700,6 +721,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [ticketAuditLogs, setTicketAuditLogs] = useState<TicketAuditLog[]>([])
   const [userRoles, setUserRoles] = useState<UserRole[]>([])
+  const [allUserRoles, setAllUserRoles] = useState<UserRole[]>([])
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([])
   const [Role, setCurrentUserRole] = useState<string>('operator')
   const [newAdminUserId, setNewAdminUserId] = useState('')
@@ -776,6 +798,9 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [readingMovementType, setReadingMovementType] = useState('receipt')
 const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [provingMeter, setProvingMeter] = useState('')
+  const [selectedPotArea, setSelectedPotArea] = useState('')
+  const [selectedPotSegment, setSelectedPotSegment] = useState('')
+  const [selectedPotLease, setSelectedPotLease] = useState('')
   const [selectedProvingArea, setSelectedProvingArea] = useState('')
   const [selectedProvingSegment, setSelectedProvingSegment] = useState('')
   const [selectedProvingLease, setSelectedProvingLease] = useState('')
@@ -875,8 +900,41 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
     potQuality,
   ])
 
-  const userIsSuperAdmin = Role === 'super_admin'
-  const userIsCompanyAdmin = Role === 'admin' || Role === 'company_admin'
+  
+  function normalizeRoleName(value: any) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/-/g, '_')
+  }
+
+  function hasLoadedRole(...roleNames: string[]) {
+    const wanted = new Set(roleNames.map(normalizeRoleName))
+    const current = normalizeRoleName(Role)
+
+    if (wanted.has(current)) return true
+
+    return asArray(userRoles).some((row: any) => {
+      if (row.active === false) return false
+      return wanted.has(normalizeRoleName(row.role))
+    })
+  }
+
+
+  function isActuallyAdminUser() {
+    const current = normalizeRoleName(Role)
+
+    if (current === 'super_admin' || current === 'admin' || current === 'company_admin') return true
+
+    return asArray(userRoles).some((row: any) => {
+      const role = normalizeRoleName(row.role)
+      return row.active !== false && (role === 'super_admin' || role === 'admin' || role === 'company_admin')
+    })
+  }
+
+const userIsSuperAdmin = hasLoadedRole('super_admin') || asArray(userRoles).some((row: any) => row.active !== false && normalizeRoleName(row.role) === 'super_admin')
+  const userIsCompanyAdmin = isActuallyAdminUser() && !userIsSuperAdmin
   const userCanManageCompanySetup = userIsSuperAdmin || userIsCompanyAdmin
   const userCanCreateCompanyScopedUsers = userIsSuperAdmin || userIsCompanyAdmin
 useEffect(() => {
@@ -926,111 +984,81 @@ useEffect(() => {
   async function reloadCurrentUserRole() {
     const authResult = await supabase.auth.getUser()
     const authUser = authResult.data.user
+    setCurrentAuthUserId(authUser?.id || '')
+
+    const emptyScope = {
+      authUserId: '',
+      role: 'operator',
+      roles: [] as any[],
+      companyId: '',
+      isSuperAdmin: false,
+      isCompanyAdmin: false,
+      canManageCompanySetup: false,
+    }
 
     if (!authUser) {
       setCurrentUserRole('operator')
       setUserRoles([])
       setCompanyId('')
-      return
+      setCurrentAuthUserId('')
+      return emptyScope
     }
 
-    const normalizeRoleRows = (rows: any[] | null | undefined) =>
-      (rows || []).filter((role: any) => role.active !== false)
+    const { data: roleRows, error } = await supabase
+      .from('user_roles')
+      .select('*')
+      .eq('user_id', authUser.id)
 
-    let rows: any[] = []
-
-    try {
-      const { data, error } = await supabase
-        .from('user_roles')
-        .select('*')
-        .eq('user_id', authUser.id)
-
-      if (error) {
-        console.error('Role load by user_id failed:', error)
-      } else {
-        rows = normalizeRoleRows(data)
-      }
-    } catch (error) {
-      console.error('Role load by user_id crashed:', error)
+    if (error) {
+      console.error('Role load error:', error)
+      setCurrentUserRole('operator')
+      setUserRoles([])
+      setCompanyId('')
+      return { ...emptyScope, authUserId: authUser.id }
     }
 
-    // Some older schema versions used auth_user_id instead of user_id.
-    // This keeps the app from falling back to operator if the table changed.
-    if (rows.length === 0) {
-      try {
-        const { data, error } = await supabase
-          .from('user_roles')
-          .select('*')
-          .eq('auth_user_id', authUser.id)
-
-        if (!error) {
-          rows = normalizeRoleRows(data)
-        }
-      } catch (error) {
-        console.warn('Role load by auth_user_id skipped:', error)
-      }
-    }
-
-    // Last normal fallback: role stored by email.
-    if (rows.length === 0 && authUser.email) {
-      try {
-        const { data, error } = await supabase
-          .from('user_roles')
-          .select('*')
-          .eq('email', authUser.email.toLowerCase())
-
-        if (!error) {
-          rows = normalizeRoleRows(data)
-        }
-      } catch (error) {
-        console.warn('Role load by email skipped:', error)
-      }
-    }
-
-    // Metadata fallback if Supabase Auth has a role saved on the user.
-    const metadataRole =
-      authUser.app_metadata?.role ||
-      authUser.user_metadata?.role ||
-      authUser.app_metadata?.app_role ||
-      authUser.user_metadata?.app_role
-
-    if (rows.length === 0 && metadataRole) {
-      rows = [{
-        user_id: authUser.id,
-        role: metadataRole,
-        active: true,
-        company_id: authUser.app_metadata?.company_id || authUser.user_metadata?.company_id || null,
-      }]
-    }
-
-    // IMPORTANT: Do not auto-upgrade unknown users to super_admin.
-    // If no role row is readable, keep the user as operator so company_admin/operator
-    // accounts cannot accidentally inherit owner access. Fix this in Supabase by making
-    // sure each user's user_roles row matches auth.users.id and RLS allows them to read it.
-    if (rows.length === 0) {
-      console.warn('No readable role row found for signed-in user. Falling back to operator.')
-      rows = [{ user_id: authUser.id, role: 'operator', active: true, company_id: null }]
-    }
-
+    const rows = (roleRows || []).filter((role: any) => role.active !== false)
     setUserRoles(rows)
 
     const highestRole = getHighestRole(rows)
     setCurrentUserRole(highestRole)
 
     const companyRole =
-      rows.find((role: any) => role.active !== false && role.role !== 'super_admin' && role.company_id) ||
-      rows.find((role: any) => role.active !== false && role.company_id)
+      rows.find((role: any) => normalizeRoleName(role.role) !== 'super_admin' && role.company_id) ||
+      rows.find((role: any) => role.company_id)
 
-    setCompanyId(companyRole?.company_id || '')
+    const resolvedCompanyId = companyRole?.company_id || ''
+    setCompanyId(resolvedCompanyId)
+
+    const normalizedRole = normalizeRoleName(highestRole)
+    const isSuper = normalizedRole === 'super_admin'
+    const isCompanyAdminRole = normalizedRole === 'admin' || normalizedRole === 'company_admin'
+
+    return {
+      authUserId: authUser.id,
+      role: highestRole,
+      roles: rows,
+      companyId: resolvedCompanyId,
+      isSuperAdmin: isSuper,
+      isCompanyAdmin: isCompanyAdminRole,
+      canManageCompanySetup: isSuper || isCompanyAdminRole,
+    }
   }
 
 
   async function loadAll() {
-    await reloadCurrentUserRole()
-    const { data: companiesData, error: companiesError } = await supabase
-      .from('companies')
-      .select('*')
-      .order('name')
+    const scope = await reloadCurrentUserRole()
+    const activeCompanyIdForLoad = scope.isSuperAdmin && selectedAdminCompanyId
+      ? selectedAdminCompanyId
+      : scope.companyId
+    const userCanSeeAdminRowsForLoad = scope.isSuperAdmin || scope.isCompanyAdmin
+    const applyCompanyScope = (query: any) => activeCompanyIdForLoad ? query.eq('company_id', activeCompanyIdForLoad) : query
+
+    const companiesQuery = scope.isSuperAdmin || !activeCompanyIdForLoad
+      ? supabase.from('companies').select('*').order('name')
+      : supabase.from('companies').select('*').eq('id', activeCompanyIdForLoad).order('name')
+
+    const { data: companiesData, error: companiesError } = await companiesQuery
 
     if (companiesError) {
       console.error('Companies load error:', companiesError)
@@ -1038,45 +1066,53 @@ useEffect(() => {
 
     if (companiesData) {
       setCompanies(companiesData)
-      if (!selectedAdminCompanyId && companiesData.length > 0) {
+      if (scope.isSuperAdmin && !selectedAdminCompanyId && companiesData.length > 0) {
         setSelectedAdminCompanyId(companiesData[0].id)
       }
     }
 
-    const { data: cu } = await supabase.from('company_users').select('company_id').single()
-    if (cu) setCompanyId(cu.company_id)
+    // Do not overwrite the logged-in user's company from a broad company_users lookup.
+    // The active company is resolved from that user's own user_roles row above.
 
-    const { data: areaData } = await supabase.from('areas').select('*').order('name')
-    const { data: segData } = await supabase.from('segments').select('*').order('name')
-    const { data: leaseData } = await supabase.from('leases').select('*').order('lease_name')
-    const { data: meterData } = await supabase.from('meters').select('*').order('meter_number')
-    const { data: ticketData } = await supabase.from('tickets').select('*').order('created_at', { ascending: false })
+    const { data: areaData } = await applyCompanyScope(supabase.from('areas').select('*')).order('name')
+    const { data: segData } = await applyCompanyScope(supabase.from('segments').select('*')).order('name')
+    const { data: leaseData } = await applyCompanyScope(supabase.from('leases').select('*')).order('lease_name')
+    const { data: meterData } = await applyCompanyScope(supabase.from('meters').select('*')).order('meter_number')
+    const { data: ticketData } = await applyCompanyScope(supabase.from('tickets').select('*')).order('created_at', { ascending: false })
 
-    const { data: auditData } = await supabase
-      .from('ticket_audit_log')
-      .select('*')
-      .order('created_at', { ascending: false })
+    const { data: auditData } = await applyCompanyScope(
+      supabase
+        .from('ticket_audit_log')
+        .select('*')
+    ).order('created_at', { ascending: false })
 
-    const { data: roleData } = await supabase
-      .from('user_roles')
-      .select('*')
-      .eq('active', true)
+    const roleQuery = userCanSeeAdminRowsForLoad
+      ? applyCompanyScope(supabase.from('user_roles').select('*').eq('active', true))
+      : supabase.from('user_roles').select('*').eq('user_id', scope.authUserId).eq('active', true)
+
+    const { data: roleData } = await roleQuery
+
+    const areaAccessQuery = userCanSeeAdminRowsForLoad
+      ? applyCompanyScope(supabase.from('user_area_access').select('*'))
+      : supabase.from('user_area_access').select('*').eq('user_id', scope.authUserId)
+
+    const { data: areaAccessData } = await areaAccessQuery
 
     const { data: permissionData } = await supabase
       .from('role_permissions')
       .select('*')
     const { data: profileData } = await supabase.from('calculation_profiles').select('*').order('name')
-    const { data: producerData } = await supabase.from('producers').select('*').order('name')
-    const { data: readingData } = await supabase.from('operator_readings').select('*').order('created_at', { ascending: false })
-    const { data: provingData } = await supabase.from('meter_provings').select('*').order('proving_date', { ascending: false })
-    const { data: potData } = await supabase.from('pot_quality').select('*').order('sample_date', { ascending: false })
+    const { data: producerData } = await applyCompanyScope(supabase.from('producers').select('*')).order('name')
+    const { data: readingData } = await applyCompanyScope(supabase.from('operator_readings').select('*')).order('created_at', { ascending: false })
+    const { data: provingData } = await applyCompanyScope(supabase.from('meter_provings').select('*')).order('proving_date', { ascending: false })
+    const { data: potData } = await applyCompanyScope(supabase.from('pot_quality').select('*')).order('sample_date', { ascending: false })
 
-    const { data: tankData } = await supabase.from('tanks').select('*').order('tank_number')
-    const { data: lineFillData } = await supabase.from('line_fills').select('*').order('line_name')
-    const { data: meterAssetConfigData } = await supabase.from('meter_asset_config').select('*')
-    const { data: tankCalibrationData } = await supabase.from('tank_calibration_versions').select('*').order('created_at', { ascending: false })
-    const { data: tankStrappingData } = await supabase.from('tank_strapping_rows').select('*').order('gauge_decimal')
-    const { data: tankDeadwoodData } = await supabase.from('tank_deadwood_rules').select('*').eq('active', true)
+    const { data: tankData } = await applyCompanyScope(supabase.from('tanks').select('*')).order('tank_number')
+    const { data: lineFillData } = await applyCompanyScope(supabase.from('line_fills').select('*')).order('line_name')
+    const { data: meterAssetConfigData } = await applyCompanyScope(supabase.from('meter_asset_config').select('*'))
+    const { data: tankCalibrationData } = await applyCompanyScope(supabase.from('tank_calibration_versions').select('*')).order('created_at', { ascending: false })
+    const { data: tankStrappingData } = await applyCompanyScope(supabase.from('tank_strapping_rows').select('*')).order('gauge_decimal')
+    const { data: tankDeadwoodData } = await applyCompanyScope(supabase.from('tank_deadwood_rules').select('*')).eq('active', true)
 
     if (areaData) setAreas(areaData)
     if (segData) setSegments(segData)
@@ -1084,8 +1120,8 @@ useEffect(() => {
     if (meterData) setMeters(meterData)
     if (ticketData) setTickets(ticketData)
     if (auditData) setTicketAuditLogs(auditData)
-    // Keep userRoles as the signed-in user's roles. roleData is for admin lists only;
-    // overwriting userRoles here can make the app think the current user is an operator.
+    if (roleData) setAllUserRoles(roleData)
+    if (areaAccessData) setUserAreaAccess(areaAccessData)
     if (permissionData) setRolePermissions(permissionData)
     if (profileData) setProfiles(profileData)
     if (producerData) setProducers(producerData)
@@ -1099,11 +1135,12 @@ useEffect(() => {
     if (tankStrappingData) setTankStrappingRows(tankStrappingData)
     if (tankDeadwoodData) setTankDeadwoodRules(tankDeadwoodData)
 
-    const { data: contractProfileData } = await supabase
-      .from('contract_profiles')
-      .select('*')
-      .eq('active', true)
-      .order('name')
+    const { data: contractProfileData } = await applyCompanyScope(
+      supabase
+        .from('contract_profiles')
+        .select('*')
+        .eq('active', true)
+    ).order('name')
 
     if (contractProfileData) setContractProfiles(contractProfileData)
   }
@@ -1116,7 +1153,7 @@ useEffect(() => {
   const provingCompliance = activeMeters.length > 0 ? Math.round((provedThisMonthCount / activeMeters.length) * 100) : 0
   const pendingProvings = provings.filter((p) => p.status !== 'approved')
   const approvedProvings = provings.filter((p) => p.status === 'approved')
-  const activeTickets = tickets.filter((t) => t.status !== 'approved')
+  const activeTickets = getScopedTickets().filter((t: any) => t.status !== 'approved')
   const overdueMeters = meters.filter(
     (m) => getProvingComplianceStatus(m.next_proving_due) === 'OVERDUE'
   )
@@ -1166,20 +1203,46 @@ useEffect(() => {
   )
 
   const isReadOnly =
-    Role === 'auditor'
+    normalizeRoleName(Role) === 'auditor'
 
-  const canViewAdmin =
-    userCanManageCompanySetup ||
-    userRoles.some((role) => role.active !== false && ['super_admin', 'admin', 'company_admin'].includes(role.role))
+  const canViewAdmin = userCanManageCompanySetup
 
-  const canEditAdmin = canViewAdmin
+  const canEditAdmin = userIsSuperAdmin || userIsCompanyAdmin || hasLoadedRole('admin')
+
+  const canViewPage = (pageKey: string) => {
+    const role = normalizeRoleName(Role)
+
+    if (pageKey === 'admin') return canViewAdmin
+
+    if (role === 'super_admin' || role === 'admin' || role === 'company_admin') return true
+
+    if (role === 'measurement_tech') {
+      return ['dashboard', 'operations', 'reports', 'readings', 'pot', 'pot_map', 'contracts', 'api_engine', 'provings', 'tickets'].includes(pageKey)
+    }
+
+    if (role === 'operator') {
+      return ['dashboard', 'readings', 'pot'].includes(pageKey)
+    }
+
+    if (role === 'auditor') {
+      return ['dashboard', 'reports'].includes(pageKey)
+    }
+
+    return ['dashboard', 'readings', 'pot'].includes(pageKey)
+  }
+
+  useEffect(() => {
+    if (!canViewPage(page)) {
+      setPage('dashboard')
+    }
+  }, [Role, page, canViewAdmin])
 
 const provingCompliancePercent =
     meters.length > 0
       ? Math.round((compliantMeters.length / meters.length) * 100)
       : 100
 
-  const approvedTickets = tickets.filter((t) => t.status === 'approved')
+  const approvedTickets = getScopedTickets().filter((t: any) => t.status === 'approved')
 
   const filteredProducers = selectedSegment
     ? producers.filter((p) => leases.some((l) => l.segment_id === selectedSegment && l.producer_id === p.id))
@@ -1269,25 +1332,55 @@ const provingCompliancePercent =
 
 
 
+
+
+  function asArray(value: any): any[] {
+    return Array.isArray(value) ? value : []
+  }
+
+
   function getCurrentAuthUserIdForAreaAccess() {
-    return ''
+    return currentAuthUserId || asArray(userRoles)?.[0]?.user_id || ''
+  }
+
+  function getActiveCompanyId() {
+    return userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+  }
+
+  function isRowInActiveCompany(row: any) {
+    const activeCompanyId = getActiveCompanyId()
+    if (!activeCompanyId) return true
+    const rowCompanyId = row?.company_id || row?.companyId || row?.company
+    if (!rowCompanyId) return true
+    return String(rowCompanyId) === String(activeCompanyId)
+  }
+
+  function companyScopeRows<T = any>(rows: T[]): T[] {
+    return asArray(rows).filter((row: any) => isRowInActiveCompany(row)) as T[]
   }
 
   function getAllowedAreaIdsForCurrentUser() {
-    if (userIsSuperAdmin || userIsCompanyAdmin) return areas.map((area: any) => String(area.id))
+    const areaRows = companyScopeRows(areas)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return areaRows.map((area: any) => String(area.id))
 
-    const rows = userAreaAccess.filter((row: any) =>
-      String(row.user_id || row.profile_id || '') === String(getCurrentAuthUserIdForAreaAccess())
-    )
+    const uid = getCurrentAuthUserIdForAreaAccess()
+    if (!uid) return []
 
-    return rows.map((row: any) => String(row.area_id))
+    return asArray(userAreaAccess)
+      .filter((row: any) => String(row.user_id || row.profile_id || '') === String(uid))
+      .map((row: any) => String(row.area_id))
+  }
+
+  function getScopedAreas(): any[] {
+    const areaRows = companyScopeRows(areas)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return areaRows
+
+    const allowed = getAllowedAreaIdsForCurrentUser()
+    return areaRows.filter((area: any) => allowed.includes(String(area.id)))
   }
 
   function getVisibleAreas() {
-    const allowed = getAllowedAreaIdsForCurrentUser()
-    if (!allowed.length && !(userIsSuperAdmin || userIsCompanyAdmin)) return []
-    if (userIsSuperAdmin || userIsCompanyAdmin) return areas
-    return areas.filter((area: any) => allowed.includes(String(area.id)))
+    return getScopedAreas()
   }
 
   function userCanAccessArea(areaId: string) {
@@ -1295,67 +1388,144 @@ const provingCompliancePercent =
     return getAllowedAreaIdsForCurrentUser().includes(String(areaId))
   }
 
+  function getScopedSegments(): any[] {
+    const segmentRows = companyScopeRows(segments)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return segmentRows
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
+    return segmentRows.filter((segment: any) => areaIds.has(String((segment as any).area_id || '')))
+  }
+
+  function getScopedLeases(): any[] {
+    const leaseRows = companyScopeRows(leases)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return leaseRows
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
+    return leaseRows.filter((lease: any) => areaIds.has(String((lease as any).area_id || '')))
+  }
+
+  function getScopedMeters(): any[] {
+    const meterRows = companyScopeRows(meters)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return meterRows
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
+    return meterRows.filter((meter: any) => areaIds.has(String((meter as any).area_id || '')))
+  }
+
+  function getScopedProducers(): any[] {
+    return companyScopeRows(producers)
+  }
+
   function getVisibleSegments(areaId: string) {
     if (!areaId) return []
     if (!userCanAccessArea(areaId)) return []
 
-    const directSegments = segments.filter((segment: any) => String(segment.area_id || '') === String(areaId))
-
-    const leaseSegmentIds = new Set(
-      leases
-        .filter((lease: any) => String(lease.area_id || '') === String(areaId))
-        .map((lease: any) => String(lease.segment_id || ''))
-        .filter(Boolean)
-    )
-
-    const meterLeaseIds = new Set(
-      meters
-        .filter((meter: any) => String(meter.area_id || '') === String(areaId))
-        .map((meter: any) => String(meter.lease_id || ''))
-        .filter(Boolean)
-    )
-
-    leases
-      .filter((lease: any) => meterLeaseIds.has(String(lease.id)))
-      .forEach((lease: any) => {
-        if (lease.segment_id) leaseSegmentIds.add(String(lease.segment_id))
-      })
-
-    const inferredSegments = segments.filter((segment: any) => leaseSegmentIds.has(String(segment.id)))
-
-    const combined = [...directSegments, ...inferredSegments]
-    const unique = new Map<string, any>()
-
-    combined.forEach((segment: any) => {
-      if (segment?.id) unique.set(String(segment.id), segment)
-    })
-
-    return Array.from(unique.values()).sort((a: any, b: any) =>
-      String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || ''))
-    )
+    return getScopedSegments()
+      .filter((segment: any) => String((segment as any).area_id || '') === String(areaId))
+      .sort((a: any, b: any) =>
+        String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || ''))
+      )
   }
 
   function getVisibleLeases(segmentId: string) {
     if (!segmentId) return []
-    return leases.filter((lease: any) => String(lease.segment_id || '') === String(segmentId))
+
+    return getScopedLeases()
+      .filter((lease: any) => String((lease as any).segment_id || '') === String(segmentId))
+      .sort((a: any, b: any) =>
+        String(a.lease_name || a.name || a.lease_number || '').localeCompare(String(b.lease_name || b.name || b.lease_number || ''))
+      )
   }
 
   function getVisibleMeters(leaseId: string) {
     if (!leaseId) return []
-    return meters.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
+
+    return getScopedMeters()
+      .filter((meter: any) => String((meter as any).lease_id || '') === String(leaseId))
+      .sort((a: any, b: any) =>
+        String(a.meter_number || a.meter_name || '').localeCompare(String(b.meter_number || b.meter_name || ''))
+      )
   }
 
+  function getScopedReadings(): any[] {
+    const readingRows = companyScopeRows(readings)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return readingRows
 
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
+    const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
+    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
+
+    return readingRows.filter((reading: any) =>
+      areaIds.has(String(reading.area_id || '')) ||
+      meterIds.has(String(reading.meter_id || '')) ||
+      leaseIds.has(String(reading.lease_id || ''))
+    )
+  }
+
+  function getScopedTickets(): any[] {
+    const ticketRows = companyScopeRows(tickets)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return ticketRows
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
+    const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
+    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
+    const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
+
+    return ticketRows.filter((ticket: any) =>
+      areaIds.has(String(ticket.area_id || ticket.observed_inputs?.area_id || '')) ||
+      segmentIds.has(String(ticket.segment_id || ticket.observed_inputs?.segment_id || '')) ||
+      leaseIds.has(String(ticket.lease_id || ticket.observed_inputs?.lease_id || '')) ||
+      meterIds.has(String(ticket.meter_id || ticket.observed_inputs?.meter_id || ''))
+    )
+  }
+
+  function getScopedPotQuality(): any[] {
+    const rows = companyScopeRows(potQuality)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return rows
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
+    const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
+    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
+
+    return rows.filter((pot: any) =>
+      areaIds.has(String(pot.area_id || '')) ||
+      segmentIds.has(String(pot.segment_id || '')) ||
+      leaseIds.has(String(pot.lease_id || ''))
+    )
+  }
+
+  function getScopedProvings(): any[] {
+    const rows = companyScopeRows(provings)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return rows
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
+    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
+    const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
+
+    return rows.filter((proving: any) =>
+      areaIds.has(String(proving.area_id || '')) ||
+      leaseIds.has(String(proving.lease_id || '')) ||
+      meterIds.has(String(proving.meter_id || ''))
+    )
+  }
+
+  function getAreaAccessDebugText() {
+    if (userIsSuperAdmin || userIsCompanyAdmin) return 'Admin view: all areas'
+    const uid = getCurrentAuthUserIdForAreaAccess()
+    const allowed = getScopedAreas().map((area: any) => area.name || area.area_name || area.id).join(', ')
+    return `User ${uid || 'unknown'} allowed areas: ${allowed || 'none assigned'}`
+  }
 
   function getAreaAccessUsers() {
     const activeCompany = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
-    return areaAccessUsers.filter((u: any) => {
-      const rowCompanyId = u.company_id || u.companyId
-      return !rowCompanyId || !activeCompany || String(rowCompanyId) === String(activeCompany)
-    })
-  }
 
-  const areaAccessUsers: any[] = userRoles || []
+    return asArray(allUserRoles.length ? allUserRoles : userRoles)
+      .filter((role: any) => {
+        const rowCompanyId = role.company_id || role.companyId
+        return !activeCompany || !rowCompanyId || String(rowCompanyId) === String(activeCompany)
+      })
+      .filter((role: any) => role.active !== false)
+  }
 
   function toggleAccessArea(areaId: string) {
     setSelectedAccessAreaIds((prev) =>
@@ -1366,11 +1536,91 @@ const provingCompliancePercent =
   function beginEditAreaAccess(userId: string) {
     setSelectedAccessUserId(userId)
 
+    const activeCompanyId = getActiveCompanyId()
     const current = userAreaAccess
+      .filter((row: any) => !activeCompanyId || !row.company_id || String(row.company_id) === String(activeCompanyId))
       .filter((row: any) => String(row.user_id || row.profile_id || '') === String(userId))
       .map((row: any) => String(row.area_id))
 
     setSelectedAccessAreaIds(current)
+  }
+
+
+  async function saveSegmentAreaLink() {
+    if (!hierarchySegmentId || !hierarchyAreaId) {
+      alert('Select a segment and area first.')
+      return
+    }
+
+    const { error } = await supabase
+      .from('segments')
+      .update({ area_id: hierarchyAreaId })
+      .eq('id', hierarchySegmentId)
+
+    if (error) {
+      alert('Could not save segment area: ' + error.message)
+      return
+    }
+
+    await loadAll()
+    setHierarchySegmentId('')
+    setHierarchyAreaId('')
+    alert('Segment assigned to area.')
+  }
+
+  async function saveLeaseSegmentLink() {
+    if (!hierarchyLeaseId || !hierarchyLeaseSegmentId) {
+      alert('Select a lease and segment first.')
+      return
+    }
+
+    const selectedSegment = segments.find((s: any) => String(s.id) === String(hierarchyLeaseSegmentId))
+
+    const { error } = await supabase
+      .from('leases')
+      .update({
+        segment_id: hierarchyLeaseSegmentId,
+        area_id: (selectedSegment as any)?.area_id || null,
+      })
+      .eq('id', hierarchyLeaseId)
+
+    if (error) {
+      alert('Could not save lease segment: ' + error.message)
+      return
+    }
+
+    await loadAll()
+    setHierarchyLeaseId('')
+    setHierarchyLeaseSegmentId('')
+    alert('Lease assigned to segment.')
+  }
+
+  async function saveMeterLeaseLink() {
+    if (!hierarchyMeterId || !hierarchyMeterLeaseId) {
+      alert('Select a meter and lease first.')
+      return
+    }
+
+    const selectedLease = leases.find((l: any) => String(l.id) === String(hierarchyMeterLeaseId))
+
+    const { error } = await supabase
+      .from('meters')
+      .update({
+        lease_id: hierarchyMeterLeaseId,
+        segment_id: (selectedLease as any)?.segment_id || null,
+        area_id: (selectedLease as any)?.area_id || null,
+      })
+      .eq('id', hierarchyMeterId)
+
+    if (error) {
+      alert('Could not save meter lease: ' + error.message)
+      return
+    }
+
+    await loadAll()
+    setHierarchyMeterId('')
+    setHierarchyMeterLeaseId('')
+    alert('Meter assigned to lease.')
   }
 
   async function saveUserAreaAccess() {
@@ -1415,20 +1665,7 @@ const provingCompliancePercent =
     await loadAll()
     alert('Area access saved.')
   }
-
-  function getSegmentsForSelectedReadingArea() {
-    return getVisibleSegments(selectedReadingArea)
-  }
-
-  function getLeasesForSelectedReadingSegment() {
-    return getVisibleLeases(selectedReadingSegment)
-  }
-
-  function getMetersForSelectedReadingLease() {
-    return getVisibleMeters(selectedReadingLease)
-  }
-
-  function handleReadingAreaSelect(areaId: string) {
+function handleReadingAreaSelect(areaId: string) {
     setSelectedReadingArea(areaId)
     setSelectedReadingSegment('')
     setSelectedReadingLease('')
@@ -1444,7 +1681,7 @@ const provingCompliancePercent =
   function handleReadingLeaseSelect(leaseId: string) {
     setSelectedReadingLease(leaseId)
 
-    const leaseMeters = meters.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
+    const leaseMeters = getVisibleMeters(leaseId)
 
     if (leaseMeters.length === 1) {
       setSelectedReadingMeter(leaseMeters[0].id)
@@ -1521,9 +1758,21 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     loadAll()
   }
 
+
+  function handlePotAreaSelect(areaId: string) {
+    setSelectedPotArea(areaId)
+    setSelectedPotSegment('')
+    setSelectedPotLease('')
+  }
+
+  function handlePotSegmentSelect(segmentId: string) {
+    setSelectedPotSegment(segmentId)
+    setSelectedPotLease('')
+  }
+
   async function savePotQuality() {
-    if (!companyId || !potSegment || !potProducer || !potLease || !potDate) {
-      alert('Select segment, producer, lease, and sample date first.')
+    if (!companyId || !selectedPotArea || !(selectedPotSegment || potSegment) || !potProducer || !(selectedPotLease || potLease) || !potDate) {
+      alert('Select area, segment, producer, lease, and sample date first.')
       return
     }
 
@@ -1532,9 +1781,10 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     const { error } = await supabase.from('pot_quality').insert({
       company_id: companyId,
-      segment_id: potSegment,
+      area_id: selectedPotArea || null,
+      segment_id: selectedPotSegment || potSegment,
       producer_id: potProducer,
-      lease_id: potLease,
+      lease_id: selectedPotLease || potLease,
       sample_date: potDate,
       api_gravity: Number(
         calculateApi11Corrections({
@@ -1613,21 +1863,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     window.open(data.signedUrl, '_blank')
   }
-
-
-  function getSegmentsForSelectedProvingArea() {
-    return getVisibleSegments(selectedProvingArea)
-  }
-
-  function getLeasesForSelectedProvingSegment() {
-    return getVisibleLeases(selectedProvingSegment)
-  }
-
-  function getMetersForSelectedProvingLease() {
-    return getVisibleMeters(selectedProvingLease)
-  }
-
-  function handleProvingAreaSelect(areaId: string) {
+function handleProvingAreaSelect(areaId: string) {
     setSelectedProvingArea(areaId)
     setSelectedProvingSegment('')
     setSelectedProvingLease('')
@@ -1643,7 +1879,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   function handleProvingLeaseSelect(leaseId: string) {
     setSelectedProvingLease(leaseId)
 
-    const leaseMeters = meters.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
+    const leaseMeters = getVisibleMeters(leaseId)
 
     if (leaseMeters.length === 1) {
       setProvingMeter(leaseMeters[0].id)
@@ -4751,7 +4987,7 @@ async function createCompany() {
     return segments
       .filter((segment: any) => !overShortSegmentId || segment.id === overShortSegmentId)
       .map((segment: any) => {
-        const segmentTickets = tickets.filter((ticket: any) =>
+        const segmentTickets = getScopedTickets().filter((ticket: any) =>
           ticket.status === 'approved' &&
           ticket.segment_id === segment.id &&
           isTicketInOverShortRange(ticket)
@@ -4870,7 +5106,7 @@ async function createCompany() {
   }
 
   function getReportFilteredTickets(type?: string) {
-    return tickets.filter((ticket: any) => {
+    return getScopedTickets().filter((ticket: any) => {
       const typeOk = type ? ticket.ticket_type === type : true
       const producerOk = reportProducerId ? ticket.producer_id === reportProducerId : true
       const segmentOk = reportSegmentId ? ticket.segment_id === reportSegmentId : true
@@ -5066,8 +5302,8 @@ async function createCompany() {
   }
 
   function getSegmentInventoryRows() {
-    return segments.map((segment: any) => {
-      const segmentTickets = tickets.filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
+    return getScopedSegments().map((segment: any) => {
+      const segmentTickets = getScopedTickets().filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
       const receiptVolume = segmentTickets
         .filter((ticket: any) => {
           const meter = meters.find((m: any) => m.id === ticket.meter_id)
@@ -5540,7 +5776,7 @@ async function saveUserRole() {
       ticket.calculation_profile_snapshot?.producer_id ||
       ''
 
-    const ticketsToExport = tickets.filter((ticket: any) => {
+    const ticketsToExport = getScopedTickets().filter((ticket: any) => {
       const statusOk = ticket.status === 'approved'
       const ticketDateValue = getTicketDate(ticket)
 
@@ -5912,7 +6148,7 @@ async function saveUserRole() {
     return Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24))
   }
 
-  const meterIntelligence = meters.map((meter: any) => {
+  const meterIntelligence = getScopedMeters().map((meter: any) => {
     const latestProving = getLatestProvingForMeter(meter.id)
     const latestReading = getLatestReadingForMeter(meter.id)
     const provingDate = latestProving?.proving_date || (latestProving as any)?.created_at || null
@@ -6042,9 +6278,9 @@ async function saveUserRole() {
     { key: 'provings', label: 'Provings', description: 'Meter proving records' },
     { key: 'reports', label: 'Reports', description: 'Reports Center' },
     { key: 'system_health', label: 'System Health', description: 'Setup checks' },
-    ...(canViewAdmin ? [{ key: 'admin', label: 'Admin', description: 'Company setup and imports' }] : []),
+    { key: 'admin', label: 'Admin', description: 'Company setup and imports' },
     { key: 'operations', label: 'Operations', description: 'Over / short and alerts' },
-  ]
+  ].filter((moduleItem) => canViewPage(moduleItem.key))
 
   function openMobileModule(moduleKey: string) {
     setPage(moduleKey)
@@ -6118,7 +6354,7 @@ async function saveUserRole() {
         tanksMissingCharts.length === 0 ? 'ok' : 'warning'
       )
 
-      const pendingTickets = tickets.filter((ticket: any) => !['approved', 'voided'].includes(String(ticket.status || 'draft').toLowerCase()))
+      const pendingTickets = getScopedTickets().filter((ticket: any) => !['approved', 'voided'].includes(String(ticket.status || 'draft').toLowerCase()))
       addCheck(
         'Pending ticket workflow',
         true,
@@ -6126,7 +6362,7 @@ async function saveUserRole() {
         pendingTickets.length > 0 ? 'warning' : 'ok'
       )
 
-      const approvedUnposted = tickets.filter((ticket: any) =>
+      const approvedUnposted = getScopedTickets().filter((ticket: any) =>
         ticket.status === 'approved' && ticket.observed_inputs?.inventory_posted !== true
       )
       addCheck(
@@ -6214,9 +6450,9 @@ async function saveUserRole() {
       if (!acc[key]) acc[key] = []
       acc[key].push(ticket)
       return acc
-    }, {})
+    }, {} as Record<string, any[]>)
 
-    return Object.entries(grouped)
+    return Object.entries(grouped as Record<string, any[]>)
       .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
       .map(([groupKey, groupTickets]) => ({
         groupKey,
@@ -6240,9 +6476,9 @@ async function saveUserRole() {
       if (!acc[key]) acc[key] = []
       acc[key].push(ticket)
       return acc
-    }, {})
+    }, {} as Record<string, any[]>)
 
-    return Object.entries(grouped)
+    return Object.entries(grouped as Record<string, any[]>)
       .sort(([a], [b]) => b.localeCompare(a))
       .map(([monthKey, monthTickets]) => ({
         monthKey,
@@ -6486,7 +6722,7 @@ async function saveUserRole() {
           </div>
         </div>
 
-        {['dashboard', 'admin', 'operations', 'reports', 'readings', 'pot', 'pot_map', 'contracts', 'api_engine', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
+        {['dashboard', 'admin', 'operations', 'reports', 'readings', 'pot', 'pot_map', 'contracts', 'api_engine', 'provings', 'tickets'].filter((p) => canViewPage(p)).map((p) => (
           <button key={p} onClick={() => { setPage(p); setMobileNavOpen(false) }} style={button}>
             {p === 'pot_map' ? 'POT MAP' : p === 'contracts' ? 'CONTRACTS' : p === 'api_engine' ? 'API ENGINE' : p.toUpperCase()}
           </button>
@@ -6631,6 +6867,7 @@ async function saveUserRole() {
         {page === 'dashboard' && (
           <>
             <h1>Dashboard</h1>
+            <div style={{ color: '#a8b3bd', fontSize: 13, marginBottom: 8 }}>{getAreaAccessDebugText()} • Detected role: {String(Role || 'none')} • Loaded roles: {asArray(userRoles).map((r: any) => r.role).join(', ') || 'none'}</div>
             <div style={box}>
               <h2>Over / Short Summary</h2>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
@@ -6648,20 +6885,20 @@ async function saveUserRole() {
             </div>
             {/* Phase 3 Dashboard KPIs */}
             <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
-              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Total Tickets</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.length}</div></div>
-              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Approved</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.filter((t) => t.status === 'approved').length}</div></div>
-              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Draft / Working</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.filter((t) => !t.status || t.status === 'draft').length}</div></div>
-              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Meters</div><div style={{ fontSize: 30, fontWeight: 900 }}>{meters.length}</div></div>
+              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Total Tickets</div><div style={{ fontSize: 30, fontWeight: 900 }}>{getScopedTickets().length}</div></div>
+              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Approved</div><div style={{ fontSize: 30, fontWeight: 900 }}>{getScopedTickets().filter((t: any) => t.status === 'approved').length}</div></div>
+              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Draft / Working</div><div style={{ fontSize: 30, fontWeight: 900 }}>{getScopedTickets().filter((t: any) => !t.status || t.status === 'draft').length}</div></div>
+              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Meters</div><div style={{ fontSize: 30, fontWeight: 900 }}>{getScopedMeters().length}</div></div>
             </div>
             <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 20 }}>
-              <div style={box}>Areas<h2>{areas.length}</h2></div>
-              <div style={box}>Segments<h2>{segments.length}</h2></div>
-              <div style={box}>Leases<h2>{leases.length}</h2></div>
-              <div style={box}>Producers<h2>{producers.length}</h2></div>
-              <div style={box}>Meters<h2>{meters.length}</h2></div>
-              <div style={box}>Readings<h2>{readings.length}</h2></div>
-              <div style={box}>Provings<h2>{provings.length}</h2></div>
-              <div style={box}>Tickets<h2>{tickets.length}</h2></div>
+              <div style={box}>Areas<h2>{getScopedAreas().length}</h2></div>
+              <div style={box}>Segments<h2>{getScopedSegments().length}</h2></div>
+              <div style={box}>Leases<h2>{getScopedLeases().length}</h2></div>
+              <div style={box}>Producers<h2>{getScopedProducers().length}</h2></div>
+              <div style={box}>Meters<h2>{getScopedMeters().length}</h2></div>
+              <div style={box}>Readings<h2>{getScopedReadings().length}</h2></div>
+              <div style={box}>Provings<h2>{getScopedProvings().length}</h2></div>
+              <div style={box}>Tickets<h2>{getScopedTickets().length}</h2></div>
             </div>
 
             <div style={box}>
@@ -6680,62 +6917,10 @@ async function saveUserRole() {
         {page === 'admin' && !canViewAdmin && (
           <div style={box}>
             <h1>Admin</h1>
-
-            <div style={box}>
-              <h2>Transporter → POT Assignment</h2>
-              <p style={{ color: '#a8b3bd' }}>
-                Set which POT quality should be used for each Flow-X transporter summary ticket.
-              </p>
-
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12 }}>
-                <input
-                  style={input}
-                  placeholder="Transporter Name exactly as Flow-X shows it"
-                  value={newTransporterPotName}
-                  onChange={(e) => setNewTransporterPotName(e.target.value)}
-                />
-
-                <select style={input} value={newTransporterPotId} onChange={(e) => setNewTransporterPotId(e.target.value)}>
-                  <option value="">Select POT Quality</option>
-                  {potQuality.map((pot: any) => (
-                    <option key={pot.id} value={pot.id}>
-                      {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
-                    </option>
-                  ))}
-                </select>
-
-                <button style={button} onClick={() => runSafeAction('Saving transporter POT rule', saveTransporterPotRule)}>
-                  Save Rule
-                </button>
-              </div>
-
-              <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-                {transporterPotRules.length === 0 && (
-                  <div style={card}>No transporter POT rules saved yet.</div>
-                )}
-
-                {transporterPotRules.map((rule: any) => {
-                  const pot = potQuality.find((item: any) => item.id === rule.pot_quality_id)
-
-                  return (
-                    <div key={rule.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-                      <div>
-                        <strong>{rule.transporter_name}</strong>
-                        <div style={{ color: '#a8b3bd' }}>
-                          POT: {pot ? ((pot as any).pot_number || (pot as any).sample_id || pot.id) : rule.pot_quality_id}
-                        </div>
-                      </div>
-                      <button style={{ ...button, background: '#dc2626', width: 110 }} onClick={() => deleteTransporterPotRule(rule.id)}>
-                        Delete
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-
-
             <p>You do not have permission to view Admin.</p>
+            <p style={{ color: '#a8b3bd' }}>
+              Logged in role: {Role || 'operator'}
+            </p>
             <button style={button} onClick={() => setPage('dashboard')}>
               Back to Dashboard
             </button>
@@ -7005,13 +7190,13 @@ async function saveUserRole() {
                     style={{ ...sectionToggle, marginTop: 14 }}
                     onClick={() => setShowActiveUsers(!showActiveUsers)}
                   >
-                    <span>{showActiveUsers ? '▼' : '▶'} Active Users ({userRoles.length})</span>
+                    <span>{showActiveUsers ? '▼' : '▶'} Active Users ({(allUserRoles.length ? allUserRoles : userRoles).length})</span>
                     <span>Manage</span>
                   </button>
 
                   {showActiveUsers && (
                     <div style={{ display: 'grid', gap: 10 }}>
-                      {userRoles.filter((role: any) => userIsSuperAdmin || !role.company_id || role.company_id === companyId).map((role) => (
+                      {(allUserRoles.length ? allUserRoles : userRoles).filter((role: any) => userIsSuperAdmin || !role.company_id || role.company_id === companyId).map((role) => (
                         <div
                           key={role.id}
                           style={{
@@ -7073,7 +7258,7 @@ async function saveUserRole() {
 
                     <select style={input} value={newContractProducer} onChange={(e) => setNewContractProducer(e.target.value)}>
                       <option value="">Default / All Producers</option>
-                      {producers.map((producer) => (
+                      {getScopedProducers().map((producer) => (
                         <option key={producer.id} value={producer.id}>{producer.name}</option>
                       ))}
                     </select>
@@ -7126,9 +7311,9 @@ async function saveUserRole() {
                   </select>
 
                   <div style={{ ...card, display: 'grid', gap: 8 }}>
-                    {areas.length === 0 && <div>No areas created yet.</div>}
+                    {companyScopeRows(areas).length === 0 && <div>No areas created yet.</div>}
 
-                    {areas.map((area: any) => (
+                    {companyScopeRows(areas).map((area: any) => (
                       <label key={area.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <input
                           type="checkbox"
@@ -7143,6 +7328,82 @@ async function saveUserRole() {
                   <button style={button} onClick={() => runSafeAction('Saving area access', saveUserAreaAccess)}>
                     Save Access
                   </button>
+                </div>
+              </div>
+            )}
+
+
+            {(userIsSuperAdmin || userIsCompanyAdmin) && (
+              <div style={box}>
+                <h2>Hierarchy Cleanup</h2>
+                <p style={{ color: '#a8b3bd' }}>
+                  This controls strict dropdown filtering. Fix these links so Area only shows its own Segments, Segment only shows its own Leases, and Lease only shows its own Meters.
+                </p>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, alignItems: 'center' }}>
+                  <select style={input} value={hierarchySegmentId} onChange={(e) => setHierarchySegmentId(e.target.value)}>
+                    <option value="">Select Segment to assign area</option>
+                    {getScopedSegments().map((segment: any) => (
+                      <option key={segment.id} value={segment.id}>
+                        {segment.segment_name || segment.name} {(segment as any).area_id ? '' : '(missing area)'}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select style={input} value={hierarchyAreaId} onChange={(e) => setHierarchyAreaId(e.target.value)}>
+                    <option value="">Assign to Area</option>
+                    {getScopedAreas().map((area: any) => (
+                      <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                    ))}
+                  </select>
+
+                  <button style={button} onClick={() => runSafeAction('Saving segment area', saveSegmentAreaLink)}>
+                    Save Segment → Area
+                  </button>
+
+                  <select style={input} value={hierarchyLeaseId} onChange={(e) => setHierarchyLeaseId(e.target.value)}>
+                    <option value="">Select Lease to assign segment</option>
+                    {getScopedLeases().map((lease: any) => (
+                      <option key={lease.id} value={lease.id}>
+                        {lease.lease_name || lease.name || lease.lease_number} {(lease as any).segment_id ? '' : '(missing segment)'}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select style={input} value={hierarchyLeaseSegmentId} onChange={(e) => setHierarchyLeaseSegmentId(e.target.value)}>
+                    <option value="">Assign to Segment</option>
+                    {getScopedSegments().map((segment: any) => (
+                      <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
+                    ))}
+                  </select>
+
+                  <button style={button} onClick={() => runSafeAction('Saving lease segment', saveLeaseSegmentLink)}>
+                    Save Lease → Segment
+                  </button>
+
+                  <select style={input} value={hierarchyMeterId} onChange={(e) => setHierarchyMeterId(e.target.value)}>
+                    <option value="">Select Meter to assign lease</option>
+                    {getScopedMeters().map((meter: any) => (
+                      <option key={meter.id} value={meter.id}>
+                        {meter.meter_number || meter.meter_name} {(meter as any).lease_id ? '' : '(missing lease)'}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select style={input} value={hierarchyMeterLeaseId} onChange={(e) => setHierarchyMeterLeaseId(e.target.value)}>
+                    <option value="">Assign to Lease</option>
+                    {getScopedLeases().map((lease: any) => (
+                      <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                    ))}
+                  </select>
+
+                  <button style={button} onClick={() => runSafeAction('Saving meter lease', saveMeterLeaseLink)}>
+                    Save Meter → Lease
+                  </button>
+                </div>
+
+                <div style={{ color: '#a8b3bd', marginTop: 12, fontSize: 13 }}>
+                  Missing links: {segments.filter((s: any) => !s.area_id).length} segments without area • {leases.filter((l: any) => !l.segment_id).length} leases without segment • {meters.filter((m: any) => !m.lease_id).length} meters without lease
                 </div>
               </div>
             )}
@@ -7209,7 +7470,7 @@ async function saveUserRole() {
 
                     <select style={input} value={newTransporterPotId} onChange={(e) => setNewTransporterPotId(e.target.value)}>
                       <option value="">Select POT Quality</option>
-                      {potQuality.map((pot: any) => (
+                      {getScopedPotQuality().map((pot: any) => (
                         <option key={pot.id} value={pot.id}>
                           {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
                         </option>
@@ -7251,7 +7512,7 @@ async function saveUserRole() {
 
                       <select style={input} value={flowxDefaultSegmentId} onChange={(e) => setFlowxDefaultSegmentId(e.target.value)}>
                         <option value="">Default Segment</option>
-                        {segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                        {getScopedSegments().map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
                       </select>
 
                       <div style={card}>
@@ -7330,7 +7591,7 @@ async function saveUserRole() {
                           <input style={input} placeholder="Tank Name" value={newTankName} onChange={(e) => setNewTankName(e.target.value)} />
                           <select style={input} value={newTankSegmentId} onChange={(e) => setNewTankSegmentId(e.target.value)}>
                             <option value="">Select Segment</option>
-                            {segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                            {getScopedSegments().map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
                           </select>
                           <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Creating tank', createTankAsset)}>Create Tank</button>
                         </div>
@@ -7341,7 +7602,7 @@ async function saveUserRole() {
                           <input style={input} placeholder="Capacity BBLS" value={newLineFillCapacity} onChange={(e) => setNewLineFillCapacity(e.target.value)} />
                           <select style={input} value={newLineFillSegmentId} onChange={(e) => setNewLineFillSegmentId(e.target.value)}>
                             <option value="">Select Segment</option>
-                            {segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                            {getScopedSegments().map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
                           </select>
                           <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Creating line fill', createLineFillAsset)}>Create Line Fill</button>
                         </div>
@@ -7441,7 +7702,7 @@ async function saveUserRole() {
               <input style={input} placeholder="Area Name" value={newArea} onChange={(e) => setNewArea(e.target.value)} />
               <button style={button} onClick={addArea}>Add Area</button>
             </div>
-            {areas.map((a) => <div key={a.id} style={box}>{a.name}</div>)}
+            {getScopedAreas().map((a) => <div key={a.id} style={box}>{a.name}</div>)}
           </>
         )}
 
@@ -7452,7 +7713,7 @@ async function saveUserRole() {
               <input style={input} placeholder="Segment Name" value={newSegment} onChange={(e) => setNewSegment(e.target.value)} />
               <button style={button} onClick={addSegment}>Add Segment</button>
             </div>
-            {segments.map((s) => <div key={s.id} style={box}>{s.name}</div>)}
+            {getScopedSegments().map((s) => <div key={s.id} style={box}>{s.name}</div>)}
           </>
         )}
 
@@ -7467,7 +7728,7 @@ async function saveUserRole() {
               </select>
               <button style={button} onClick={addProducer}>Add Producer</button>
             </div>
-            {producers.map((p) => <div key={p.id} style={box}>{p.name}</div>)}
+            {getScopedProducers().map((p) => <div key={p.id} style={box}>{p.name}</div>)}
           </>
         )}
 
@@ -7479,19 +7740,19 @@ async function saveUserRole() {
               <input style={input} placeholder="Lease Number" value={newLeaseNumber} onChange={(e) => setNewLeaseNumber(e.target.value)} />
               <select style={input} value={selectedArea} onChange={(e) => setSelectedArea(e.target.value)}>
                 <option value="">Select Area</option>
-                {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                {getScopedAreas().map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
               <select style={input} value={selectedSegment} onChange={(e) => setSelectedSegment(e.target.value)}>
                 <option value="">Select Segment</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {getScopedSegments().map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
               <select style={input} value={selectedProducer} onChange={(e) => setSelectedProducer(e.target.value)}>
                 <option value="">Select Producer</option>
-                {producers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {getScopedProducers().map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               <button style={button} onClick={addLease}>Add Lease</button>
             </div>
-            {leases.map((l) => <div key={l.id} style={box}><strong>{l.lease_name}</strong><div>{l.lease_number}</div></div>)}
+            {getScopedLeases().map((l) => <div key={l.id} style={box}><strong>{l.lease_name}</strong><div>{l.lease_number}</div></div>)}
           </>
         )}
 
@@ -7503,19 +7764,19 @@ async function saveUserRole() {
               <input style={input} placeholder="Meter Name" value={newMeterName} onChange={(e) => setNewMeterName(e.target.value)} />
               <select style={input} value={selectedArea} onChange={(e) => setSelectedArea(e.target.value)}>
                 <option value="">Select Area</option>
-                {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                {getScopedAreas().map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
               <select style={input} value={selectedLease} onChange={(e) => setSelectedLease(e.target.value)}>
                 <option value="">Select Lease</option>
-                {leases.map((l) => <option key={l.id} value={l.id}>{l.lease_name}</option>)}
+                {getScopedLeases().map((l) => <option key={l.id} value={l.id}>{l.lease_name}</option>)}
               </select>
               <select style={input} value={selectedProducer} onChange={(e) => setSelectedProducer(e.target.value)}>
                 <option value="">Select Producer</option>
-                {producers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {getScopedProducers().map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               <button style={button} onClick={addMeter}>Add Meter</button>
             </div>
-            {meters.map((m) => <div key={m.id} style={box}><strong>{m.meter_number}</strong><div>{m.meter_name}</div></div>)}
+            {getScopedMeters().map((m) => <div key={m.id} style={box}><strong>{m.meter_number}</strong><div>{m.meter_name}</div></div>)}
           </>
         )}
 
@@ -7532,21 +7793,21 @@ async function saveUserRole() {
 
               <select style={input} value={selectedReadingSegment} onChange={(e) => handleReadingSegmentSelect(e.target.value)} disabled={!selectedReadingArea}>
                 <option value="">{selectedReadingArea ? 'Select Segment' : 'Select area first'}</option>
-                {getSegmentsForSelectedReadingArea().map((segment: any) => (
+                {getVisibleSegments(selectedReadingArea).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
               </select>
 
               <select style={input} value={selectedReadingLease} onChange={(e) => handleReadingLeaseSelect(e.target.value)} disabled={!selectedReadingSegment}>
                 <option value="">{selectedReadingSegment ? 'Select Lease' : 'Select segment first'}</option>
-                {getLeasesForSelectedReadingSegment().map((lease: any) => (
+                {getVisibleLeases(selectedReadingSegment).map((lease: any) => (
                   <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
                 ))}
               </select>
 
               <select style={input} value={selectedReadingMeter} onChange={(e) => { setSelectedReadingMeter(e.target.value); autofillOpeningReadingForLease(selectedReadingLease, e.target.value) }} disabled={!selectedReadingLease}>
                 <option value="">{selectedReadingLease ? 'Select Meter' : 'Select lease first'}</option>
-                {getMetersForSelectedReadingLease().map((meter: any) => (
+                {getVisibleMeters(selectedReadingLease).map((meter: any) => (
                   <option key={meter.id} value={meter.id}>
                     {meter.meter_number || meter.meter_name} {meter.meter_name && meter.meter_number ? `- ${meter.meter_name}` : ''}
                   </option>
@@ -7710,7 +7971,7 @@ async function saveUserRole() {
 
                 <select style={input} value={newTransporterPotId} onChange={(e) => setNewTransporterPotId(e.target.value)}>
                   <option value="">Select POT Quality</option>
-                  {potQuality.map((pot: any) => (
+                  {getScopedPotQuality().map((pot: any) => (
                     <option key={pot.id} value={pot.id}>
                       {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
                     </option>
@@ -7762,7 +8023,7 @@ async function saveUserRole() {
               </p>
               <select style={input} value={potCsvProducerId} onChange={(e) => setPotCsvProducerId(e.target.value)}>
                 <option value="">All Producers</option>
-                {producers.map((producer) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
+                {getScopedProducers().map((producer) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
               </select>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <input style={input} type="date" value={potCsvStartDate} onChange={(e) => setPotCsvStartDate(e.target.value)} />
@@ -7774,17 +8035,30 @@ async function saveUserRole() {
             </div>
             <div style={box}>
               <h3>New POT Quality</h3>
-              <select style={input} value={potSegment} onChange={(e) => { setPotSegment(e.target.value); setPotProducer(''); setPotLease('') }}>
-                <option value="">Select Segment</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              <select style={input} value={selectedPotArea} onChange={(e) => handlePotAreaSelect(e.target.value)}>
+                <option value="">Select Area</option>
+                {getVisibleAreas().map((area: any) => (
+                  <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                ))}
               </select>
+
+              <select style={input} value={potSegment} onChange={(e) => { handlePotSegmentSelect(e.target.value); setPotLease(e.target.value) }} disabled={!selectedPotArea}>
+                <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
+                {getVisibleSegments(selectedPotArea).map((segment: any) => (
+                  <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
+                ))}
+              </select>
+
               <select style={input} value={potProducer} onChange={(e) => { setPotProducer(e.target.value); setPotLease('') }}>
                 <option value="">Select Producer</option>
                 {filteredPotProducers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-              <select style={input} value={potLease} onChange={(e) => setPotLease(e.target.value)}>
-                <option value="">Select Lease</option>
-                {filteredPotLeases.map((l) => <option key={l.id} value={l.id}>{l.lease_name}</option>)}
+
+              <select style={input} value={potLease} onChange={(e) => { setSelectedPotLease(e.target.value); setPotLease(e.target.value) }} disabled={!selectedPotSegment}>
+                <option value="">{selectedPotSegment ? 'Select Lease' : 'Select segment first'}</option>
+                {getVisibleLeases(selectedPotSegment).map((lease: any) => (
+                  <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                ))}
               </select>
               <input style={input} type="date" value={potDate} onChange={(e) => setPotDate(e.target.value)} />
               <input style={input} placeholder="Observed API Gravity" value={potGravity} onChange={(e) => setPotGravity(e.target.value)} />
@@ -7807,7 +8081,7 @@ async function saveUserRole() {
             </div>
             <div style={box}>
               <h3>Recent POT Quality</h3>
-              {potQuality.map((p) => {
+              {getScopedPotQuality().map((p) => {
                 const seg = segments.find((s) => s.id === p.segment_id)
                 const prod = producers.find((x) => x.id === p.producer_id)
                 const lease = leases.find((l) => l.id === p.lease_id)
@@ -7854,21 +8128,21 @@ async function saveUserRole() {
 
               <select style={input} value={selectedProvingSegment} onChange={(e) => handleProvingSegmentSelect(e.target.value)} disabled={!selectedProvingArea}>
                 <option value="">{selectedProvingArea ? 'Select Segment' : 'Select area first'}</option>
-                {getSegmentsForSelectedProvingArea().map((segment: any) => (
+                {getVisibleSegments(selectedProvingArea).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
               </select>
 
               <select style={input} value={selectedProvingLease} onChange={(e) => handleProvingLeaseSelect(e.target.value)} disabled={!selectedProvingSegment}>
                 <option value="">{selectedProvingSegment ? 'Select Lease' : 'Select segment first'}</option>
-                {getLeasesForSelectedProvingSegment().map((lease: any) => (
+                {getVisibleLeases(selectedProvingSegment).map((lease: any) => (
                   <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
                 ))}
               </select>
 
               <select style={input} value={provingMeter} onChange={(e) => setProvingMeter(e.target.value)} disabled={!selectedProvingLease}>
                 <option value="">{selectedProvingLease ? 'Select Meter' : 'Select lease first'}</option>
-                {getMetersForSelectedProvingLease().map((meter: any) => (
+                {getVisibleMeters(selectedProvingLease).map((meter: any) => (
                   <option key={meter.id} value={meter.id}>
                     {meter.meter_number || meter.meter_name} {meter.meter_name && meter.meter_number ? `- ${meter.meter_name}` : ''}
                   </option>
@@ -7948,7 +8222,7 @@ async function saveUserRole() {
                 <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
                 <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
                   <option value="">All Segments</option>
-                  {segments.map((segment: any) => (
+                  {getScopedSegments().map((segment: any) => (
                     <option key={segment.id} value={segment.id}>{segment.name}</option>
                   ))}
                 </select>
@@ -8003,7 +8277,7 @@ async function saveUserRole() {
               <div style={kpiCard}>
                 <div style={{ color: '#a8b3bd', fontSize: 13 }}>Proving Compliance</div>
                 <div style={{ fontSize: 34, fontWeight: 900 }}>{opsProvingCompliancePercent}%</div>
-                <div style={{ color: '#a8b3bd', fontSize: 12 }}>{opsCompliantMeters.length} of {meters.length} meters</div>
+                <div style={{ color: '#a8b3bd', fontSize: 12 }}>{opsCompliantMeters.length} of {getScopedMeters().length} meters</div>
               </div>
 
               <div style={kpiCard}>
@@ -8105,8 +8379,8 @@ async function saveUserRole() {
                 Early over/short model: approved receipt meters minus delivery meters plus tank/line-fill movements. This becomes more accurate as meter directions, tank assets, and line fills are configured.
               </p>
               <div style={{ display: 'grid', gap: 10 }}>
-                {segments.map((segment: any) => {
-                  const segmentTickets = tickets.filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
+                {getScopedSegments().map((segment: any) => {
+                  const segmentTickets = getScopedTickets().filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
                   const receipts = segmentTickets
                     .filter((ticket: any) => {
                       const meter = meters.find((m: any) => m.id === ticket.meter_id)
@@ -8197,14 +8471,14 @@ async function saveUserRole() {
 
                 <select style={input} value={reportProducerId} onChange={(e) => setReportProducerId(e.target.value)}>
                   <option value="">All Producers</option>
-                  {producers.map((producer: any) => (
+                  {getScopedProducers().map((producer: any) => (
                     <option key={producer.id} value={producer.id}>{producer.name}</option>
                   ))}
                 </select>
 
                 <select style={input} value={reportSegmentId} onChange={(e) => setReportSegmentId(e.target.value)}>
                   <option value="">All Segments</option>
-                  {segments.map((segment: any) => (
+                  {getScopedSegments().map((segment: any) => (
                     <option key={segment.id} value={segment.id}>{segment.name}</option>
                   ))}
                 </select>
@@ -8269,7 +8543,7 @@ async function saveUserRole() {
                   <input style={input} type="date" value={potCsvEndDate} onChange={(e) => setPotCsvEndDate(e.target.value)} />
                   <select style={input} value={potCsvProducerId} onChange={(e) => setPotCsvProducerId(e.target.value)}>
                     <option value="">All Producers</option>
-                    {producers.map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
+                    {getScopedProducers().map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
                   </select>
                 </div>
                 <button style={button} onClick={() => runSafeAction('Exporting POT workings CSV', exportPotWorkingsCsv)}>
@@ -8289,7 +8563,7 @@ async function saveUserRole() {
                   <input style={input} placeholder="LACT Name" value={flowxLactName} onChange={(e) => setFlowxLactName(e.target.value)} />
                   <select style={input} value={flowxDefaultSegmentId} onChange={(e) => setFlowxDefaultSegmentId(e.target.value)}>
                     <option value="">Default Segment</option>
-                    {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                    {getScopedSegments().map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
                   </select>
                 </div>
 
@@ -8394,7 +8668,7 @@ async function saveUserRole() {
                   <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
                   <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
                     <option value="">All Segments</option>
-                    {segments.map((segment: any) => (
+                    {getScopedSegments().map((segment: any) => (
                       <option key={segment.id} value={segment.id}>{segment.name}</option>
                     ))}
                   </select>
@@ -8441,7 +8715,7 @@ async function saveUserRole() {
 
             {/* Ticket Debug Counts */}
             <div style={{ ...card, marginBottom: 12 }}>
-              Total tickets loaded: {tickets.length} • Pending workflow tickets: {getDraftWorkflowTickets().length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
+              Total tickets loaded: {getScopedTickets().length} • Pending workflow tickets: {getDraftWorkflowTickets().length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
             </div>
 
             {/* All Pending Ticket Approval Queue */}
@@ -8473,7 +8747,7 @@ async function saveUserRole() {
 
                     {isOpen && (
                       <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-                        {group.tickets.map((ticket: any) => (
+                        {group.getScopedTickets().map((ticket: any) => (
                           <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
                             <div>
                               <strong>{compactTicketTitle(ticket)}</strong>
@@ -8620,7 +8894,7 @@ async function saveUserRole() {
               <h3>Create Draft Ticket</h3>
               <select style={input} value={selectedSegment} onChange={(e) => { setSelectedSegment(e.target.value); setSelectedProducer(''); setSelectedLease(''); setSelectedMeter('') }}>
                 <option value="">Select Segment</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {getScopedSegments().map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
               <select style={input} value={selectedProducer} onChange={(e) => { setSelectedProducer(e.target.value); setSelectedLease(''); setSelectedMeter('') }}>
                 <option value="">Select Producer</option>
@@ -8777,7 +9051,7 @@ async function saveUserRole() {
 
                     {isOpen && (
                       <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-                        {group.tickets.map((ticket: any) => (
+                        {group.getScopedTickets().map((ticket: any) => (
                           <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
                             <div>
                               <strong>{compactTicketTitle(ticket)}</strong>

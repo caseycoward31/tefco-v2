@@ -1147,6 +1147,14 @@ useEffect(() => {
       console.warn('Active users RPC fallback unavailable:', manageableUserError)
     }
 
+    const { data: areaAccessData, error: areaAccessError } = await applyCompanyScope(
+      supabase.from('user_area_access').select('*')
+    )
+
+    if (areaAccessError) {
+      console.warn('User area access load blocked or unavailable:', areaAccessError)
+    }
+
     const { data: permissionData } = await supabase
       .from('role_permissions')
       .select('*')
@@ -1174,6 +1182,7 @@ useEffect(() => {
       : (roleData || [])
 
     setAllUserRoles(visibleActiveUsers as any)
+    if (areaAccessData) setUserAreaAccess(areaAccessData)
     if (permissionData) setRolePermissions(permissionData)
     if (profileData) setProfiles(profileData)
     if (producerData) setProducers(producerData)
@@ -1266,30 +1275,34 @@ const provingCompliancePercent =
 
   const approvedTickets = tickets.filter((t) => t.status === 'approved')
 
+  const scopedLeasesForFilters = getScopedLeases()
+  const scopedMetersForFilters = getScopedMeters()
+
   const filteredProducers = selectedSegment
-    ? producers.filter((p) => leases.some((l) => l.segment_id === selectedSegment && l.producer_id === p.id))
+    ? producers.filter((p) => scopedLeasesForFilters.some((l: any) => String(l.segment_id || '') === String(selectedSegment) && String(l.producer_id || '') === String(p.id)))
     : producers
 
-  const filteredLeases = leases.filter(
-    (l) =>
-      (!selectedSegment || l.segment_id === selectedSegment) &&
-      (!selectedProducer || l.producer_id === selectedProducer)
+  const filteredLeases = scopedLeasesForFilters.filter(
+    (l: any) =>
+      (!selectedSegment || String(l.segment_id || '') === String(selectedSegment)) &&
+      (!selectedProducer || String(l.producer_id || '') === String(selectedProducer))
   )
 
-  const filteredMeters = meters.filter(
-    (m) =>
-      (!selectedProducer || m.producer_id === selectedProducer) &&
-      (!selectedLease || m.lease_id === selectedLease)
+  const filteredMeters = scopedMetersForFilters.filter(
+    (m: any) =>
+      (!selectedProducer || String(m.producer_id || '') === String(selectedProducer)) &&
+      (!selectedLease || String(m.lease_id || '') === String(selectedLease))
   )
 
-  const filteredPotProducers = potSegment
-    ? producers.filter((p) => leases.some((l) => l.segment_id === potSegment && l.producer_id === p.id))
+  const activePotSegmentId = selectedPotSegment || potSegment
+  const filteredPotProducers = activePotSegmentId
+    ? producers.filter((p) => scopedLeasesForFilters.some((l: any) => String(l.segment_id || '') === String(activePotSegmentId) && String(l.producer_id || '') === String(p.id)))
     : producers
 
-  const filteredPotLeases = leases.filter(
-    (l) =>
-      (!potSegment || l.segment_id === potSegment) &&
-      (!potProducer || l.producer_id === potProducer)
+  const filteredPotLeases = scopedLeasesForFilters.filter(
+    (l: any) =>
+      (!activePotSegmentId || String(l.segment_id || '') === String(activePotSegmentId)) &&
+      (!potProducer || String(l.producer_id || '') === String(potProducer))
   )
 
   async function addArea() {
@@ -1399,7 +1412,16 @@ const provingCompliancePercent =
     if (userIsSuperAdmin || userIsCompanyAdmin) return segmentRows
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    return segmentRows.filter((segment: any) => areaIds.has(String((segment as any).area_id || '')))
+    const segmentIdsFromLeases = new Set(
+      asArray(leases)
+        .filter((lease: any) => areaIds.has(String(lease.area_id || '')))
+        .map((lease: any) => String(lease.segment_id || ''))
+        .filter(Boolean)
+    )
+
+    return segmentRows.filter((segment: any) =>
+      areaIds.has(String(segment.area_id || '')) || segmentIdsFromLeases.has(String(segment.id))
+    )
   }
 
   function getScopedLeases(): any[] {
@@ -1407,7 +1429,11 @@ const provingCompliancePercent =
     if (userIsSuperAdmin || userIsCompanyAdmin) return leaseRows
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    return leaseRows.filter((lease: any) => areaIds.has(String((lease as any).area_id || '')))
+    const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
+
+    return leaseRows.filter((lease: any) =>
+      areaIds.has(String(lease.area_id || '')) || segmentIds.has(String(lease.segment_id || ''))
+    )
   }
 
   function getScopedMeters(): any[] {
@@ -1415,15 +1441,31 @@ const provingCompliancePercent =
     if (userIsSuperAdmin || userIsCompanyAdmin) return meterRows
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    return meterRows.filter((meter: any) => areaIds.has(String((meter as any).area_id || '')))
+    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
+    const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
+
+    return meterRows.filter((meter: any) =>
+      areaIds.has(String(meter.area_id || '')) ||
+      leaseIds.has(String(meter.lease_id || '')) ||
+      segmentIds.has(String(meter.segment_id || ''))
+    )
   }
 
   function getVisibleSegments(areaId: string) {
     if (!areaId) return []
     if (!userCanAccessArea(areaId)) return []
 
+    const leaseSegmentIdsForArea = new Set(
+      asArray(leases)
+        .filter((lease: any) => String(lease.area_id || '') === String(areaId))
+        .map((lease: any) => String(lease.segment_id || ''))
+        .filter(Boolean)
+    )
+
     return getScopedSegments()
-      .filter((segment: any) => String((segment as any).area_id || '') === String(areaId))
+      .filter((segment: any) =>
+        String(segment.area_id || '') === String(areaId) || leaseSegmentIdsForArea.has(String(segment.id))
+      )
       .sort((a: any, b: any) =>
         String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || ''))
       )
@@ -1433,7 +1475,7 @@ const provingCompliancePercent =
     if (!segmentId) return []
 
     return getScopedLeases()
-      .filter((lease: any) => String((lease as any).segment_id || '') === String(segmentId))
+      .filter((lease: any) => String(lease.segment_id || '') === String(segmentId))
       .sort((a: any, b: any) =>
         String(a.lease_name || a.name || a.lease_number || '').localeCompare(String(b.lease_name || b.name || b.lease_number || ''))
       )
@@ -1443,7 +1485,7 @@ const provingCompliancePercent =
     if (!leaseId) return []
 
     return getScopedMeters()
-      .filter((meter: any) => String((meter as any).lease_id || '') === String(leaseId))
+      .filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
       .sort((a: any, b: any) =>
         String(a.meter_number || a.meter_name || '').localeCompare(String(b.meter_number || b.meter_name || ''))
       )
@@ -1762,12 +1804,18 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   function handlePotAreaSelect(areaId: string) {
     setSelectedPotArea(areaId)
     setSelectedPotSegment('')
+    setPotSegment('')
     setSelectedPotLease('')
+    setPotLease('')
+    setPotProducer('')
   }
 
   function handlePotSegmentSelect(segmentId: string) {
     setSelectedPotSegment(segmentId)
+    setPotSegment(segmentId)
     setSelectedPotLease('')
+    setPotLease('')
+    setPotProducer('')
   }
 
   async function savePotQuality() {
@@ -7796,7 +7844,7 @@ async function saveUserRole() {
               </select>
               <select style={input} value={selectedSegment} onChange={(e) => setSelectedSegment(e.target.value)}>
                 <option value="">Select Segment</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {getScopedSegments().map((s: any) => <option key={s.id} value={s.id}>{s.segment_name || s.name}</option>)}
               </select>
               <select style={input} value={selectedProducer} onChange={(e) => setSelectedProducer(e.target.value)}>
                 <option value="">Select Producer</option>
@@ -8094,7 +8142,7 @@ async function saveUserRole() {
                 ))}
               </select>
 
-              <select style={input} value={potSegment} onChange={(e) => { handlePotSegmentSelect(e.target.value); setPotLease(e.target.value) }} disabled={!selectedPotArea}>
+              <select style={input} value={selectedPotSegment || potSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
                 <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
                 {getVisibleSegments(selectedPotArea).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
@@ -8106,9 +8154,9 @@ async function saveUserRole() {
                 {filteredPotProducers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
 
-              <select style={input} value={potLease} onChange={(e) => { setSelectedPotLease(e.target.value); setPotLease(e.target.value) }} disabled={!selectedPotSegment}>
-                <option value="">{selectedPotSegment ? 'Select Lease' : 'Select segment first'}</option>
-                {getVisibleLeases(selectedPotSegment).map((lease: any) => (
+              <select style={input} value={selectedPotLease || potLease} onChange={(e) => { setSelectedPotLease(e.target.value); setPotLease(e.target.value) }} disabled={!(selectedPotSegment || potSegment)}>
+                <option value="">{(selectedPotSegment || potSegment) ? 'Select Lease' : 'Select segment first'}</option>
+                {getVisibleLeases(selectedPotSegment || potSegment).map((lease: any) => (
                   <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
                 ))}
               </select>
@@ -8946,7 +8994,7 @@ async function saveUserRole() {
               <h3>Create Draft Ticket</h3>
               <select style={input} value={selectedSegment} onChange={(e) => { setSelectedSegment(e.target.value); setSelectedProducer(''); setSelectedLease(''); setSelectedMeter('') }}>
                 <option value="">Select Segment</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {getScopedSegments().map((s: any) => <option key={s.id} value={s.id}>{s.segment_name || s.name}</option>)}
               </select>
               <select style={input} value={selectedProducer} onChange={(e) => { setSelectedProducer(e.target.value); setSelectedLease(''); setSelectedMeter('') }}>
                 <option value="">Select Producer</option>
@@ -8954,11 +9002,11 @@ async function saveUserRole() {
               </select>
               <select style={input} value={selectedLease} onChange={(e) => { setSelectedLease(e.target.value); setSelectedMeter('') }}>
                 <option value="">Select Lease</option>
-                {filteredLeases.map((l) => <option key={l.id} value={l.id}>{l.lease_name}</option>)}
+                {filteredLeases.map((l: any) => <option key={l.id} value={l.id}>{l.lease_name || l.name || l.lease_number}</option>)}
               </select>
               <select style={input} value={selectedMeter} onChange={(e) => setSelectedMeter(e.target.value)}>
                 <option value="">Select Meter</option>
-                {filteredMeters.map((m) => <option key={m.id} value={m.id}>{m.meter_number}</option>)}
+                {filteredMeters.map((m: any) => <option key={m.id} value={m.id}>{m.meter_number || m.meter_name}</option>)}
               </select>
               <select style={input} value={ticketType} onChange={(e) => setTicketType(e.target.value)}>
                 <option value="meter">Meter Ticket</option>
@@ -8973,8 +9021,8 @@ async function saveUserRole() {
                   <h3>Tank Ticket Inputs</h3>
                   <select style={input} value={selectedTank} onChange={(e) => setSelectedTank(e.target.value)}>
                     <option value="">Select Tank</option>
-                    {tanks
-                      .filter((tank: any) => !selectedSegment || tank.segment_id === selectedSegment)
+                    {asArray(tanks)
+                      .filter((tank: any) => !selectedSegment || String(tank.segment_id || '') === String(selectedSegment))
                       .map((tank: any) => (
                         <option key={tank.id} value={tank.id}>
                           {tank.tank_number} {tank.tank_name ? `- ${tank.tank_name}` : ''}
@@ -9042,8 +9090,8 @@ async function saveUserRole() {
                   <h3>Line Fill Ticket Inputs</h3>
                   <select style={input} value={selectedLineFill} onChange={(e) => setSelectedLineFill(e.target.value)}>
                     <option value="">Select Line Fill</option>
-                    {lineFills
-                      .filter((line: any) => !selectedSegment || line.segment_id === selectedSegment)
+                    {asArray(lineFills)
+                      .filter((line: any) => !selectedSegment || String(line.segment_id || '') === String(selectedSegment))
                       .map((line: any) => (
                         <option key={line.id} value={line.id}>{line.line_name}</option>
                       ))}

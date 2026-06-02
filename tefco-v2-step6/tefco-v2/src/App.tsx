@@ -1027,7 +1027,23 @@ useEffect(() => {
       rows.find((role: any) => normalizeRoleName(role.role) !== 'super_admin' && role.company_id) ||
       rows.find((role: any) => role.company_id)
 
-    const resolvedCompanyId = companyRole?.company_id || ''
+    let resolvedCompanyId = companyRole?.company_id || ''
+
+    // Backward-compatible company fallback. Some existing TEFCO databases keep
+    // the user's company in company_users instead of user_roles.company_id.
+    // This keeps branding/admin company scope from falling back to blank/default.
+    if (!resolvedCompanyId) {
+      const { data: companyUserRow, error: companyUserError } = await supabase
+        .from('company_users')
+        .select('company_id')
+        .eq('user_id', authUser.id)
+        .maybeSingle()
+
+      if (!companyUserError && companyUserRow?.company_id) {
+        resolvedCompanyId = companyUserRow.company_id
+      }
+    }
+
     setCompanyId(resolvedCompanyId)
 
     const normalizedRole = normalizeRoleName(highestRole)

@@ -1117,10 +1117,21 @@ useEffect(() => {
 
     // Company id is resolved only from the logged-in user's own role/company row.
 
-    const { data: areaData } = await applyCompanyScope(supabase.from('areas').select('*')).order('name')
-    const { data: segData } = await applyCompanyScope(supabase.from('segments').select('*')).order('name')
-    const { data: leaseData } = await applyCompanyScope(supabase.from('leases').select('*')).order('lease_name')
-    const { data: meterData } = await applyCompanyScope(supabase.from('meters').select('*')).order('meter_number')
+    const { data: areaData, error: areaLoadError } = await applyCompanyScope(supabase.from('areas').select('*')).order('name')
+    const { data: segData, error: segmentLoadError } = await applyCompanyScope(supabase.from('segments').select('*')).order('name')
+    const { data: leaseData, error: leaseLoadError } = await applyCompanyScope(supabase.from('leases').select('*')).order('lease_name')
+    const { data: meterData, error: meterLoadError } = await applyCompanyScope(supabase.from('meters').select('*')).order('meter_number')
+    const { data: hierarchyData, error: hierarchyRpcError } = activeCompanyIdForLoad
+      ? await supabase.rpc('tefco_dropdown_hierarchy_for_app', { p_company_id: activeCompanyIdForLoad })
+      : { data: null, error: null } as any
+    if (areaLoadError || segmentLoadError || leaseLoadError || meterLoadError || hierarchyRpcError) {
+      console.warn('Hierarchy dropdown load status:', { areaLoadError, segmentLoadError, leaseLoadError, meterLoadError, hierarchyRpcError })
+    }
+    const hierarchyPayload: any = Array.isArray(hierarchyData) ? hierarchyData[0] : hierarchyData
+    const resolvedAreaData = Array.isArray(hierarchyPayload?.areas) && hierarchyPayload.areas.length ? hierarchyPayload.areas : areaData
+    const resolvedSegmentData = Array.isArray(hierarchyPayload?.segments) && hierarchyPayload.segments.length ? hierarchyPayload.segments : segData
+    const resolvedLeaseData = Array.isArray(hierarchyPayload?.leases) && hierarchyPayload.leases.length ? hierarchyPayload.leases : leaseData
+    const resolvedMeterData = Array.isArray(hierarchyPayload?.meters) && hierarchyPayload.meters.length ? hierarchyPayload.meters : meterData
     const { data: ticketData } = await applyCompanyScope(supabase.from('tickets').select('*')).order('created_at', { ascending: false })
 
     const { data: auditData } = await applyCompanyScope(
@@ -1163,10 +1174,10 @@ useEffect(() => {
     const { data: tankStrappingData } = await applyCompanyScope(supabase.from('tank_strapping_rows').select('*')).order('gauge_decimal')
     const { data: tankDeadwoodData } = await applyCompanyScope(supabase.from('tank_deadwood_rules').select('*').eq('active', true))
 
-    if (areaData) setAreas(areaData)
-    if (segData) setSegments(segData)
-    if (leaseData) setLeases(leaseData)
-    if (meterData) setMeters(meterData)
+    if (resolvedAreaData) setAreas(resolvedAreaData)
+    if (resolvedSegmentData) setSegments(resolvedSegmentData)
+    if (resolvedLeaseData) setLeases(resolvedLeaseData)
+    if (resolvedMeterData) setMeters(resolvedMeterData)
     if (ticketData) setTickets(ticketData)
     if (auditData) setTicketAuditLogs(auditData)
     const visibleActiveUsers = Array.isArray(manageableUserData) && manageableUserData.length
@@ -1476,8 +1487,16 @@ const provingCompliancePercent =
   function getVisibleLeases(segmentId: string) {
     if (!segmentId) return []
 
+    const selectedSegmentRow: any = asArray(segments).find((segment: any) => String(segment.id || '') === String(segmentId))
+    const selectedAreaId = String(selectedSegmentRow?.area_id || '')
+
     return getScopedLeases()
-      .filter((lease: any) => String(lease.segment_id || '') === String(segmentId))
+      .filter((lease: any) => {
+        const leaseSegmentId = String(lease.segment_id || '')
+        if (leaseSegmentId) return leaseSegmentId === String(segmentId)
+        // Fallback for old rows missing segment_id: keep them visible under the selected segment only when their area matches.
+        return selectedAreaId && String(lease.area_id || '') === selectedAreaId
+      })
       .sort((a: any, b: any) =>
         String(a.lease_name || a.name || a.lease_number || '').localeCompare(String(b.lease_name || b.name || b.lease_number || ''))
       )
@@ -8138,7 +8157,7 @@ async function saveUserRole() {
                 ))}
               </select>
 
-              <select style={input} value={potSegment} onChange={(e) => { handlePotSegmentSelect(e.target.value); setPotLease(e.target.value) }} disabled={!selectedPotArea}>
+              <select style={input} value={potSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
                 <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
                 {getVisibleSegments(selectedPotArea).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>

@@ -1484,32 +1484,61 @@ const provingCompliancePercent =
       )
   }
 
+  function sortLeasesForDropdown(rows: any[]) {
+    return asArray(rows).sort((a: any, b: any) =>
+      String(a.lease_name || a.name || a.lease_number || '').localeCompare(String(b.lease_name || b.name || b.lease_number || ''))
+    )
+  }
+
+  function sortMetersForDropdown(rows: any[]) {
+    return asArray(rows).sort((a: any, b: any) =>
+      String(a.meter_number || a.meter_name || '').localeCompare(String(b.meter_number || b.meter_name || ''))
+    )
+  }
+
   function getVisibleLeases(segmentId: string) {
     if (!segmentId) return []
 
+    const scopedLeaseRows = getScopedLeases()
     const selectedSegmentRow: any = asArray(segments).find((segment: any) => String(segment.id || '') === String(segmentId))
     const selectedAreaId = String(selectedSegmentRow?.area_id || '')
 
-    return getScopedLeases()
-      .filter((lease: any) => {
-        const leaseSegmentId = String(lease.segment_id || '')
-        if (leaseSegmentId) return leaseSegmentId === String(segmentId)
-        // Fallback for old rows missing segment_id: keep them visible under the selected segment only when their area matches.
-        return selectedAreaId && String(lease.area_id || '') === selectedAreaId
-      })
-      .sort((a: any, b: any) =>
-        String(a.lease_name || a.name || a.lease_number || '').localeCompare(String(b.lease_name || b.name || b.lease_number || ''))
-      )
+    const exactSegmentMatches = scopedLeaseRows.filter((lease: any) => String(lease.segment_id || '') === String(segmentId))
+    if (exactSegmentMatches.length > 0) return sortLeasesForDropdown(exactSegmentMatches)
+
+    const areaMatches = selectedAreaId
+      ? scopedLeaseRows.filter((lease: any) => String(lease.area_id || '') === selectedAreaId)
+      : []
+    if (areaMatches.length > 0) return sortLeasesForDropdown(areaMatches)
+
+    // Legacy data safety: if old lease rows are missing segment_id/area_id links, do not leave the operator dropdown blank.
+    // The Supabase repair SQL below backfills the real links; this fallback keeps the screen usable until every row is cleaned up.
+    return sortLeasesForDropdown(scopedLeaseRows)
   }
 
   function getVisibleMeters(leaseId: string) {
     if (!leaseId) return []
 
-    return getScopedMeters()
-      .filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
-      .sort((a: any, b: any) =>
-        String(a.meter_number || a.meter_name || '').localeCompare(String(b.meter_number || b.meter_name || ''))
-      )
+    const scopedMeterRows = getScopedMeters()
+    const exactLeaseMatches = scopedMeterRows.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
+    if (exactLeaseMatches.length > 0) return sortMetersForDropdown(exactLeaseMatches)
+
+    const selectedLeaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(leaseId))
+    const selectedSegmentId = String(selectedLeaseRow?.segment_id || '')
+    const selectedAreaId = String(selectedLeaseRow?.area_id || '')
+
+    const segmentMatches = selectedSegmentId
+      ? scopedMeterRows.filter((meter: any) => String(meter.segment_id || '') === selectedSegmentId)
+      : []
+    if (segmentMatches.length > 0) return sortMetersForDropdown(segmentMatches)
+
+    const areaMatches = selectedAreaId
+      ? scopedMeterRows.filter((meter: any) => String(meter.area_id || '') === selectedAreaId)
+      : []
+    if (areaMatches.length > 0) return sortMetersForDropdown(areaMatches)
+
+    // Legacy data safety for meters missing lease_id links.
+    return sortMetersForDropdown(scopedMeterRows)
   }
 
   function getScopedReadings(): any[] {

@@ -563,8 +563,9 @@ function isThisMonth(dateValue?: string) {
 
 function getHighestRole(roles: any[]) {
   const rank: Record<string, number> = {
-    super_admin: 5,
-    admin: 4,
+    super_admin: 6,
+    admin: 5,
+    company_admin: 5,
     measurement_tech: 3,
     operator: 2,
     auditor: 1,
@@ -574,9 +575,18 @@ function getHighestRole(roles: any[]) {
 
   if (activeRoles.length === 0) return 'operator'
 
-  return activeRoles
-    .slice()
-    .sort((a, b) => (rank[b.role] || 0) - (rank[a.role] || 0))[0].role
+  const normalize = (value: any) =>
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/-/g, '_')
+
+  return normalize(
+    activeRoles
+      .slice()
+      .sort((a, b) => (rank[normalize(b.role)] || 0) - (rank[normalize(a.role)] || 0))[0].role
+  ) || 'operator'
 }
 
 function App() {
@@ -706,6 +716,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [ticketAuditLogs, setTicketAuditLogs] = useState<TicketAuditLog[]>([])
   const [userRoles, setUserRoles] = useState<UserRole[]>([])
+  const [allUserRoles, setAllUserRoles] = useState<UserRole[]>([])
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([])
   const [Role, setCurrentUserRole] = useState<string>('operator')
   const [newAdminUserId, setNewAdminUserId] = useState('')
@@ -987,18 +998,26 @@ useEffect(() => {
       return emptyScope
     }
 
+    // Read the logged-in user's role two ways:
+    // 1) direct table read when RLS allows it
+    // 2) SECURITY DEFINER RPC helper when RLS hides the row from the browser
     const [roleResult, rpcRoleResult, rpcCompanyResult] = await Promise.all([
       supabase
         .from('user_roles')
         .select('*')
-        .eq('user_id', authUser.id)
-        .eq('active', true),
+        .eq('user_id', authUser.id),
       supabase.rpc('tefco_current_role'),
       supabase.rpc('tefco_current_company_id'),
     ])
 
     if (roleResult.error) {
-      console.error('Role load error:', roleResult.error)
+      console.error('Role table load error:', roleResult.error)
+    }
+    if (rpcRoleResult.error) {
+      console.warn('Role RPC fallback unavailable:', rpcRoleResult.error)
+    }
+    if (rpcCompanyResult.error) {
+      console.warn('Company RPC fallback unavailable:', rpcCompanyResult.error)
     }
 
     const directRows = (roleResult.data || []).filter((role: any) => role.active !== false)
@@ -1006,36 +1025,41 @@ useEffect(() => {
     const rpcCompanyId = String(rpcCompanyResult.data || '')
 
     let highestRole = getHighestRole(directRows)
-    const roleRank: Record<string, number> = {
-      super_admin: 6,
-      admin: 5,
-      company_admin: 5,
-      measurement_tech: 3,
-      measurement: 3,
-      operator: 2,
-      auditor: 1,
+
+    // If the direct RLS table read returns nothing/operator but the server helper knows
+    // the real role, trust the helper. This prevents valid admins from falling back to operator.
+    if (rpcRole && rpcRole !== 'operator') {
+      const directRank = getHighestRole([{ role: highestRole, active: true }])
+      const rpcRank = getHighestRole([{ role: rpcRole, active: true }])
+      const rankValue: Record<string, number> = {
+        super_admin: 6,
+        admin: 5,
+        company_admin: 5,
+        measurement_tech: 3,
+        operator: 2,
+        auditor: 1,
+      }
+      if ((rankValue[rpcRank] || 0) >= (rankValue[directRank] || 0)) {
+        highestRole = rpcRank
+      }
     }
 
-    if (rpcRole && (roleRank[rpcRole] || 0) > (roleRank[highestRole] || 0)) {
-      highestRole = rpcRole
-    }
+    let resolvedCompanyId = ''
 
-    const normalizedRole = normalizeRoleName(highestRole)
+    const companyRole =
+      directRows.find((role: any) => normalizeRoleName(role.role) !== 'super_admin' && role.company_id) ||
+      directRows.find((role: any) => role.company_id)
 
-    let resolvedCompanyId =
-      directRows.find((role: any) => normalizeRoleName(role.role) !== 'super_admin' && role.company_id)?.company_id ||
-      directRows.find((role: any) => role.company_id)?.company_id ||
-      rpcCompanyId ||
-      ''
+    resolvedCompanyId = companyRole?.company_id || rpcCompanyId || ''
 
     if (!resolvedCompanyId) {
-      const { data: companyUserRow } = await supabase
+      const { data: companyUserRow, error: companyUserError } = await supabase
         .from('company_users')
         .select('company_id')
         .eq('user_id', authUser.id)
         .maybeSingle()
 
-      if (companyUserRow?.company_id) {
+      if (!companyUserError && companyUserRow?.company_id) {
         resolvedCompanyId = companyUserRow.company_id
       }
     }
@@ -1055,6 +1079,8 @@ useEffect(() => {
     setUserRoles(rowsForState)
     setCurrentUserRole(highestRole)
     setCompanyId(resolvedCompanyId)
+
+    const normalizedRole = normalizeRoleName(highestRole)
 
     return {
       authUserId: authUser.id,
@@ -1089,12 +1115,25 @@ useEffect(() => {
       }
     }
 
-    const { data: areaData } = await applyCompanyScope(supabase.from('areas').select('*')).order('name')
-    const { data: segData } = await applyCompanyScope(supabase.from('segments').select('*')).order('name')
-    const { data: leaseData } = await applyCompanyScope(supabase.from('leases').select('*')).order('lease_name')
-    const { data: meterData } = await applyCompanyScope(supabase.from('meters').select('*')).order('meter_number')
+    // Company id is resolved only from the logged-in user's own role/company row.
 
-    const areaAccessQuery = scope.isSuperAdmin || scope.isCompanyAdmin
+    const { data: areaData, error: areaLoadError } = await applyCompanyScope(supabase.from('areas').select('*')).order('name')
+    const { data: segData, error: segmentLoadError } = await applyCompanyScope(supabase.from('segments').select('*')).order('name')
+    const { data: leaseData, error: leaseLoadError } = await applyCompanyScope(supabase.from('leases').select('*')).order('lease_name')
+    const { data: meterData, error: meterLoadError } = await applyCompanyScope(supabase.from('meters').select('*')).order('meter_number')
+    const { data: hierarchyData, error: hierarchyRpcError } = activeCompanyIdForLoad
+      ? await supabase.rpc('tefco_dropdown_hierarchy_for_app', { p_company_id: activeCompanyIdForLoad })
+      : { data: null, error: null } as any
+    if (areaLoadError || segmentLoadError || leaseLoadError || meterLoadError || hierarchyRpcError) {
+      console.warn('Hierarchy dropdown load status:', { areaLoadError, segmentLoadError, leaseLoadError, meterLoadError, hierarchyRpcError })
+    }
+    const hierarchyPayload: any = Array.isArray(hierarchyData) ? hierarchyData[0] : hierarchyData
+    const resolvedAreaData = Array.isArray(hierarchyPayload?.areas) && hierarchyPayload.areas.length ? hierarchyPayload.areas : areaData
+    const resolvedSegmentData = Array.isArray(hierarchyPayload?.segments) && hierarchyPayload.segments.length ? hierarchyPayload.segments : segData
+    const resolvedLeaseData = Array.isArray(hierarchyPayload?.leases) && hierarchyPayload.leases.length ? hierarchyPayload.leases : leaseData
+    const resolvedMeterData = Array.isArray(hierarchyPayload?.meters) && hierarchyPayload.meters.length ? hierarchyPayload.meters : meterData
+
+    const areaAccessQuery = (scope.isSuperAdmin || scope.isCompanyAdmin)
       ? applyCompanyScope(supabase.from('user_area_access').select('*'))
       : supabase
           .from('user_area_access')
@@ -1105,53 +1144,7 @@ useEffect(() => {
     if (areaAccessLoadError) {
       console.warn('Area access load error:', areaAccessLoadError)
     }
-
-    const currentAreaAccessRows = Array.isArray(areaAccessData) ? areaAccessData : []
-    const restrictToAssignedAreas = !scope.isSuperAdmin && !scope.isCompanyAdmin
-    const currentAllowedAreaIds = new Set(
-      currentAreaAccessRows
-        .filter((row: any) => !restrictToAssignedAreas || String(row.user_id || row.profile_id || '') === String(scope.authUserId))
-        .map((row: any) => String(row.area_id || ''))
-        .filter(Boolean)
-    )
-
-    const scopedAreaDataForLoad = restrictToAssignedAreas
-      ? asArray(areaData).filter((area: any) => currentAllowedAreaIds.has(String(area.id || '')))
-      : asArray(areaData)
-
-    const scopedAreaIdsForLoad = new Set(scopedAreaDataForLoad.map((area: any) => String(area.id || '')))
-
-    const scopedSegmentDataForLoad = restrictToAssignedAreas
-      ? asArray(segData).filter((segment: any) => scopedAreaIdsForLoad.has(String(segment.area_id || '')))
-      : asArray(segData)
-
-    const scopedSegmentIdsForLoad = new Set(scopedSegmentDataForLoad.map((segment: any) => String(segment.id || '')))
-
-    const scopedLeaseDataForLoad = restrictToAssignedAreas
-      ? asArray(leaseData).filter((lease: any) =>
-          scopedAreaIdsForLoad.has(String(lease.area_id || '')) ||
-          scopedSegmentIdsForLoad.has(String(lease.segment_id || ''))
-        )
-      : asArray(leaseData)
-
-    const scopedLeaseIdsForLoad = new Set(scopedLeaseDataForLoad.map((lease: any) => String(lease.id || '')))
-
-    const scopedMeterDataForLoad = restrictToAssignedAreas
-      ? asArray(meterData).filter((meter: any) =>
-          scopedAreaIdsForLoad.has(String(meter.area_id || '')) ||
-          scopedSegmentIdsForLoad.has(String(meter.segment_id || '')) ||
-          scopedLeaseIdsForLoad.has(String(meter.lease_id || ''))
-        )
-      : asArray(meterData)
-
-    const scopedMeterIdsForLoad = new Set(scopedMeterDataForLoad.map((meter: any) => String(meter.id || '')))
-
-    const rowInAssignedArea = (row: any) =>
-      !restrictToAssignedAreas ||
-      scopedAreaIdsForLoad.has(String(row.area_id || row.observed_inputs?.area_id || '')) ||
-      scopedSegmentIdsForLoad.has(String(row.segment_id || row.observed_inputs?.segment_id || '')) ||
-      scopedLeaseIdsForLoad.has(String(row.lease_id || row.observed_inputs?.lease_id || '')) ||
-      scopedMeterIdsForLoad.has(String(row.meter_id || row.observed_inputs?.meter_id || ''))
+    const resolvedAreaAccessData = Array.isArray(areaAccessData) ? areaAccessData : []
 
     const { data: ticketData } = await applyCompanyScope(supabase.from('tickets').select('*')).order('created_at', { ascending: false })
 
@@ -1159,9 +1152,25 @@ useEffect(() => {
       supabase.from('ticket_audit_log').select('*')
     ).order('created_at', { ascending: false })
 
-    const { data: roleData } = (scope.isSuperAdmin || scope.isCompanyAdmin)
-      ? await applyCompanyScope(supabase.from('user_roles').select('*').eq('active', true))
-      : { data: scope.roles }
+    const roleQuery = scope.isSuperAdmin
+      ? supabase.from('user_roles').select('*').eq('active', true)
+      : activeCompanyIdForLoad
+        ? supabase.from('user_roles').select('*').eq('active', true).eq('company_id', activeCompanyIdForLoad)
+        : supabase.from('user_roles').select('*').eq('user_id', scope.authUserId).eq('active', true)
+
+    const [{ data: roleData, error: roleListError }, { data: manageableUserData, error: manageableUserError }] = await Promise.all([
+      roleQuery,
+      (scope.isSuperAdmin || scope.isCompanyAdmin)
+        ? supabase.rpc('tefco_manageable_users', { p_company_id: activeCompanyIdForLoad || null })
+        : Promise.resolve({ data: null, error: null } as any),
+    ])
+
+    if (roleListError) {
+      console.warn('Active users direct role list blocked or unavailable:', roleListError)
+    }
+    if (manageableUserError) {
+      console.warn('Active users RPC fallback unavailable:', manageableUserError)
+    }
 
     const { data: permissionData } = await supabase
       .from('role_permissions')
@@ -1179,23 +1188,27 @@ useEffect(() => {
     const { data: tankStrappingData } = await applyCompanyScope(supabase.from('tank_strapping_rows').select('*')).order('gauge_decimal')
     const { data: tankDeadwoodData } = await applyCompanyScope(supabase.from('tank_deadwood_rules').select('*').eq('active', true))
 
-    setUserAreaAccess(currentAreaAccessRows)
-    setAreas(scopedAreaDataForLoad)
-    setSegments(scopedSegmentDataForLoad)
-    setLeases(scopedLeaseDataForLoad)
-    setMeters(scopedMeterDataForLoad)
-    if (ticketData) setTickets(asArray(ticketData).filter(rowInAssignedArea))
-    if (auditData) setTicketAuditLogs(asArray(auditData).filter(rowInAssignedArea))
-    if (roleData) setUserRoles(scope.isSuperAdmin || scope.isCompanyAdmin ? roleData : scope.roles)
+    setUserAreaAccess(resolvedAreaAccessData)
+    if (resolvedAreaData) setAreas(resolvedAreaData)
+    if (resolvedSegmentData) setSegments(resolvedSegmentData)
+    if (resolvedLeaseData) setLeases(resolvedLeaseData)
+    if (resolvedMeterData) setMeters(resolvedMeterData)
+    if (ticketData) setTickets(ticketData)
+    if (auditData) setTicketAuditLogs(auditData)
+    const visibleActiveUsers = Array.isArray(manageableUserData) && manageableUserData.length
+      ? manageableUserData
+      : (roleData || [])
+
+    setAllUserRoles(visibleActiveUsers as any)
     if (permissionData) setRolePermissions(permissionData)
     if (profileData) setProfiles(profileData)
     if (producerData) setProducers(producerData)
-    if (readingData) setReadings(asArray(readingData).filter(rowInAssignedArea))
-    if (provingData) setProvings(asArray(provingData).filter(rowInAssignedArea))
-    if (potData) setPotQuality(asArray(potData).filter(rowInAssignedArea))
-    if (tankData) setTanks(restrictToAssignedAreas ? asArray(tankData).filter(rowInAssignedArea) : tankData)
-    if (lineFillData) setLineFills(restrictToAssignedAreas ? asArray(lineFillData).filter(rowInAssignedArea) : lineFillData)
-    if (meterAssetConfigData) setMeterAssetConfigs(restrictToAssignedAreas ? asArray(meterAssetConfigData).filter(rowInAssignedArea) : meterAssetConfigData)
+    if (readingData) setReadings(readingData)
+    if (provingData) setProvings(provingData)
+    if (potData) setPotQuality(potData)
+    if (tankData) setTanks(tankData)
+    if (lineFillData) setLineFills(lineFillData)
+    if (meterAssetConfigData) setMeterAssetConfigs(meterAssetConfigData)
     if (tankCalibrationData) setTankCalibrationVersions(tankCalibrationData)
     if (tankStrappingData) setTankStrappingRows(tankStrappingData)
     if (tankDeadwoodData) setTankDeadwoodRules(tankDeadwoodData)
@@ -1209,33 +1222,24 @@ useEffect(() => {
     if (contractProfileData) setContractProfiles(contractProfileData)
   }
 
-  const scopedAreasForView = getScopedAreas()
-  const scopedSegmentsForView = getScopedSegments()
-  const scopedLeasesForView = getScopedLeases()
-  const scopedMetersForView = getScopedMeters()
-  const scopedTicketsForView = getScopedTickets()
-  const scopedReadingsForView = getScopedReadings()
-  const scopedProvingsForView = getScopedProvings()
-  const scopedPotQualityForView = getScopedPotQuality()
-
-  const activeMeters = scopedMetersForView.filter((m) => m.active !== false)
-  const approvedThisMonth = scopedProvingsForView.filter((p) => p.status === 'approved' && isThisMonth(p.proving_date))
+  const activeMeters = meters.filter((m) => m.active !== false)
+  const approvedThisMonth = provings.filter((p) => p.status === 'approved' && isThisMonth(p.proving_date))
   const provedMeterIds = new Set(approvedThisMonth.map((p) => p.meter_id))
   const provedThisMonthCount = activeMeters.filter((m) => provedMeterIds.has(m.id)).length
   const remainingProvingCount = Math.max(activeMeters.length - provedThisMonthCount, 0)
   const provingCompliance = activeMeters.length > 0 ? Math.round((provedThisMonthCount / activeMeters.length) * 100) : 0
-  const pendingProvings = scopedProvingsForView.filter((p) => p.status !== 'approved')
-  const approvedProvings = scopedProvingsForView.filter((p) => p.status === 'approved')
-  const activeTickets = scopedTicketsForView.filter((t) => t.status !== 'approved')
-  const overdueMeters = scopedMetersForView.filter(
+  const pendingProvings = provings.filter((p) => p.status !== 'approved')
+  const approvedProvings = provings.filter((p) => p.status === 'approved')
+  const activeTickets = tickets.filter((t) => t.status !== 'approved')
+  const overdueMeters = meters.filter(
     (m) => getProvingComplianceStatus(m.next_proving_due) === 'OVERDUE'
   )
 
-  const dueSoonMeters = scopedMetersForView.filter(
+  const dueSoonMeters = meters.filter(
     (m) => getProvingComplianceStatus(m.next_proving_due) === 'DUE_SOON'
   )
 
-  const compliantMeters = scopedMetersForView.filter(
+  const compliantMeters = meters.filter(
     (m) => getProvingComplianceStatus(m.next_proving_due) === 'COMPLIANT'
   )
 
@@ -1277,34 +1281,40 @@ useEffect(() => {
 
   const isReadOnly =
     Role === 'auditor'
+const canViewAdmin = userCanManageCompanySetup
 
-  const canViewAdmin = userCanManageCompanySetup
   const canEditAdmin = userCanManageCompanySetup
 
 const provingCompliancePercent =
     meters.length > 0
-      ? Math.round((compliantMeters.length / activeMeters.length) * 100)
+      ? Math.round((compliantMeters.length / meters.length) * 100)
       : 100
 
-  const approvedTickets = scopedTicketsForView.filter((t) => t.status === 'approved')
+  const approvedTickets = tickets.filter((t) => t.status === 'approved')
+
+  const selectedTicketSegmentLeases = selectedSegment ? getVisibleLeases(selectedSegment) : getScopedLeases()
 
   const filteredProducers = selectedSegment
-    ? producers.filter((p) => getVisibleLeases(selectedSegment).some((l: any) => l.producer_id === p.id))
+    ? producers.filter((p) => selectedTicketSegmentLeases.some((l: any) => String(l.producer_id || '') === String(p.id)))
     : producers
 
-  const filteredLeases = (selectedSegment ? getVisibleLeases(selectedSegment) : scopedLeasesForView).filter(
+  const filteredLeases = selectedTicketSegmentLeases.filter(
     (l: any) => !selectedProducer || String(l.producer_id || '') === String(selectedProducer)
   )
 
-  const filteredMeters = (selectedLease ? getVisibleMeters(selectedLease) : scopedMetersForView).filter(
+  const selectedTicketLeaseMeters = selectedLease ? getVisibleMeters(selectedLease) : getScopedMeters()
+
+  const filteredMeters = selectedTicketLeaseMeters.filter(
     (m: any) => !selectedProducer || String(m.producer_id || '') === String(selectedProducer)
   )
 
+  const selectedPotSegmentLeases = potSegment ? getVisibleLeases(potSegment) : getScopedLeases()
+
   const filteredPotProducers = potSegment
-    ? producers.filter((p) => getVisibleLeases(potSegment).some((l: any) => l.producer_id === p.id))
+    ? producers.filter((p) => selectedPotSegmentLeases.some((l: any) => String(l.producer_id || '') === String(p.id)))
     : producers
 
-  const filteredPotLeases = (potSegment ? getVisibleLeases(potSegment) : scopedLeasesForView).filter(
+  const filteredPotLeases = selectedPotSegmentLeases.filter(
     (l: any) => !potProducer || String(l.producer_id || '') === String(potProducer)
   )
 
@@ -1410,59 +1420,160 @@ const provingCompliancePercent =
     return getAllowedAreaIdsForCurrentUser().includes(String(areaId))
   }
 
+  function buildScopedHierarchyIds(areaIdsInput?: Set<string>) {
+    const areaIds = areaIdsInput || new Set(getScopedAreas().map((area: any) => String(area.id || '')))
+    const segmentIds = new Set<string>()
+    const leaseIds = new Set<string>()
+    const meterIds = new Set<string>()
+
+    const add = (set: Set<string>, value: any) => {
+      const normalized = String(value || '')
+      if (!normalized || set.has(normalized)) return false
+      set.add(normalized)
+      return true
+    }
+
+    let changed = true
+    let guard = 0
+    while (changed && guard < 10) {
+      changed = false
+      guard += 1
+
+      asArray(segments).forEach((segment: any) => {
+        if (areaIds.has(String(segment.area_id || ''))) {
+          changed = add(segmentIds, segment.id) || changed
+        }
+      })
+
+      asArray(leases).forEach((lease: any) => {
+        if (
+          areaIds.has(String(lease.area_id || '')) ||
+          segmentIds.has(String(lease.segment_id || ''))
+        ) {
+          changed = add(leaseIds, lease.id) || changed
+          changed = add(segmentIds, lease.segment_id) || changed
+        }
+      })
+
+      asArray(meters).forEach((meter: any) => {
+        if (
+          areaIds.has(String(meter.area_id || '')) ||
+          segmentIds.has(String(meter.segment_id || '')) ||
+          leaseIds.has(String(meter.lease_id || ''))
+        ) {
+          changed = add(meterIds, meter.id) || changed
+          changed = add(leaseIds, meter.lease_id) || changed
+          changed = add(segmentIds, meter.segment_id) || changed
+        }
+      })
+
+      asArray(leases).forEach((lease: any) => {
+        if (leaseIds.has(String(lease.id || ''))) {
+          changed = add(segmentIds, lease.segment_id) || changed
+        }
+      })
+    }
+
+    return { areaIds, segmentIds, leaseIds, meterIds }
+  }
+
   function getScopedSegments(): any[] {
     const segmentRows = asArray(segments)
     if (userIsSuperAdmin || userIsCompanyAdmin) return segmentRows
 
-    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    return segmentRows.filter((segment: any) => areaIds.has(String((segment as any).area_id || '')))
+    const { segmentIds } = buildScopedHierarchyIds()
+    return segmentRows.filter((segment: any) => segmentIds.has(String(segment.id || '')))
   }
 
   function getScopedLeases(): any[] {
     const leaseRows = asArray(leases)
     if (userIsSuperAdmin || userIsCompanyAdmin) return leaseRows
 
-    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    return leaseRows.filter((lease: any) => areaIds.has(String((lease as any).area_id || '')))
+    const { leaseIds } = buildScopedHierarchyIds()
+    return leaseRows.filter((lease: any) => leaseIds.has(String(lease.id || '')))
   }
 
   function getScopedMeters(): any[] {
     const meterRows = asArray(meters)
     if (userIsSuperAdmin || userIsCompanyAdmin) return meterRows
 
-    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    return meterRows.filter((meter: any) => areaIds.has(String((meter as any).area_id || '')))
+    const { meterIds } = buildScopedHierarchyIds()
+    return meterRows.filter((meter: any) => meterIds.has(String(meter.id || '')))
   }
 
   function getVisibleSegments(areaId: string) {
     if (!areaId) return []
     if (!userCanAccessArea(areaId)) return []
 
-    return getScopedSegments()
-      .filter((segment: any) => String((segment as any).area_id || '') === String(areaId))
-      .sort((a: any, b: any) =>
-        String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || ''))
-      )
+    const areaIds = new Set([String(areaId)])
+    const { segmentIds } = buildScopedHierarchyIds(areaIds)
+    const rows = getScopedSegments().filter((segment: any) =>
+      segmentIds.has(String(segment.id || '')) || String(segment.area_id || '') === String(areaId)
+    )
+
+    return rows.sort((a: any, b: any) =>
+      String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || ''))
+    )
+  }
+
+  function sortLeasesForDropdown(rows: any[]) {
+    return asArray(rows).sort((a: any, b: any) =>
+      String(a.lease_name || a.name || a.lease_number || '').localeCompare(String(b.lease_name || b.name || b.lease_number || ''))
+    )
+  }
+
+  function sortMetersForDropdown(rows: any[]) {
+    return asArray(rows).sort((a: any, b: any) =>
+      String(a.meter_number || a.meter_name || '').localeCompare(String(b.meter_number || b.meter_name || ''))
+    )
   }
 
   function getVisibleLeases(segmentId: string) {
     if (!segmentId) return []
 
-    return getScopedLeases()
-      .filter((lease: any) => String((lease as any).segment_id || '') === String(segmentId))
-      .sort((a: any, b: any) =>
-        String(a.lease_name || a.name || a.lease_number || '').localeCompare(String(b.lease_name || b.name || b.lease_number || ''))
-      )
+    const scopedLeaseRows = getScopedLeases()
+    const selectedSegmentRow: any = asArray(segments).find((segment: any) => String(segment.id || '') === String(segmentId))
+    const selectedSegmentName = String(selectedSegmentRow?.segment_name || selectedSegmentRow?.name || '').trim().toLowerCase()
+
+    // Primary behavior: selecting a segment only shows leases linked to that segment.
+    const exactSegmentMatches = scopedLeaseRows.filter((lease: any) => String(lease.segment_id || '') === String(segmentId))
+    if (exactSegmentMatches.length > 0) return sortLeasesForDropdown(exactSegmentMatches)
+
+    // Legacy data safety: support old rows that stored the segment name instead of segment_id.
+    // Do NOT fall back to all leases here, because that defeats segment segregation.
+    const nameMatches = selectedSegmentName
+      ? scopedLeaseRows.filter((lease: any) => {
+          const leaseSegmentName = String(
+            lease.segment_name || lease.segment || lease.route_segment || lease.system_segment || ''
+          ).trim().toLowerCase()
+          return leaseSegmentName === selectedSegmentName
+        })
+      : []
+
+    return sortLeasesForDropdown(nameMatches)
   }
 
   function getVisibleMeters(leaseId: string) {
     if (!leaseId) return []
 
-    return getScopedMeters()
-      .filter((meter: any) => String((meter as any).lease_id || '') === String(leaseId))
-      .sort((a: any, b: any) =>
-        String(a.meter_number || a.meter_name || '').localeCompare(String(b.meter_number || b.meter_name || ''))
-      )
+    const scopedMeterRows = getScopedMeters()
+
+    // Primary behavior: selecting a lease only shows meters linked to that lease.
+    const exactLeaseMatches = scopedMeterRows.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
+    if (exactLeaseMatches.length > 0) return sortMetersForDropdown(exactLeaseMatches)
+
+    // Legacy data safety: support old rows that stored the lease name/number instead of lease_id.
+    // Do NOT fall back to all meters here, because that defeats lease segregation.
+    const selectedLeaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(leaseId))
+    const selectedLeaseName = String(selectedLeaseRow?.lease_name || selectedLeaseRow?.name || '').trim().toLowerCase()
+    const selectedLeaseNumber = String(selectedLeaseRow?.lease_number || '').trim().toLowerCase()
+
+    const nameMatches = scopedMeterRows.filter((meter: any) => {
+      const meterLeaseName = String(meter.lease_name || meter.lease || meter.lease_number || '').trim().toLowerCase()
+      return Boolean(meterLeaseName) && (meterLeaseName === selectedLeaseName || meterLeaseName === selectedLeaseNumber)
+    })
+
+    return sortMetersForDropdown(nameMatches)
   }
 
   function getScopedReadings(): any[] {
@@ -1537,7 +1648,7 @@ const provingCompliancePercent =
   function getAreaAccessUsers() {
     const activeCompany = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
 
-    return asArray(userRoles)
+    return asArray(allUserRoles.length ? allUserRoles : userRoles)
       .filter((role: any) => {
         const rowCompanyId = role.company_id || role.companyId
         return !activeCompany || !rowCompanyId || String(rowCompanyId) === String(activeCompany)
@@ -5000,7 +5111,7 @@ async function createCompany() {
   }
 
   function getOverShortRows() {
-    return getScopedSegments()
+    return segments
       .filter((segment: any) => !overShortSegmentId || segment.id === overShortSegmentId)
       .map((segment: any) => {
         const segmentTickets = getScopedTickets().filter((ticket: any) =>
@@ -5254,7 +5365,7 @@ async function createCompany() {
     ]
 
     const segmentSheets = rows.map((row: any) => {
-      const segmentTickets = getScopedTickets()
+      const segmentTickets = tickets
         .filter((ticket: any) =>
           ticket.status === 'approved' &&
           ticket.segment_id === row.segment.id &&
@@ -6427,13 +6538,13 @@ async function saveUserRole() {
 
 
   function getDraftWorkflowTickets() {
-    return getScopedTickets()
+    return tickets
       .filter((ticket: any) => !['approved', 'voided'].includes(String(ticket.status || 'draft').toLowerCase()))
       .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
   }
 
   function getApprovedTickets() {
-    return getScopedTickets()
+    return tickets
       .filter((ticket: any) => String(ticket.status || '').toLowerCase() === 'approved')
       .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
   }
@@ -6466,14 +6577,14 @@ async function saveUserRole() {
       if (!acc[key]) acc[key] = []
       acc[key].push(ticket)
       return acc
-    }, {})
+    }, {} as Record<string, any[]>)
 
-    return Object.entries(grouped)
+    return (Object.entries(grouped) as [string, any[]][])
       .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
       .map(([groupKey, groupTickets]) => ({
         groupKey,
         label: getWorkflowGroupLabel(groupKey),
-        tickets: (groupTickets as any[]).sort((a: any, b: any) =>
+        tickets: groupTickets.sort((a: any, b: any) =>
           new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime()
         ),
       }))
@@ -6492,14 +6603,14 @@ async function saveUserRole() {
       if (!acc[key]) acc[key] = []
       acc[key].push(ticket)
       return acc
-    }, {})
+    }, {} as Record<string, any[]>)
 
-    return Object.entries(grouped)
+    return (Object.entries(grouped) as [string, any[]][])
       .sort(([a], [b]) => b.localeCompare(a))
       .map(([monthKey, monthTickets]) => ({
         monthKey,
         label: getTicketMonthLabel(monthKey),
-        tickets: (monthTickets as any[]).sort((a: any, b: any) =>
+        tickets: monthTickets.sort((a: any, b: any) =>
           new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime()
         ),
       }))
@@ -6992,7 +7103,6 @@ async function saveUserRole() {
             <button style={button} onClick={() => setPage('dashboard')}>
               Back to Dashboard
             </button>
-
           </div>
         )}
 
@@ -7259,13 +7369,13 @@ async function saveUserRole() {
                     style={{ ...sectionToggle, marginTop: 14 }}
                     onClick={() => setShowActiveUsers(!showActiveUsers)}
                   >
-                    <span>{showActiveUsers ? '▼' : '▶'} Active Users ({userRoles.length})</span>
+                    <span>{showActiveUsers ? '▼' : '▶'} Active Users ({(allUserRoles.length ? allUserRoles : userRoles).length})</span>
                     <span>Manage</span>
                   </button>
 
                   {showActiveUsers && (
                     <div style={{ display: 'grid', gap: 10 }}>
-                      {userRoles.filter((role: any) => userIsSuperAdmin || !role.company_id || role.company_id === companyId).map((role) => (
+                      {(allUserRoles.length ? allUserRoles : userRoles).filter((role: any) => userIsSuperAdmin || !role.company_id || role.company_id === companyId).map((role) => (
                         <div
                           key={role.id}
                           style={{
@@ -7412,7 +7522,7 @@ async function saveUserRole() {
                 <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, alignItems: 'center' }}>
                   <select style={input} value={hierarchySegmentId} onChange={(e) => setHierarchySegmentId(e.target.value)}>
                     <option value="">Select Segment to assign area</option>
-                    {getScopedSegments().map((segment: any) => (
+                    {segments.map((segment: any) => (
                       <option key={segment.id} value={segment.id}>
                         {segment.segment_name || segment.name} {(segment as any).area_id ? '' : '(missing area)'}
                       </option>
@@ -7441,7 +7551,7 @@ async function saveUserRole() {
 
                   <select style={input} value={hierarchyLeaseSegmentId} onChange={(e) => setHierarchyLeaseSegmentId(e.target.value)}>
                     <option value="">Assign to Segment</option>
-                    {getScopedSegments().map((segment: any) => (
+                    {segments.map((segment: any) => (
                       <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                     ))}
                   </select>
@@ -7813,7 +7923,7 @@ async function saveUserRole() {
               </select>
               <select style={input} value={selectedSegment} onChange={(e) => setSelectedSegment(e.target.value)}>
                 <option value="">Select Segment</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {getScopedSegments().map((s: any) => <option key={s.id} value={s.id}>{s.segment_name || s.name}</option>)}
               </select>
               <select style={input} value={selectedProducer} onChange={(e) => setSelectedProducer(e.target.value)}>
                 <option value="">Select Producer</option>
@@ -8111,7 +8221,7 @@ async function saveUserRole() {
                 ))}
               </select>
 
-              <select style={input} value={potSegment} onChange={(e) => { handlePotSegmentSelect(e.target.value); setPotLease(e.target.value) }} disabled={!selectedPotArea}>
+              <select style={input} value={potSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
                 <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
                 {getVisibleSegments(selectedPotArea).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
@@ -8150,7 +8260,7 @@ async function saveUserRole() {
             </div>
             <div style={box}>
               <h3>Recent POT Quality</h3>
-              {getScopedPotQuality().map((p) => {
+              {potQuality.map((p) => {
                 const seg = segments.find((s) => s.id === p.segment_id)
                 const prod = producers.find((x) => x.id === p.producer_id)
                 const lease = leases.find((l) => l.id === p.lease_id)
@@ -8737,7 +8847,7 @@ async function saveUserRole() {
                   <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
                   <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
                     <option value="">All Segments</option>
-                    {getScopedSegments().map((segment: any) => (
+                    {segments.map((segment: any) => (
                       <option key={segment.id} value={segment.id}>{segment.name}</option>
                     ))}
                   </select>
@@ -8816,7 +8926,7 @@ async function saveUserRole() {
 
                     {isOpen && (
                       <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-                        {group.getScopedTickets().map((ticket: any) => (
+                        {group.tickets.map((ticket: any) => (
                           <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
                             <div>
                               <strong>{compactTicketTitle(ticket)}</strong>
@@ -8963,7 +9073,7 @@ async function saveUserRole() {
               <h3>Create Draft Ticket</h3>
               <select style={input} value={selectedSegment} onChange={(e) => { setSelectedSegment(e.target.value); setSelectedProducer(''); setSelectedLease(''); setSelectedMeter('') }}>
                 <option value="">Select Segment</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {getScopedSegments().map((s: any) => <option key={s.id} value={s.id}>{s.segment_name || s.name}</option>)}
               </select>
               <select style={input} value={selectedProducer} onChange={(e) => { setSelectedProducer(e.target.value); setSelectedLease(''); setSelectedMeter('') }}>
                 <option value="">Select Producer</option>
@@ -8971,11 +9081,11 @@ async function saveUserRole() {
               </select>
               <select style={input} value={selectedLease} onChange={(e) => { setSelectedLease(e.target.value); setSelectedMeter('') }}>
                 <option value="">Select Lease</option>
-                {filteredLeases.map((l) => <option key={l.id} value={l.id}>{l.lease_name}</option>)}
+                {filteredLeases.map((l: any) => <option key={l.id} value={l.id}>{l.lease_name || l.name || l.lease_number}</option>)}
               </select>
               <select style={input} value={selectedMeter} onChange={(e) => setSelectedMeter(e.target.value)}>
                 <option value="">Select Meter</option>
-                {filteredMeters.map((m) => <option key={m.id} value={m.id}>{m.meter_number}</option>)}
+                {filteredMeters.map((m: any) => <option key={m.id} value={m.id}>{m.meter_number || m.meter_name}</option>)}
               </select>
               <select style={input} value={ticketType} onChange={(e) => setTicketType(e.target.value)}>
                 <option value="meter">Meter Ticket</option>
@@ -9120,7 +9230,7 @@ async function saveUserRole() {
 
                     {isOpen && (
                       <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-                        {group.getScopedTickets().map((ticket: any) => (
+                        {group.tickets.map((ticket: any) => (
                           <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
                             <div>
                               <strong>{compactTicketTitle(ticket)}</strong>

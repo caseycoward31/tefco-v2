@@ -6917,12 +6917,6 @@ async function saveUserRole() {
             <button style={button} onClick={() => setPage('dashboard')}>
               Back to Dashboard
             </button>
-              {isActuallyAdminUser() && (
-                <button style={navButton(page === 'admin')} onClick={() => setPage('admin')}>
-                  ADMIN
-                </button>
-              )}
-
           </div>
         )}
 

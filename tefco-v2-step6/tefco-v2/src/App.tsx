@@ -1429,10 +1429,16 @@ const provingCompliancePercent =
     if (userIsSuperAdmin || userIsCompanyAdmin) return leaseRows
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
+    const segmentRows = asArray(segments)
+    const segmentIdsForAreas = new Set(
+      segmentRows
+        .filter((segment: any) => areaIds.has(String(segment.area_id || '')))
+        .map((segment: any) => String(segment.id))
+        .filter(Boolean)
+    )
 
     return leaseRows.filter((lease: any) =>
-      areaIds.has(String(lease.area_id || '')) || segmentIds.has(String(lease.segment_id || ''))
+      areaIds.has(String(lease.area_id || '')) || segmentIdsForAreas.has(String(lease.segment_id || ''))
     )
   }
 
@@ -1441,13 +1447,25 @@ const provingCompliancePercent =
     if (userIsSuperAdmin || userIsCompanyAdmin) return meterRows
 
     const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
-    const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
+    const segmentRows = asArray(segments)
+    const leaseRows = asArray(leases)
+    const segmentIdsForAreas = new Set(
+      segmentRows
+        .filter((segment: any) => areaIds.has(String(segment.area_id || '')))
+        .map((segment: any) => String(segment.id))
+        .filter(Boolean)
+    )
+    const leaseIdsForAreas = new Set(
+      leaseRows
+        .filter((lease: any) => areaIds.has(String(lease.area_id || '')) || segmentIdsForAreas.has(String(lease.segment_id || '')))
+        .map((lease: any) => String(lease.id))
+        .filter(Boolean)
+    )
 
     return meterRows.filter((meter: any) =>
       areaIds.has(String(meter.area_id || '')) ||
-      leaseIds.has(String(meter.lease_id || '')) ||
-      segmentIds.has(String(meter.segment_id || ''))
+      leaseIdsForAreas.has(String(meter.lease_id || '')) ||
+      segmentIdsForAreas.has(String(meter.segment_id || ''))
     )
   }
 

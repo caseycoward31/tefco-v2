@@ -1133,7 +1133,19 @@ useEffect(() => {
         ? supabase.from('user_roles').select('*').eq('active', true).eq('company_id', activeCompanyIdForLoad)
         : supabase.from('user_roles').select('*').eq('user_id', scope.authUserId).eq('active', true)
 
-    const { data: roleData } = await roleQuery
+    const [{ data: roleData, error: roleListError }, { data: manageableUserData, error: manageableUserError }] = await Promise.all([
+      roleQuery,
+      (scope.isSuperAdmin || scope.isCompanyAdmin)
+        ? supabase.rpc('tefco_manageable_users', { p_company_id: activeCompanyIdForLoad || null })
+        : Promise.resolve({ data: null, error: null } as any),
+    ])
+
+    if (roleListError) {
+      console.warn('Active users direct role list blocked or unavailable:', roleListError)
+    }
+    if (manageableUserError) {
+      console.warn('Active users RPC fallback unavailable:', manageableUserError)
+    }
 
     const { data: permissionData } = await supabase
       .from('role_permissions')
@@ -1157,7 +1169,11 @@ useEffect(() => {
     if (meterData) setMeters(meterData)
     if (ticketData) setTickets(ticketData)
     if (auditData) setTicketAuditLogs(auditData)
-    if (roleData) setAllUserRoles(roleData)
+    const visibleActiveUsers = Array.isArray(manageableUserData) && manageableUserData.length
+      ? manageableUserData
+      : (roleData || [])
+
+    setAllUserRoles(visibleActiveUsers as any)
     if (permissionData) setRolePermissions(permissionData)
     if (profileData) setProfiles(profileData)
     if (producerData) setProducers(producerData)

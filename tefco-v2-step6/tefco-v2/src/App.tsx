@@ -1145,7 +1145,45 @@ useEffect(() => {
     if (areaAccessLoadError) {
       console.warn('Area access load error:', areaAccessLoadError)
     }
-    const resolvedAreaAccessData = Array.isArray(areaAccessData) ? areaAccessData : []
+
+    // Operator/measurement users sometimes cannot read user_area_access/areas directly due RLS.
+    // This RPC returns ONLY the logged-in user's assigned active areas and maps old retired duplicate areas
+    // (example: DPG - OLD DO NOT USE) to the active area with the same base name.
+    const { data: assignedAreaRpcData, error: assignedAreaRpcError } = (!scope.isSuperAdmin && !scope.isCompanyAdmin)
+      ? await supabase.rpc('tefco_my_assigned_areas')
+      : { data: null, error: null } as any
+
+    if (assignedAreaRpcError) {
+      console.warn('Assigned area RPC unavailable:', assignedAreaRpcError)
+    }
+
+    const rpcAssignedAreas = Array.isArray(assignedAreaRpcData) ? assignedAreaRpcData : []
+    const rpcAreaAccessRows = rpcAssignedAreas.map((area: any) => ({
+      user_id: scope.authUserId,
+      area_id: area.id,
+      company_id: area.company_id || activeCompanyIdForLoad || scope.companyId || null,
+    }))
+
+    const resolvedAreaAccessData = [
+      ...(Array.isArray(areaAccessData) ? areaAccessData : []),
+      ...rpcAreaAccessRows,
+    ].filter((row: any, idx: number, arr: any[]) =>
+      row?.area_id && arr.findIndex((other: any) => String(other.area_id) === String(row.area_id) && String(other.user_id || '') === String(row.user_id || '')) === idx
+    )
+
+    const rpcAreaRows = rpcAssignedAreas.map((area: any) => ({
+      id: area.id,
+      company_id: area.company_id || activeCompanyIdForLoad || scope.companyId || null,
+      name: area.name,
+      active: true,
+    }))
+
+    const mergedResolvedAreaData = [
+      ...(Array.isArray(resolvedAreaData) ? resolvedAreaData : []),
+      ...rpcAreaRows,
+    ].filter((area: any, idx: number, arr: any[]) =>
+      area?.id && arr.findIndex((other: any) => String(other.id) === String(area.id)) === idx
+    )
 
     const { data: ticketData } = await applyCompanyScope(supabase.from('tickets').select('*')).order('created_at', { ascending: false })
 
@@ -1190,7 +1228,7 @@ useEffect(() => {
     const { data: tankDeadwoodData } = await applyCompanyScope(supabase.from('tank_deadwood_rules').select('*').eq('active', true))
 
     setUserAreaAccess(resolvedAreaAccessData)
-    if (resolvedAreaData) setAreas(resolvedAreaData)
+    if (mergedResolvedAreaData) setAreas(mergedResolvedAreaData)
     if (resolvedSegmentData) setSegments(resolvedSegmentData)
     if (resolvedLeaseData) setLeases(resolvedLeaseData)
     if (resolvedMeterData) setMeters(resolvedMeterData)

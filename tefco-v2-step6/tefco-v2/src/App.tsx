@@ -1387,25 +1387,69 @@ const provingCompliancePercent =
     return Array.isArray(value) ? value : []
   }
 
+  function isActiveRow(row: any) {
+    return row?.active !== false && String(row?.active ?? 'true').toLowerCase() !== 'false'
+  }
+
+  function cleanAreaName(value: any) {
+    return String(value || '')
+      .replace(/\s*-\s*old.*$/i, '')
+      .replace(/\s+do not use.*$/i, '')
+      .trim()
+      .toLowerCase()
+  }
+
+  function getActiveAreas(): any[] {
+    return asArray(areas).filter((area: any) =>
+      isActiveRow(area) && !String(area.name || '').toLowerCase().includes('old do not use')
+    )
+  }
+
 
   function getCurrentAuthUserIdForAreaAccess() {
     return currentAuthUserId || asArray(userRoles)?.[0]?.user_id || ''
   }
 
   function getAllowedAreaIdsForCurrentUser() {
-    const areaRows = asArray(areas)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return areaRows.map((area: any) => String(area.id))
+    const activeAreas = getActiveAreas()
+    if (userIsSuperAdmin || userIsCompanyAdmin) return activeAreas.map((area: any) => String(area.id))
 
     const uid = getCurrentAuthUserIdForAreaAccess()
     if (!uid) return []
 
-    return asArray(userAreaAccess)
+    const rawAssignedIds = asArray(userAreaAccess)
       .filter((row: any) => String(row.user_id || row.profile_id || '') === String(uid))
       .map((row: any) => String(row.area_id))
+
+    const allowed = new Set<string>()
+    const allAreas = asArray(areas)
+
+    rawAssignedIds.forEach((areaId) => {
+      const assignedArea: any = allAreas.find((area: any) => String(area.id) === String(areaId))
+
+      // Normal case: assigned area is active, so use that exact ID.
+      if (assignedArea && isActiveRow(assignedArea) && !String(assignedArea.name || '').toLowerCase().includes('old do not use')) {
+        allowed.add(String(assignedArea.id))
+        return
+      }
+
+      // Repair case: the user was assigned to an old/retired duplicate area.
+      // Map them to the active area in the same company with the same base name.
+      const baseName = cleanAreaName(assignedArea?.name)
+      const company = assignedArea?.company_id || companyId
+      const activeMatch: any = activeAreas.find((area: any) => {
+        const sameCompany = !company || !area.company_id || String(area.company_id) === String(company)
+        return sameCompany && baseName && cleanAreaName(area.name) === baseName
+      })
+
+      if (activeMatch?.id) allowed.add(String(activeMatch.id))
+    })
+
+    return Array.from(allowed)
   }
 
   function getScopedAreas(): any[] {
-    const areaRows = asArray(areas)
+    const areaRows = getActiveAreas()
     if (userIsSuperAdmin || userIsCompanyAdmin) return areaRows
 
     const allowed = getAllowedAreaIdsForCurrentUser()
@@ -1426,14 +1470,25 @@ const provingCompliancePercent =
     return visible.length === 1 ? String(visible[0]?.id || '') : ''
   }
 
+  function isVisibleAreaId(areaId: string) {
+    if (!areaId) return false
+    return getVisibleAreas().some((area: any) => String(area.id) === String(areaId))
+  }
+
   function ensureAutoAssignedAreaSelection() {
     if (!isSingleAreaAutoScopeUser()) return
     const areaId = getAutoAssignedAreaId()
     if (!areaId) return
 
-    if (!selectedReadingArea) handleReadingAreaSelect(areaId)
-    if (!selectedPotArea) handlePotAreaSelect(areaId)
-    if (!selectedProvingArea) handleProvingAreaSelect(areaId)
+    if (!isVisibleAreaId(selectedReadingArea)) handleReadingAreaSelect(areaId)
+    if (!isVisibleAreaId(selectedPotArea)) handlePotAreaSelect(areaId)
+    if (!isVisibleAreaId(selectedProvingArea)) handleProvingAreaSelect(areaId)
+    if (!isVisibleAreaId(selectedArea)) {
+      setSelectedArea(areaId)
+      setSelectedSegment('')
+      setSelectedLease('')
+      setSelectedMeter('')
+    }
   }
 
   function userCanAccessArea(areaId: string) {

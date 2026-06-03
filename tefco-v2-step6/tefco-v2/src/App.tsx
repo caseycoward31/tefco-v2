@@ -713,6 +713,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [balanceCheckGroupMeters, setBalanceCheckGroupMeters] = useState<any[]>([])
   const [balanceInventoryEntries, setBalanceInventoryEntries] = useState<any[]>([])
   const [balanceButaneAdjustments, setBalanceButaneAdjustments] = useState<any[]>([])
+  const [segmentBalanceSettings, setSegmentBalanceSettings] = useState<any[]>([])
   const [meterAssetConfigs, setMeterAssetConfigs] = useState<any[]>([])
   const [tankCalibrationVersions, setTankCalibrationVersions] = useState<any[]>([])
   const [tankStrappingRows, setTankStrappingRows] = useState<any[]>([])
@@ -1197,8 +1198,9 @@ useEffect(() => {
     const { data: balanceCheckGroupMeterData, error: balanceCheckGroupMeterError } = await applyCompanyScope(supabase.from('balance_check_group_meters').select('*'))
     const { data: balanceInventoryEntryData, error: balanceInventoryEntryError } = await applyCompanyScope(supabase.from('balance_inventory_entries').select('*')).order('period_start', { ascending: false })
     const { data: balanceButaneAdjustmentData, error: balanceButaneAdjustmentError } = await applyCompanyScope(supabase.from('balance_butane_adjustments').select('*')).order('period_start', { ascending: false })
-    if (balanceCheckGroupError || balanceCheckGroupMeterError || balanceInventoryEntryError || balanceButaneAdjustmentError) {
-      console.warn('Balance Center optional tables unavailable:', { balanceCheckGroupError, balanceCheckGroupMeterError, balanceInventoryEntryError, balanceButaneAdjustmentError })
+    const { data: segmentBalanceSettingData, error: segmentBalanceSettingError } = await applyCompanyScope(supabase.from('segment_balance_settings').select('*'))
+    if (balanceCheckGroupError || balanceCheckGroupMeterError || balanceInventoryEntryError || balanceButaneAdjustmentError || segmentBalanceSettingError) {
+      console.warn('Balance Center optional tables unavailable:', { balanceCheckGroupError, balanceCheckGroupMeterError, balanceInventoryEntryError, balanceButaneAdjustmentError, segmentBalanceSettingError })
     }
 
     setUserAreaAccess(resolvedAreaAccessData)
@@ -1229,6 +1231,7 @@ useEffect(() => {
     if (balanceCheckGroupMeterData) setBalanceCheckGroupMeters(balanceCheckGroupMeterData)
     if (balanceInventoryEntryData) setBalanceInventoryEntries(balanceInventoryEntryData)
     if (balanceButaneAdjustmentData) setBalanceButaneAdjustments(balanceButaneAdjustmentData)
+    if (segmentBalanceSettingData) setSegmentBalanceSettings(segmentBalanceSettingData)
 
     const { data: contractProfileData } = await supabase
       .from('contract_profiles')
@@ -5143,6 +5146,47 @@ async function createCompany() {
       .sort((a: any, b: any) => new Date(b.period_start || b.created_at || 0).getTime() - new Date(a.period_start || a.created_at || 0).getTime())[0]
   }
 
+  function getSegmentBalanceSetting(segmentId: string) {
+    return segmentBalanceSettings.find((setting: any) => setting.segment_id === segmentId) || null
+  }
+
+  function segmentHasButaneBlendEnabled(segmentId: string) {
+    const setting = getSegmentBalanceSetting(segmentId)
+    if (setting) return setting.enable_butane_blend === true
+    // Backward compatibility: if a butane adjustment already exists for this segment, show the butane KPI instead of hiding existing work.
+    return balanceButaneAdjustments.some((adjustment: any) => adjustment.segment_id === segmentId && adjustment.active !== false)
+  }
+
+  async function toggleSegmentButaneBlend(segmentId: string, enabled: boolean) {
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!activeCompanyID) {
+      alert('Select a company first.')
+      return
+    }
+
+    const existing = getSegmentBalanceSetting(segmentId)
+    const payload: any = {
+      company_id: activeCompanyID,
+      segment_id: segmentId,
+      enable_butane_blend: enabled,
+      shrinkage_method: 'API MPMS 12.3',
+      include_shrinkage_in_os: enabled,
+      active: true,
+      updated_at: new Date().toISOString(),
+    }
+
+    const result = existing?.id
+      ? await supabase.from('segment_balance_settings').update(payload).eq('id', existing.id)
+      : await supabase.from('segment_balance_settings').insert(payload)
+
+    if (result.error) {
+      alert(`Could not save segment balance setting: ${result.error.message}`)
+      return
+    }
+
+    await loadAll()
+  }
+
   function getButaneAdjustmentForSegment(segmentId: string) {
     const entry = balanceButaneAdjustments
       .filter((adjustment: any) => adjustment.segment_id === segmentId && isBalanceEntryInRange(adjustment) && adjustment.active !== false)
@@ -5227,11 +5271,12 @@ async function createCompany() {
         const lineFillEnd = Number(inventoryEntry?.line_fill_end_bbl ?? 0)
         const tankChange = inventoryEntry ? (tankBegin - tankEnd) : ticketTankChange
         const lineFillChange = inventoryEntry ? (lineFillBegin - lineFillEnd) : ticketLineFillChange
+        const butaneEnabled = segmentHasButaneBlendEnabled(segment.id)
         const butaneAdjustment = getButaneAdjustmentForSegment(segment.id)
         const checkMeterRows = getCheckMeterRowsForSegment(segment.id)
         const checkMeterOverShort = checkMeterRows.reduce((sum: number, row: any) => sum + row.difference, 0)
 
-        const bookInventory = receipts - deliveries - truckTickets + tankChange + lineFillChange + butaneAdjustment.shrinkageAdjustmentBbl
+        const bookInventory = receipts - deliveries - truckTickets + tankChange + lineFillChange + (butaneEnabled ? butaneAdjustment.shrinkageAdjustmentBbl : 0)
         const actualInventory = inventoryEntry
           ? Number(inventoryEntry?.actual_inventory_bbl ?? inventoryEntry?.actual_inventory ?? getActualTankInventoryForSegment(segment.id))
           : getActualTankInventoryForSegment(segment.id)
@@ -5249,6 +5294,7 @@ async function createCompany() {
           tankEnd,
           lineFillBegin,
           lineFillEnd,
+          butaneEnabled,
           butaneAdjustment,
           checkMeterRows,
           checkMeterOverShort,
@@ -5461,9 +5507,9 @@ async function createCompany() {
         row.truckTickets.toFixed(2),
         row.tankChange.toFixed(2),
         row.lineFillChange.toFixed(2),
-        row.butaneAdjustment.butaneGsv.toFixed(2),
-        row.butaneAdjustment.blendPercent.toFixed(4),
-        row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2),
+        row.butaneEnabled ? row.butaneAdjustment.butaneGsv.toFixed(2) : '',
+        row.butaneEnabled ? row.butaneAdjustment.blendPercent.toFixed(4) : '',
+        row.butaneEnabled ? row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2) : '',
         row.checkMeterOverShort.toFixed(2),
         row.bookInventory.toFixed(2),
         row.actualInventory.toFixed(2),
@@ -5531,9 +5577,9 @@ async function createCompany() {
       row.truckTickets.toFixed(2),
       row.tankChange.toFixed(2),
       row.lineFillChange.toFixed(2),
-      row.butaneAdjustment.butaneGsv.toFixed(2),
-      row.butaneAdjustment.blendPercent.toFixed(4),
-      row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2),
+      row.butaneEnabled ? row.butaneAdjustment.butaneGsv.toFixed(2) : '',
+      row.butaneEnabled ? row.butaneAdjustment.blendPercent.toFixed(4) : '',
+      row.butaneEnabled ? row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2) : '',
       row.checkMeterOverShort.toFixed(2),
       row.bookInventory.toFixed(2),
       row.actualInventory.toFixed(2),
@@ -8532,6 +8578,31 @@ async function saveUserRole() {
                 </button>
               </div>
 
+              {userCanManageCompanySetup && (
+                <div style={{ ...card, marginTop: 12 }}>
+                  <h3>Segment Balance Modules</h3>
+                  <p style={{ color: '#a8b3bd', marginTop: 0 }}>
+                    Turn optional O/S sections on only for the segments that need them. Butane blend adds API MPMS 12.3 shrinkage KPIs and applies shrinkage to that segment's O/S.
+                  </p>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {segments.map((segment: any) => {
+                      const enabled = segmentHasButaneBlendEnabled(segment.id)
+                      return (
+                        <label key={segment.id} style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#e5e7eb' }}>
+                          <input
+                            type="checkbox"
+                            checked={enabled}
+                            onChange={(e) => toggleSegmentButaneBlend(segment.id, e.target.checked)}
+                          />
+                          <strong>{segment.name}</strong>
+                          <span style={{ color: '#a8b3bd' }}>Butane Blend / API MPMS 12.3 Shrinkage</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
                 {getOverShortRows().map((row: any) => (
                   <div key={row.segment.id} style={card}>
@@ -8542,9 +8613,13 @@ async function saveUserRole() {
                       <div>Truck Tickets: <strong>{row.truckTickets.toFixed(2)}</strong></div>
                       <div>Tank Change: <strong>{row.tankChange.toFixed(2)}</strong></div>
                       <div>Line Fill: <strong>{row.lineFillChange.toFixed(2)}</strong></div>
-                      <div>Butane GSV: <strong>{row.butaneAdjustment.butaneGsv.toFixed(2)}</strong></div>
-                      <div>Blend %: <strong>{row.butaneAdjustment.blendPercent.toFixed(4)}%</strong></div>
-                      <div>Shrink Adj: <strong>{row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2)}</strong></div>
+                      {row.butaneEnabled && (
+                        <>
+                          <div>Butane GSV: <strong>{row.butaneAdjustment.butaneGsv.toFixed(2)}</strong></div>
+                          <div>Blend %: <strong>{row.butaneAdjustment.blendPercent.toFixed(4)}%</strong></div>
+                          <div>Shrink Adj: <strong>{row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2)}</strong></div>
+                        </>
+                      )}
                       <div>Check Meter O/S: <strong>{row.checkMeterOverShort.toFixed(2)}</strong></div>
                       <div>Book Inv: <strong>{row.bookInventory.toFixed(2)}</strong></div>
                       <div>Actual Inv: <strong>{row.actualInventory.toFixed(2)}</strong></div>

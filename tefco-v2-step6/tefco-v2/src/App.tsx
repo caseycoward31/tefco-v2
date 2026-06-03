@@ -10,8 +10,15 @@ type Company = {
   created_at?: string | null
 }
 
-type Area = { id: string; name: string }
-type Segment = { id: string; name: string }
+type Area = { id: string; name: string; active?: boolean | null; company_id?: string | null }
+type Segment = {
+  id: string
+  name: string
+  segment_name?: string | null
+  area_id?: string | null
+  company_id?: string | null
+  active?: boolean | null
+}
 
 type Lease = {
   id: string
@@ -19,6 +26,13 @@ type Lease = {
   lease_number?: string
   segment_id?: string
   producer_id?: string
+  area_id?: string | null
+  company_id?: string | null
+  active?: boolean | null
+  segment_name?: string | null
+  segment?: string | null
+  route_segment?: string | null
+  system_segment?: string | null
 }
 
 type Meter = {

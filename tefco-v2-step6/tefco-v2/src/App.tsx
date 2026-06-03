@@ -1889,12 +1889,18 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   function handlePotAreaSelect(areaId: string) {
     setSelectedPotArea(areaId)
     setSelectedPotSegment('')
+    setPotSegment('')
     setSelectedPotLease('')
+    setPotLease('')
+    setPotProducer('')
   }
 
   function handlePotSegmentSelect(segmentId: string) {
     setSelectedPotSegment(segmentId)
+    setPotSegment(segmentId)
     setSelectedPotLease('')
+    setPotLease('')
+    setPotProducer('')
   }
 
   async function savePotQuality() {
@@ -8221,19 +8227,19 @@ async function saveUserRole() {
                 ))}
               </select>
 
-              <select style={input} value={potSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
+              <select style={input} value={selectedPotSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
                 <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
                 {getVisibleSegments(selectedPotArea).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
               </select>
 
-              <select style={input} value={potProducer} onChange={(e) => { setPotProducer(e.target.value); setPotLease('') }}>
+              <select style={input} value={potProducer} onChange={(e) => { setPotProducer(e.target.value); setSelectedPotLease(''); setPotLease('') }} disabled={!selectedPotSegment}>
                 <option value="">Select Producer</option>
                 {filteredPotProducers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
 
-              <select style={input} value={potLease} onChange={(e) => { setSelectedPotLease(e.target.value); setPotLease(e.target.value) }} disabled={!selectedPotSegment}>
+              <select style={input} value={selectedPotLease} onChange={(e) => { setSelectedPotLease(e.target.value); setPotLease(e.target.value) }} disabled={!selectedPotSegment}>
                 <option value="">{selectedPotSegment ? 'Select Lease' : 'Select segment first'}</option>
                 {getVisibleLeases(selectedPotSegment).map((lease: any) => (
                   <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>

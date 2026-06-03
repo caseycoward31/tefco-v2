@@ -1475,6 +1475,12 @@ const provingCompliancePercent =
     return getVisibleAreas().some((area: any) => String(area.id) === String(areaId))
   }
 
+  function getEffectiveAreaId(areaId: string) {
+    if (areaId && isVisibleAreaId(areaId)) return areaId
+    return getAutoAssignedAreaId()
+  }
+
+
   function ensureAutoAssignedAreaSelection() {
     if (!isSingleAreaAutoScopeUser()) return
     const areaId = getAutoAssignedAreaId()
@@ -1937,7 +1943,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     await supabase.from('operator_readings').insert({
       company_id: companyId,
-      area_id: selectedReadingArea || null,
+      area_id: getEffectiveAreaId(selectedReadingArea) || null,
       segment_id: selectedReadingSegment || null,
       lease_id: selectedReadingLease || null,
       meter_id: selectedReadingMeter || null,
@@ -1997,7 +2003,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   }
 
   async function savePotQuality() {
-    if (!companyId || !selectedPotArea || !(selectedPotSegment || potSegment) || !(selectedPotLease || potLease) || !potDate) {
+    if (!companyId || !getEffectiveAreaId(selectedPotArea) || !(selectedPotSegment || potSegment) || !(selectedPotLease || potLease) || !potDate) {
       alert('Select area, segment, lease, and sample date first.')
       return
     }
@@ -2007,7 +2013,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     const { error } = await supabase.from('pot_quality').insert({
       company_id: companyId,
-      area_id: selectedPotArea || null,
+      area_id: getEffectiveAreaId(selectedPotArea) || null,
       segment_id: selectedPotSegment || potSegment,
       producer_id: potProducer || null,
       lease_id: selectedPotLease || potLease,
@@ -2137,7 +2143,7 @@ function handleProvingAreaSelect(areaId: string) {
       .from('meter_provings')
       .insert({
         company_id: companyId,
-        area_id: selectedProvingArea || null,
+        area_id: getEffectiveAreaId(selectedProvingArea) || null,
       segment_id: selectedProvingSegment || null,
       lease_id: selectedProvingLease || null,
       meter_id: provingMeter,
@@ -8068,16 +8074,16 @@ async function saveUserRole() {
           <>
             <h1>Operator Readings</h1>
             <div style={box}>
-              <select style={input} value={selectedReadingArea} onChange={(e) => handleReadingAreaSelect(e.target.value)} disabled={isSingleAreaAutoScopeUser()}>
+              <select style={input} value={getEffectiveAreaId(selectedReadingArea)} onChange={(e) => handleReadingAreaSelect(e.target.value)} disabled={isSingleAreaAutoScopeUser()}>
                 <option value="">Select Area</option>
                 {getVisibleAreas().map((area: any) => (
                   <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
                 ))}
               </select>
 
-              <select style={input} value={selectedReadingSegment} onChange={(e) => handleReadingSegmentSelect(e.target.value)} disabled={!selectedReadingArea}>
-                <option value="">{selectedReadingArea ? 'Select Segment' : 'Select area first'}</option>
-                {getVisibleSegments(selectedReadingArea).map((segment: any) => (
+              <select style={input} value={selectedReadingSegment} onChange={(e) => handleReadingSegmentSelect(e.target.value)} disabled={!getEffectiveAreaId(selectedReadingArea)}>
+                <option value="">{getEffectiveAreaId(selectedReadingArea) ? 'Select Segment' : 'Select area first'}</option>
+                {getVisibleSegments(getEffectiveAreaId(selectedReadingArea)).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
               </select>
@@ -8319,16 +8325,16 @@ async function saveUserRole() {
             </div>
             <div style={box}>
               <h3>New POT Quality</h3>
-              <select style={input} value={selectedPotArea} onChange={(e) => handlePotAreaSelect(e.target.value)} disabled={isSingleAreaAutoScopeUser()}>
+              <select style={input} value={getEffectiveAreaId(selectedPotArea)} onChange={(e) => handlePotAreaSelect(e.target.value)} disabled={isSingleAreaAutoScopeUser()}>
                 <option value="">Select Area</option>
                 {getVisibleAreas().map((area: any) => (
                   <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
                 ))}
               </select>
 
-              <select style={input} value={selectedPotSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
-                <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
-                {getVisibleSegments(selectedPotArea).map((segment: any) => (
+              <select style={input} value={selectedPotSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!getEffectiveAreaId(selectedPotArea)}>
+                <option value="">{getEffectiveAreaId(selectedPotArea) ? 'Select Segment' : 'Select area first'}</option>
+                {getVisibleSegments(getEffectiveAreaId(selectedPotArea)).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
               </select>
@@ -8405,16 +8411,16 @@ async function saveUserRole() {
 
             <div style={box}>
               <h2>New Proving</h2>
-              <select style={input} value={selectedProvingArea} onChange={(e) => handleProvingAreaSelect(e.target.value)} disabled={isSingleAreaAutoScopeUser()}>
+              <select style={input} value={getEffectiveAreaId(selectedProvingArea)} onChange={(e) => handleProvingAreaSelect(e.target.value)} disabled={isSingleAreaAutoScopeUser()}>
                 <option value="">Select Area</option>
                 {getVisibleAreas().map((area: any) => (
                   <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
                 ))}
               </select>
 
-              <select style={input} value={selectedProvingSegment} onChange={(e) => handleProvingSegmentSelect(e.target.value)} disabled={!selectedProvingArea}>
-                <option value="">{selectedProvingArea ? 'Select Segment' : 'Select area first'}</option>
-                {getVisibleSegments(selectedProvingArea).map((segment: any) => (
+              <select style={input} value={selectedProvingSegment} onChange={(e) => handleProvingSegmentSelect(e.target.value)} disabled={!getEffectiveAreaId(selectedProvingArea)}>
+                <option value="">{getEffectiveAreaId(selectedProvingArea) ? 'Select Segment' : 'Select area first'}</option>
+                {getVisibleSegments(getEffectiveAreaId(selectedProvingArea)).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
               </select>

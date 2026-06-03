@@ -1309,9 +1309,15 @@ const provingCompliancePercent =
     (m: any) => !selectedProducer || String(m.producer_id || '') === String(selectedProducer)
   )
 
-  const selectedPotSegmentLeases = selectedPotSegment ? getVisibleLeases(selectedPotSegment) : getScopedLeases()
+  const selectedPotSegmentLeases = potSegment ? getVisibleLeases(potSegment) : getScopedLeases()
 
-  const filteredPotLeases = selectedPotSegmentLeases
+  const filteredPotProducers = potSegment
+    ? producers.filter((p) => selectedPotSegmentLeases.some((l: any) => String(l.producer_id || '') === String(p.id)))
+    : producers
+
+  const filteredPotLeases = selectedPotSegmentLeases.filter(
+    (l: any) => !potProducer || String(l.producer_id || '') === String(potProducer)
+  )
 
   async function addArea() {
     if (!newArea || !companyId) return
@@ -1884,18 +1890,18 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   function handlePotAreaSelect(areaId: string) {
     setSelectedPotArea(areaId)
     setSelectedPotSegment('')
-    setPotSegment('')
     setSelectedPotLease('')
-    setPotLease('')
     setSelectedPotMeter('')
+    setPotSegment('')
+    setPotLease('')
   }
 
   function handlePotSegmentSelect(segmentId: string) {
     setSelectedPotSegment(segmentId)
-    setPotSegment(segmentId)
     setSelectedPotLease('')
-    setPotLease('')
     setSelectedPotMeter('')
+    setPotSegment(segmentId)
+    setPotLease('')
   }
 
   function handlePotLeaseSelect(leaseId: string) {
@@ -1903,8 +1909,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     setPotLease(leaseId)
 
     const leaseMeters = getVisibleMeters(leaseId)
-
-    if (leaseMeters.length === 1) {
+    if (leaseMeters.length >= 1) {
       setSelectedPotMeter(leaseMeters[0].id)
     } else {
       setSelectedPotMeter('')
@@ -1912,13 +1917,13 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   }
 
   function getSelectedPotMeterNumber() {
-    const meter = meters.find((m: any) => String(m.id) === String(selectedPotMeter))
+    const meter = asArray(meters).find((m: any) => String(m.id || '') === String(selectedPotMeter || ''))
     return meter?.meter_number || meter?.meter_name || ''
   }
 
   async function savePotQuality() {
-    if (!companyId || !selectedPotArea || !selectedPotSegment || !selectedPotLease || !selectedPotMeter || !potDate) {
-      alert('Select area, segment, lease, meter, and sample date first.')
+    if (!companyId || !selectedPotArea || !(selectedPotSegment || potSegment) || !(selectedPotLease || potLease) || !potDate) {
+      alert('Select area, segment, lease, and sample date first.')
       return
     }
 
@@ -1928,9 +1933,9 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     const { error } = await supabase.from('pot_quality').insert({
       company_id: companyId,
       area_id: selectedPotArea || null,
-      segment_id: selectedPotSegment,
-      producer_id: null,
-      lease_id: selectedPotLease,
+      segment_id: selectedPotSegment || potSegment,
+      producer_id: potProducer || null,
+      lease_id: selectedPotLease || potLease,
       sample_date: potDate,
       api_gravity: Number(
         calculateApi11Corrections({
@@ -1969,6 +1974,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     setPotBSW('')
     setPotTemp('')
     setPotNotes('')
+    setSelectedPotMeter('')
     alert('POT quality saved.')
     loadAll()
   }
@@ -8240,35 +8246,26 @@ async function saveUserRole() {
                 ))}
               </select>
 
-              <select style={input} value={selectedPotSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
+              <select style={input} value={potSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
                 <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
                 {getVisibleSegments(selectedPotArea).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
               </select>
 
-              <select style={input} value={selectedPotLease} onChange={(e) => handlePotLeaseSelect(e.target.value)} disabled={!selectedPotSegment}>
+              <select style={input} value={potLease} onChange={(e) => handlePotLeaseSelect(e.target.value)} disabled={!selectedPotSegment}>
                 <option value="">{selectedPotSegment ? 'Select Lease' : 'Select segment first'}</option>
-                {filteredPotLeases.map((lease: any) => (
+                {getVisibleLeases(selectedPotSegment).map((lease: any) => (
                   <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
                 ))}
               </select>
 
-              <select style={input} value={selectedPotMeter} onChange={(e) => setSelectedPotMeter(e.target.value)} disabled={!selectedPotLease}>
-                <option value="">{selectedPotLease ? 'Select Meter' : 'Select lease first'}</option>
-                {getVisibleMeters(selectedPotLease).map((meter: any) => (
-                  <option key={meter.id} value={meter.id}>
-                    {meter.meter_number || meter.meter_name} {meter.meter_name && meter.meter_number ? `- ${meter.meter_name}` : ''}
-                  </option>
-                ))}
-              </select>
-
-              {selectedPotMeter && (
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>
-                  Auto-selected meter: <strong>{getSelectedPotMeterNumber()}</strong>
-                </div>
-              )}
-
+              <input
+                style={input}
+                value={getSelectedPotMeterNumber()}
+                readOnly
+                placeholder={potLease ? 'Meter number auto-filled from selected lease' : 'Meter number will auto-fill after lease select'}
+              />
               <input style={input} type="date" value={potDate} onChange={(e) => setPotDate(e.target.value)} />
               <input style={input} placeholder="Observed API Gravity" value={potGravity} onChange={(e) => setPotGravity(e.target.value)} />
               <input style={input} placeholder="Observed Temperature" value={potTemp} onChange={(e) => setPotTemp(e.target.value)} />

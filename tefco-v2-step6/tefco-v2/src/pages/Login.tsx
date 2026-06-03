@@ -17,7 +17,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white p-4">
       <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl w-full max-w-md shadow-xl">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold">TEFCO Measurement V2</h1>
+          <h1 className="text-3xl font-bold">Measurement Database</h1>
           <p className="text-slate-400 mt-2">Custody transfer platform</p>
         </div>
         <input className="w-full p-3 mb-4 rounded-lg bg-slate-800 border border-slate-700 outline-none" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />

@@ -97,6 +97,7 @@ type PotQuality = {
   csw?: number
   sample_temperature?: number
   notes?: string
+  created_at?: string | null
 }
 
 function roundFactor(value: number) {
@@ -562,8 +563,9 @@ function isThisMonth(dateValue?: string) {
 
 function getHighestRole(roles: any[]) {
   const rank: Record<string, number> = {
-    super_admin: 5,
-    admin: 4,
+    super_admin: 6,
+    admin: 5,
+    company_admin: 5,
     measurement_tech: 3,
     operator: 2,
     auditor: 1,
@@ -573,19 +575,125 @@ function getHighestRole(roles: any[]) {
 
   if (activeRoles.length === 0) return 'operator'
 
-  return activeRoles
-    .slice()
-    .sort((a, b) => (rank[b.role] || 0) - (rank[a.role] || 0))[0].role
+  const normalize = (value: any) =>
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/-/g, '_')
+
+  return normalize(
+    activeRoles
+      .slice()
+      .sort((a, b) => (rank[normalize(b.role)] || 0) - (rank[normalize(a.role)] || 0))[0].role
+  ) || 'operator'
 }
 
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
+  const [hierarchySegmentId, setHierarchySegmentId] = useState('')
+  const [hierarchyAreaId, setHierarchyAreaId] = useState('')
+  const [hierarchyLeaseId, setHierarchyLeaseId] = useState('')
+  const [hierarchyLeaseSegmentId, setHierarchyLeaseSegmentId] = useState('')
+  const [hierarchyMeterId, setHierarchyMeterId] = useState('')
+  const [hierarchyMeterLeaseId, setHierarchyMeterLeaseId] = useState('')
+  const [userAreaAccess, setUserAreaAccess] = useState<any[]>([])
+  const [selectedAccessUserId, setSelectedAccessUserId] = useState('')
+  const [selectedAccessAreaIds, setSelectedAccessAreaIds] = useState<string[]>([])
+  const [contractProfiles, setContractProfiles] = useState<any[]>([])
+  const [newContractName, setNewContractName] = useState('')
+  const [newContractTransporter, setNewContractTransporter] = useState('')
+  const [newContractMethod, setNewContractMethod] = useState('chapter12_2021')
+  const [newContractMf, setNewContractMf] = useState('1')
+  const [newContractApiVersion, setNewContractApiVersion] = useState('api_11_1_2021')
+  const [newContractCorrectionSource, setNewContractCorrectionSource] = useState('app_calculated')
+  const [apiTesterVersion, setApiTesterVersion] = useState('api_11_1_2021')
+  const [apiTesterGravity, setApiTesterGravity] = useState('40')
+  const [apiTesterTemp, setApiTesterTemp] = useState('80')
+  const [apiTesterPressure, setApiTesterPressure] = useState('50')
+  const [apiTesterIv, setApiTesterIv] = useState('1000')
+  const [apiTesterMf, setApiTesterMf] = useState('1')
+  const [apiTesterBsw, setApiTesterBsw] = useState('0')
+  const [systemHealthChecks, setSystemHealthChecks] = useState<any[]>([])
+  const [systemHealthRunning, setSystemHealthRunning] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [meterCsvFile, setMeterCsvFile] = useState<File | null>(null)
+  const [strappingCsvFile, setStrappingCsvFile] = useState<File | null>(null)
+  const [selectedStrappingTankId, setSelectedStrappingTankId] = useState('')
+  const [newTankNumber, setNewTankNumber] = useState('')
+  const [newTankName, setNewTankName] = useState('')
+  const [newTankSegmentId, setNewTankSegmentId] = useState('')
+  const [newLineFillName, setNewLineFillName] = useState('')
+  const [newLineFillSegmentId, setNewLineFillSegmentId] = useState('')
+  const [newLineFillCapacity, setNewLineFillCapacity] = useState('')
+  const [flowxCsvFile, setFlowxCsvFile] = useState<File | null>(null)
+  const [flowxMappingRows, setFlowxMappingRows] = useState<any[]>([])
+  const [flowxMappingHeaders, setFlowxMappingHeaders] = useState<string[]>([])
+  const [flowxColumnMap, setFlowxColumnMap] = useState<any>({
+    ticket_number: '',
+    batch_number: '',
+    truck_number: '',
+    driver_name: '',
+    customer_name: '',
+    producer_name: '',
+    transporter_name: '',
+    lease_name: '',
+    meter_number: '',
+    segment_name: '',
+    gross_volume_bbl: '',
+    net_volume_bbl: '',
+    observed_temperature: '',
+    open_datetime: '',
+    close_datetime: '',
+  })
+  const [flowxLactName, setFlowxLactName] = useState('')
+  const [flowxDefaultSegmentId, setFlowxDefaultSegmentId] = useState('')
+  const [flowxTransporter1, setFlowxTransporter1] = useState('')
+  const [flowxTransporter2, setFlowxTransporter2] = useState('')
+  const [flowxTransporter3, setFlowxTransporter3] = useState('')
+  const [flowxTransporter4, setFlowxTransporter4] = useState('')
+  const [flowxPercent1, setFlowxPercent1] = useState('')
+  const [flowxPercent2, setFlowxPercent2] = useState('')
+  const [flowxPercent3, setFlowxPercent3] = useState('')
+  const [flowxPercent4, setFlowxPercent4] = useState('')
+    const [flowxCustomer1, setFlowxCustomer1] = useState('')
+  const [flowxCustomer2, setFlowxCustomer2] = useState('')
+  const [flowxCustomer3, setFlowxCustomer3] = useState('')
+  const [flowxCustomer4, setFlowxCustomer4] = useState('')
+const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
+  const [flowxAutoSplits, setFlowxAutoSplits] = useState<any[]>([])
+  const [inventoryStartDate, setInventoryStartDate] = useState('')
+  const [inventoryEndDate, setInventoryEndDate] = useState('')
+  const [inventorySegmentId, setInventorySegmentId] = useState('')
+  const [overShortStartDate, setOverShortStartDate] = useState('')
+  const [overShortEndDate, setOverShortEndDate] = useState('')
+  const [overShortSegmentId, setOverShortSegmentId] = useState('')
+  const [reportCenterSection, setReportCenterSection] = useState('tickets')
+  const [reportStartDate, setReportStartDate] = useState('')
+  const [reportEndDate, setReportEndDate] = useState('')
+  const [reportProducerId, setReportProducerId] = useState('')
+  const [reportSegmentId, setReportSegmentId] = useState('')
+  const [deadwoodTankId, setDeadwoodTankId] = useState('')
+  const [deadwoodStartGauge, setDeadwoodStartGauge] = useState('')
+  const [deadwoodEndGauge, setDeadwoodEndGauge] = useState('')
+  const [deadwoodAdjustmentBbl, setDeadwoodAdjustmentBbl] = useState('')
+  const [deadwoodAdjustmentType, setDeadwoodAdjustmentType] = useState('add')
+  const [deadwoodDescription, setDeadwoodDescription] = useState('')
+  const [meterCsvImporting, setMeterCsvImporting] = useState(false)
+  const [hasLocalTicketDraft, setHasLocalTicketDraft] = useState(false)
+  const [draftRestoredMessage, setDraftRestoredMessage] = useState('')
+  const [isActionRunning, setIsActionRunning] = useState(false)
+  const [actionMessage, setActionMessage] = useState('')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [pdfBundleStartDate, setPdfBundleStartDate] = useState('')
   const [pdfBundleEndDate, setPdfBundleEndDate] = useState('')
   const [pdfBundleProducerId, setPdfBundleProducerId] = useState('')
+  const [potCsvStartDate, setPotCsvStartDate] = useState('')
+  const [potCsvEndDate, setPotCsvEndDate] = useState('')
+  const [potCsvProducerId, setPotCsvProducerId] = useState('')
   const [companyId, setCompanyId] = useState('')
+  const [currentAuthUserId, setCurrentAuthUserId] = useState('')
   const [companySettings, setCompanySettings] = useState<any>(null)
   const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null)
   const [companyNameInput, setCompanyNameInput] = useState('')
@@ -599,11 +707,23 @@ function App() {
   const [segments, setSegments] = useState<Segment[]>([])
   const [leases, setLeases] = useState<Lease[]>([])
   const [meters, setMeters] = useState<Meter[]>([])
+  const [tanks, setTanks] = useState<any[]>([])
+  const [lineFills, setLineFills] = useState<any[]>([])
+  const [balanceCheckGroups, setBalanceCheckGroups] = useState<any[]>([])
+  const [balanceCheckGroupMeters, setBalanceCheckGroupMeters] = useState<any[]>([])
+  const [balanceInventoryEntries, setBalanceInventoryEntries] = useState<any[]>([])
+  const [balanceButaneAdjustments, setBalanceButaneAdjustments] = useState<any[]>([])
+  const [segmentBalanceSettings, setSegmentBalanceSettings] = useState<any[]>([])
+  const [meterAssetConfigs, setMeterAssetConfigs] = useState<any[]>([])
+  const [tankCalibrationVersions, setTankCalibrationVersions] = useState<any[]>([])
+  const [tankStrappingRows, setTankStrappingRows] = useState<any[]>([])
+  const [tankDeadwoodRules, setTankDeadwoodRules] = useState<any[]>([])
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [ticketAuditLogs, setTicketAuditLogs] = useState<TicketAuditLog[]>([])
   const [userRoles, setUserRoles] = useState<UserRole[]>([])
+  const [allUserRoles, setAllUserRoles] = useState<UserRole[]>([])
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([])
-  const [currentUserRole, setCurrentUserRole] = useState<string>('operator')
+  const [Role, setCurrentUserRole] = useState<string>('operator')
   const [newAdminUserId, setNewAdminUserId] = useState('')
   const [newAdminRole, setNewAdminRole] = useState('operator')
   const [showActiveUsers, setShowActiveUsers] = useState(false)
@@ -611,15 +731,19 @@ function App() {
   const [showUserManagement, setShowUserManagement] = useState(true)
   const [showContractProfiles, setShowContractProfiles] = useState(false)
   const [showCompanySetupHub, setShowCompanySetupHub] = useState(false)
+  const [newCheckGroupName, setNewCheckGroupName] = useState('')
+  const [newCheckGroupSegmentId, setNewCheckGroupSegmentId] = useState('')
+  const [newCheckGroupCheckMeterId, setNewCheckGroupCheckMeterId] = useState('')
+  const [newCheckGroupInputMeterIds, setNewCheckGroupInputMeterIds] = useState<string[]>([])
+  const [meterMasterSegmentFilterId, setMeterMasterSegmentFilterId] = useState('')
+  const [selectedMeterMasterId, setSelectedMeterMasterId] = useState('')
   const [companies, setCompanies] = useState<Company[]>([])
   const [newCompanyName, setNewCompanyName] = useState('')
   const [selectedAdminCompanyId, setSelectedAdminCompanyId] = useState('')
   const [newCompanyAdminEmail, setNewCompanyAdminEmail] = useState('')
   const [newCompanyAdminPassword, setNewCompanyAdminPassword] = useState('')
-  const [newContractName, setNewContractName] = useState('')
   const [newContractProducer, setNewContractProducer] = useState('')
   const [newContractStandard, setNewContractStandard] = useState('API 11.1 2021')
-  const [newContractMethod, setNewContractMethod] = useState('CTPL')
   const [newContractFactorType, setNewContractFactorType] = useState('MF')
   const [newContractProductGroup, setNewContractProductGroup] = useState('crude')
   const [newContractApiRounding, setNewContractApiRounding] = useState('1')
@@ -635,10 +759,14 @@ function App() {
   const [readings, setReadings] = useState<any[]>([])
   const [provings, setProvings] = useState<Proving[]>([])
   const [potQuality, setPotQuality] = useState<PotQuality[]>([])
-  const [contractProfiles, setContractProfiles] = useState<ContractProfile[]>([])
+  const [transporterPotRules, setTransporterPotRules] = useState<any[]>([])
+  const [newTransporterPotName, setNewTransporterPotName] = useState('')
+  const [newTransporterPotId, setNewTransporterPotId] = useState('')
   const [newAdminEmail, setNewAdminEmail] = useState('')
   const [newAdminPassword, setNewAdminPassword] = useState('')
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
+  const [openApprovedTicketMonths, setOpenApprovedTicketMonths] = useState<Record<string, boolean>>({})
+  const [openWorkflowTicketGroups, setOpenWorkflowTicketGroups] = useState<Record<string, boolean>>({})
 
   const [newArea, setNewArea] = useState('')
   const [newSegment, setNewSegment] = useState('')
@@ -655,10 +783,34 @@ function App() {
   const [selectedLease, setSelectedLease] = useState('')
   const [selectedMeter, setSelectedMeter] = useState('')
   const [ticketType, setTicketType] = useState('meter')
+  const [selectedTank, setSelectedTank] = useState('')
+  const [selectedLineFill, setSelectedLineFill] = useState('')
+  const [openingGauge, setOpeningGauge] = useState('')
+  const [closingGauge, setClosingGauge] = useState('')
+  const [tankMovementDirection, setTankMovementDirection] = useState('delivery')
+  const [tankClosingFeet, setTankClosingFeet] = useState('')
+  const [tankClosingInches, setTankClosingInches] = useState('')
+  const [tankClosingEighths, setTankClosingEighths] = useState('')
+  const [tankAverageTemp, setTankAverageTemp] = useState('')
+  const [tankAmbientTemp, setTankAmbientTemp] = useState('')
+  const [tankObservedGravity, setTankObservedGravity] = useState('')
+  const [tankObservedTemp, setTankObservedTemp] = useState('')
+  const [tankSwPercent, setTankSwPercent] = useState('')
+  const [manualClosingReading, setManualClosingReading] = useState('')
   const [autofillPreview, setAutofillPreview] = useState<any>(null)
 
-  const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
+    const [selectedReadingArea, setSelectedReadingArea] = useState('')
   const [selectedReadingSegment, setSelectedReadingSegment] = useState('')
+  const [readingMovementType, setReadingMovementType] = useState('receipt')
+const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
+  const [provingMeter, setProvingMeter] = useState('')
+  const [selectedPotArea, setSelectedPotArea] = useState('')
+  const [selectedPotSegment, setSelectedPotSegment] = useState('')
+  const [selectedPotLease, setSelectedPotLease] = useState('')
+  const [selectedProvingArea, setSelectedProvingArea] = useState('')
+  const [selectedProvingSegment, setSelectedProvingSegment] = useState('')
+  const [selectedProvingLease, setSelectedProvingLease] = useState('')
+  const [selectedReadingLease, setSelectedReadingLease] = useState('')
   const [readingOpen, setReadingOpen] = useState('')
   const [readingClose, setReadingClose] = useState('')
   const [readingGravity, setReadingGravity] = useState('')
@@ -668,7 +820,6 @@ function App() {
   const [readingBSW, setReadingBSW] = useState('')
   const [readingMF, setReadingMF] = useState('')
 
-  const [provingMeter, setProvingMeter] = useState('')
   const [provingDate, setProvingDate] = useState('')
   const [proverVolume, setProverVolume] = useState('')
   const [provingIndicatedVolume, setProvingIndicatedVolume] = useState('')
@@ -685,6 +836,26 @@ function App() {
   const [potBSW, setPotBSW] = useState('')
   const [potTemp, setPotTemp] = useState('')
   const [potNotes, setPotNotes] = useState('')
+
+
+
+  useEffect(() => {
+    function handleMobileResize() {
+      if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+        setMobileMenuOpen(true)
+      }
+    }
+
+    handleMobileResize()
+    window.addEventListener('resize', handleMobileResize)
+    return () => window.removeEventListener('resize', handleMobileResize)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setMobileMenuOpen(window.innerWidth <= 768)
+    }
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -734,50 +905,215 @@ function App() {
     profiles,
     potQuality,
   ])
+
+  
+  function normalizeRoleName(value: any) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/-/g, '_')
+  }
+
+  function hasLoadedRole(...roleNames: string[]) {
+    const wanted = new Set(roleNames.map(normalizeRoleName))
+    const current = normalizeRoleName(Role)
+
+    if (wanted.has(current)) return true
+
+    return asArray(userRoles).some((row: any) => {
+      if (row.active === false) return false
+      return wanted.has(normalizeRoleName(row.role))
+    })
+  }
+
+
+  function isActuallyAdminUser() {
+    const current = normalizeRoleName(Role)
+
+    if (current === 'super_admin' || current === 'admin' || current === 'company_admin') return true
+
+    return asArray(userRoles).some((row: any) => {
+      const role = normalizeRoleName(row.role)
+      return row.active !== false && (role === 'super_admin' || role === 'admin' || role === 'company_admin')
+    })
+  }
+
+const userIsSuperAdmin = hasLoadedRole('super_admin') || asArray(userRoles).some((row: any) => row.active !== false && normalizeRoleName(row.role) === 'super_admin')
+  const userIsCompanyAdmin = isActuallyAdminUser() && !userIsSuperAdmin
+  const userCanManageCompanySetup = userIsSuperAdmin || userIsCompanyAdmin
+  const userCanCreateCompanyScopedUsers = userIsSuperAdmin || userIsCompanyAdmin
+useEffect(() => {
+  const loadBranding = async () => {
+    const activeAreaCompanyId =
+      userIsSuperAdmin && selectedAdminCompanyId
+        ? selectedAdminCompanyId
+        : companyId
+
+    if (!(userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId)) return
+
+    const { data } = await supabase
+      .from('company_settings')
+      .select('*')
+      .eq('company_id', (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId))
+      .maybeSingle()
+
+    if (data) {
+      setCompanySettings(data)
+      setCompanyNameInput(data.company_name || '')
+      setCompanyAddress1Input(data.address_line1 || '')
+      setCompanyAddress2Input(data.address_line2 || '')
+      setCompanyPhoneInput(data.phone || '')
+      setCompanyAccentInput(data.accent_color || '#c46a2b')
+    }
+  }
+
+  loadBranding()
+}, [companyId, selectedAdminCompanyId, userIsSuperAdmin])
+  async function runSafeAction(label: string, action: () => Promise<void> | void) {
+    if (isActionRunning) return
+
+    setIsActionRunning(true)
+    setActionMessage(label)
+
+    try {
+      await action()
+    } catch (error: any) {
+      console.error(`${label} failed:`, error)
+      alert(error?.message || `${label} failed.`)
+    } finally {
+      setIsActionRunning(false)
+      setActionMessage('')
+    }
+  }
+
   async function reloadCurrentUserRole() {
     const authResult = await supabase.auth.getUser()
     const authUser = authResult.data.user
+    setCurrentAuthUserId(authUser?.id || '')
+
+    const emptyScope = {
+      authUserId: '',
+      role: 'operator',
+      roles: [] as any[],
+      companyId: '',
+      isSuperAdmin: false,
+      isCompanyAdmin: false,
+    }
 
     if (!authUser) {
       setCurrentUserRole('operator')
       setUserRoles([])
       setCompanyId('')
-      return
+      setCurrentAuthUserId('')
+      return emptyScope
     }
 
-    const { data: roleRows, error } = await supabase
-      .from('user_roles')
-      .select('*')
-      .eq('user_id', authUser.id)
-      .eq('active', true)
+    // Read the logged-in user's role two ways:
+    // 1) direct table read when RLS allows it
+    // 2) SECURITY DEFINER RPC helper when RLS hides the row from the browser
+    const [roleResult, rpcRoleResult, rpcCompanyResult] = await Promise.all([
+      supabase
+        .from('user_roles')
+        .select('*')
+        .eq('user_id', authUser.id),
+      supabase.rpc('tefco_current_role'),
+      supabase.rpc('tefco_current_company_id'),
+    ])
 
-    if (error) {
-      console.error('Role load error:', error)
-      setCurrentUserRole('operator')
-      setUserRoles([])
-      return
+    if (roleResult.error) {
+      console.error('Role table load error:', roleResult.error)
+    }
+    if (rpcRoleResult.error) {
+      console.warn('Role RPC fallback unavailable:', rpcRoleResult.error)
+    }
+    if (rpcCompanyResult.error) {
+      console.warn('Company RPC fallback unavailable:', rpcCompanyResult.error)
     }
 
-    const rows = roleRows || []
-    setUserRoles(rows)
+    const directRows = (roleResult.data || []).filter((role: any) => role.active !== false)
+    const rpcRole = normalizeRoleName(rpcRoleResult.data || '')
+    const rpcCompanyId = String(rpcCompanyResult.data || '')
 
-    const highestRole = getHighestRole(rows)
-    setCurrentUserRole(highestRole)
+    let highestRole = getHighestRole(directRows)
+
+    // If the direct RLS table read returns nothing/operator but the server helper knows
+    // the real role, trust the helper. This prevents valid admins from falling back to operator.
+    if (rpcRole && rpcRole !== 'operator') {
+      const directRank = getHighestRole([{ role: highestRole, active: true }])
+      const rpcRank = getHighestRole([{ role: rpcRole, active: true }])
+      const rankValue: Record<string, number> = {
+        super_admin: 6,
+        admin: 5,
+        company_admin: 5,
+        measurement_tech: 3,
+        operator: 2,
+        auditor: 1,
+      }
+      if ((rankValue[rpcRank] || 0) >= (rankValue[directRank] || 0)) {
+        highestRole = rpcRank
+      }
+    }
+
+    let resolvedCompanyId = ''
 
     const companyRole =
-      rows.find((role: any) => role.active !== false && role.role !== 'super_admin' && role.company_id) ||
-      rows.find((role: any) => role.active !== false && role.company_id)
+      directRows.find((role: any) => normalizeRoleName(role.role) !== 'super_admin' && role.company_id) ||
+      directRows.find((role: any) => role.company_id)
 
-    setCompanyId(companyRole?.company_id || '')
+    resolvedCompanyId = companyRole?.company_id || rpcCompanyId || ''
+
+    if (!resolvedCompanyId) {
+      const { data: companyUserRow, error: companyUserError } = await supabase
+        .from('company_users')
+        .select('company_id')
+        .eq('user_id', authUser.id)
+        .maybeSingle()
+
+      if (!companyUserError && companyUserRow?.company_id) {
+        resolvedCompanyId = companyUserRow.company_id
+      }
+    }
+
+    const rowsForState = directRows.length > 0
+      ? directRows
+      : highestRole !== 'operator'
+        ? [{
+            id: `runtime-${authUser.id}`,
+            user_id: authUser.id,
+            role: highestRole,
+            company_id: resolvedCompanyId || null,
+            active: true,
+          }]
+        : []
+
+    setUserRoles(rowsForState)
+    setCurrentUserRole(highestRole)
+    setCompanyId(resolvedCompanyId)
+
+    const normalizedRole = normalizeRoleName(highestRole)
+
+    return {
+      authUserId: authUser.id,
+      role: highestRole,
+      roles: rowsForState,
+      companyId: resolvedCompanyId,
+      isSuperAdmin: normalizedRole === 'super_admin',
+      isCompanyAdmin: normalizedRole === 'admin' || normalizedRole === 'company_admin',
+    }
   }
 
 
   async function loadAll() {
-    await reloadCurrentUserRole()
-    const { data: companiesData, error: companiesError } = await supabase
-      .from('companies')
-      .select('*')
-      .order('name')
+    const scope = await reloadCurrentUserRole()
+    const activeCompanyIdForLoad = scope.isSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : scope.companyId
+    const applyCompanyScope = (query: any) => activeCompanyIdForLoad ? query.eq('company_id', activeCompanyIdForLoad) : query
+
+    const companiesQuery = scope.isSuperAdmin || !activeCompanyIdForLoad
+      ? supabase.from('companies').select('*').order('name')
+      : supabase.from('companies').select('*').eq('id', activeCompanyIdForLoad).order('name')
+
+    const { data: companiesData, error: companiesError } = await companiesQuery
 
     if (companiesError) {
       console.error('Companies load error:', companiesError)
@@ -785,52 +1121,123 @@ function App() {
 
     if (companiesData) {
       setCompanies(companiesData)
-      if (!selectedAdminCompanyId && companiesData.length > 0) {
+      if (scope.isSuperAdmin && !selectedAdminCompanyId && companiesData.length > 0) {
         setSelectedAdminCompanyId(companiesData[0].id)
       }
     }
 
-    const { data: cu } = await supabase.from('company_users').select('company_id').single()
-    if (cu) setCompanyId(cu.company_id)
+    // Company id is resolved only from the logged-in user's own role/company row.
 
-    const { data: areaData } = await supabase.from('areas').select('*').order('name')
-    const { data: segData } = await supabase.from('segments').select('*').order('name')
-    const { data: leaseData } = await supabase.from('leases').select('*').order('lease_name')
-    const { data: meterData } = await supabase.from('meters').select('*').order('meter_number')
-    const { data: ticketData } = await supabase.from('tickets').select('*').order('created_at', { ascending: false })
+    const { data: areaData, error: areaLoadError } = await applyCompanyScope(supabase.from('areas').select('*')).order('name')
+    const { data: segData, error: segmentLoadError } = await applyCompanyScope(supabase.from('segments').select('*')).order('name')
+    const { data: leaseData, error: leaseLoadError } = await applyCompanyScope(supabase.from('leases').select('*')).order('lease_name')
+    const { data: meterData, error: meterLoadError } = await applyCompanyScope(supabase.from('meters').select('*')).order('meter_number')
+    const { data: hierarchyData, error: hierarchyRpcError } = activeCompanyIdForLoad
+      ? await supabase.rpc('tefco_dropdown_hierarchy_for_app', { p_company_id: activeCompanyIdForLoad })
+      : { data: null, error: null } as any
+    if (areaLoadError || segmentLoadError || leaseLoadError || meterLoadError || hierarchyRpcError) {
+      console.warn('Hierarchy dropdown load status:', { areaLoadError, segmentLoadError, leaseLoadError, meterLoadError, hierarchyRpcError })
+    }
+    const hierarchyPayload: any = Array.isArray(hierarchyData) ? hierarchyData[0] : hierarchyData
+    const resolvedAreaData = Array.isArray(hierarchyPayload?.areas) && hierarchyPayload.areas.length ? hierarchyPayload.areas : areaData
+    const resolvedSegmentData = Array.isArray(hierarchyPayload?.segments) && hierarchyPayload.segments.length ? hierarchyPayload.segments : segData
+    const resolvedLeaseData = Array.isArray(hierarchyPayload?.leases) && hierarchyPayload.leases.length ? hierarchyPayload.leases : leaseData
+    const resolvedMeterData = Array.isArray(hierarchyPayload?.meters) && hierarchyPayload.meters.length ? hierarchyPayload.meters : meterData
 
-    const { data: auditData } = await supabase
-      .from('ticket_audit_log')
-      .select('*')
-      .order('created_at', { ascending: false })
+    const areaAccessQuery = (scope.isSuperAdmin || scope.isCompanyAdmin)
+      ? applyCompanyScope(supabase.from('user_area_access').select('*'))
+      : supabase
+          .from('user_area_access')
+          .select('*')
+          .eq('user_id', scope.authUserId)
 
-    const { data: roleData } = await supabase
-      .from('user_roles')
-      .select('*')
-      .eq('active', true)
+    const { data: areaAccessData, error: areaAccessLoadError } = await areaAccessQuery
+    if (areaAccessLoadError) {
+      console.warn('Area access load error:', areaAccessLoadError)
+    }
+    const resolvedAreaAccessData = Array.isArray(areaAccessData) ? areaAccessData : []
+
+    const { data: ticketData } = await applyCompanyScope(supabase.from('tickets').select('*')).order('created_at', { ascending: false })
+
+    const { data: auditData } = await applyCompanyScope(
+      supabase.from('ticket_audit_log').select('*')
+    ).order('created_at', { ascending: false })
+
+    const roleQuery = scope.isSuperAdmin
+      ? supabase.from('user_roles').select('*').eq('active', true)
+      : activeCompanyIdForLoad
+        ? supabase.from('user_roles').select('*').eq('active', true).eq('company_id', activeCompanyIdForLoad)
+        : supabase.from('user_roles').select('*').eq('user_id', scope.authUserId).eq('active', true)
+
+    const [{ data: roleData, error: roleListError }, { data: manageableUserData, error: manageableUserError }] = await Promise.all([
+      roleQuery,
+      (scope.isSuperAdmin || scope.isCompanyAdmin)
+        ? supabase.rpc('tefco_manageable_users', { p_company_id: activeCompanyIdForLoad || null })
+        : Promise.resolve({ data: null, error: null } as any),
+    ])
+
+    if (roleListError) {
+      console.warn('Active users direct role list blocked or unavailable:', roleListError)
+    }
+    if (manageableUserError) {
+      console.warn('Active users RPC fallback unavailable:', manageableUserError)
+    }
 
     const { data: permissionData } = await supabase
       .from('role_permissions')
       .select('*')
-    const { data: profileData } = await supabase.from('calculation_profiles').select('*').order('name')
-    const { data: producerData } = await supabase.from('producers').select('*').order('name')
-    const { data: readingData } = await supabase.from('operator_readings').select('*').order('created_at', { ascending: false })
-    const { data: provingData } = await supabase.from('meter_provings').select('*').order('proving_date', { ascending: false })
-    const { data: potData } = await supabase.from('pot_quality').select('*').order('sample_date', { ascending: false })
+    const { data: profileData } = await applyCompanyScope(supabase.from('calculation_profiles').select('*')).order('name')
+    const { data: producerData } = await applyCompanyScope(supabase.from('producers').select('*')).order('name')
+    const { data: readingData } = await applyCompanyScope(supabase.from('operator_readings').select('*')).order('created_at', { ascending: false })
+    const { data: provingData } = await applyCompanyScope(supabase.from('meter_provings').select('*')).order('proving_date', { ascending: false })
+    const { data: potData } = await applyCompanyScope(supabase.from('pot_quality').select('*')).order('sample_date', { ascending: false })
 
-    if (areaData) setAreas(areaData)
-    if (segData) setSegments(segData)
-    if (leaseData) setLeases(leaseData)
-    if (meterData) setMeters(meterData)
+    const { data: tankData } = await applyCompanyScope(supabase.from('tanks').select('*')).order('tank_number')
+    const { data: lineFillData } = await applyCompanyScope(supabase.from('line_fills').select('*')).order('line_name')
+    const { data: meterAssetConfigData } = await applyCompanyScope(supabase.from('meter_asset_config').select('*'))
+    const { data: tankCalibrationData } = await applyCompanyScope(supabase.from('tank_calibration_versions').select('*')).order('created_at', { ascending: false })
+    const { data: tankStrappingData } = await applyCompanyScope(supabase.from('tank_strapping_rows').select('*')).order('gauge_decimal')
+    const { data: tankDeadwoodData } = await applyCompanyScope(supabase.from('tank_deadwood_rules').select('*').eq('active', true))
+
+    // Balance Center tables are optional. If the SQL has not been run yet, the app keeps working with empty balance setup.
+    const { data: balanceCheckGroupData, error: balanceCheckGroupError } = await applyCompanyScope(supabase.from('balance_check_groups').select('*')).order('name')
+    const { data: balanceCheckGroupMeterData, error: balanceCheckGroupMeterError } = await applyCompanyScope(supabase.from('balance_check_group_meters').select('*'))
+    const { data: balanceInventoryEntryData, error: balanceInventoryEntryError } = await applyCompanyScope(supabase.from('balance_inventory_entries').select('*')).order('period_start', { ascending: false })
+    const { data: balanceButaneAdjustmentData, error: balanceButaneAdjustmentError } = await applyCompanyScope(supabase.from('balance_butane_adjustments').select('*')).order('period_start', { ascending: false })
+    const { data: segmentBalanceSettingData, error: segmentBalanceSettingError } = await applyCompanyScope(supabase.from('segment_balance_settings').select('*'))
+    if (balanceCheckGroupError || balanceCheckGroupMeterError || balanceInventoryEntryError || balanceButaneAdjustmentError || segmentBalanceSettingError) {
+      console.warn('Balance Center optional tables unavailable:', { balanceCheckGroupError, balanceCheckGroupMeterError, balanceInventoryEntryError, balanceButaneAdjustmentError, segmentBalanceSettingError })
+    }
+
+    setUserAreaAccess(resolvedAreaAccessData)
+    if (resolvedAreaData) setAreas(resolvedAreaData)
+    if (resolvedSegmentData) setSegments(resolvedSegmentData)
+    if (resolvedLeaseData) setLeases(resolvedLeaseData)
+    if (resolvedMeterData) setMeters(resolvedMeterData)
     if (ticketData) setTickets(ticketData)
     if (auditData) setTicketAuditLogs(auditData)
-    if (roleData) setUserRoles(roleData)
+    const visibleActiveUsers = Array.isArray(manageableUserData) && manageableUserData.length
+      ? manageableUserData
+      : (roleData || [])
+
+    setAllUserRoles(visibleActiveUsers as any)
     if (permissionData) setRolePermissions(permissionData)
     if (profileData) setProfiles(profileData)
     if (producerData) setProducers(producerData)
     if (readingData) setReadings(readingData)
     if (provingData) setProvings(provingData)
     if (potData) setPotQuality(potData)
+    if (tankData) setTanks(tankData)
+    if (lineFillData) setLineFills(lineFillData)
+    if (meterAssetConfigData) setMeterAssetConfigs(meterAssetConfigData)
+    if (tankCalibrationData) setTankCalibrationVersions(tankCalibrationData)
+    if (tankStrappingData) setTankStrappingRows(tankStrappingData)
+    if (tankDeadwoodData) setTankDeadwoodRules(tankDeadwoodData)
+    if (balanceCheckGroupData) setBalanceCheckGroups(balanceCheckGroupData)
+    if (balanceCheckGroupMeterData) setBalanceCheckGroupMeters(balanceCheckGroupMeterData)
+    if (balanceInventoryEntryData) setBalanceInventoryEntries(balanceInventoryEntryData)
+    if (balanceButaneAdjustmentData) setBalanceButaneAdjustments(balanceButaneAdjustmentData)
+    if (segmentBalanceSettingData) setSegmentBalanceSettings(segmentBalanceSettingData)
 
     const { data: contractProfileData } = await supabase
       .from('contract_profiles')
@@ -865,56 +1272,44 @@ function App() {
   
   const canViewTickets = hasPermission(
     rolePermissions,
-    currentUserRole,
+    Role,
     'tickets',
     'can_view'
   )
 
   const canCreateTickets = hasPermission(
     rolePermissions,
-    currentUserRole,
+    Role,
     'tickets',
     'can_create'
   )
 
   const canApproveTickets = hasPermission(
     rolePermissions,
-    currentUserRole,
+    Role,
     'tickets',
     'can_approve'
   )
 
   const canApproveProvings = hasPermission(
     rolePermissions,
-    currentUserRole,
+    Role,
     'provings',
     'can_approve'
   )
 
   const canViewAudit = hasPermission(
     rolePermissions,
-    currentUserRole,
+    Role,
     'audit',
     'can_view'
   )
 
   const isReadOnly =
-    currentUserRole === 'auditor'
+    Role === 'auditor'
+const canViewAdmin = userCanManageCompanySetup
 
-    const isSuperAdmin = currentUserRole === 'super_admin'
-
-const canViewAdmin =
-    currentUserRole === 'super_admin' ||
-    currentUserRole === 'admin'
-
-  const canEditAdmin =
-    currentUserRole === 'super_admin' ||
-    currentUserRole === 'admin'
-    currentUserRole === 'admin' ||
-    userRoles.some((role) => role.active !== false && ['super_admin', 'admin'].includes(role.role))
-    currentUserRole === 'admin' ||
-    userRoles.length === 0 ||
-    !currentUserRole
+  const canEditAdmin = userCanManageCompanySetup
 
 const provingCompliancePercent =
     meters.length > 0
@@ -923,42 +1318,42 @@ const provingCompliancePercent =
 
   const approvedTickets = tickets.filter((t) => t.status === 'approved')
 
+  const selectedTicketSegmentLeases = selectedSegment ? getVisibleLeases(selectedSegment) : getScopedLeases()
+
   const filteredProducers = selectedSegment
-    ? producers.filter((p) => leases.some((l) => l.segment_id === selectedSegment && l.producer_id === p.id))
+    ? producers.filter((p) => selectedTicketSegmentLeases.some((l: any) => String(l.producer_id || '') === String(p.id)))
     : producers
 
-  const filteredLeases = leases.filter(
-    (l) =>
-      (!selectedSegment || l.segment_id === selectedSegment) &&
-      (!selectedProducer || l.producer_id === selectedProducer)
+  const filteredLeases = selectedTicketSegmentLeases.filter(
+    (l: any) => !selectedProducer || String(l.producer_id || '') === String(selectedProducer)
   )
 
-  const filteredMeters = meters.filter(
-    (m) =>
-      (!selectedProducer || m.producer_id === selectedProducer) &&
-      (!selectedLease || m.lease_id === selectedLease)
+  const selectedTicketLeaseMeters = selectedLease ? getVisibleMeters(selectedLease) : getScopedMeters()
+
+  const filteredMeters = selectedTicketLeaseMeters.filter(
+    (m: any) => !selectedProducer || String(m.producer_id || '') === String(selectedProducer)
   )
+
+  const selectedPotSegmentLeases = potSegment ? getVisibleLeases(potSegment) : getScopedLeases()
 
   const filteredPotProducers = potSegment
-    ? producers.filter((p) => leases.some((l) => l.segment_id === potSegment && l.producer_id === p.id))
+    ? producers.filter((p) => selectedPotSegmentLeases.some((l: any) => String(l.producer_id || '') === String(p.id)))
     : producers
 
-  const filteredPotLeases = leases.filter(
-    (l) =>
-      (!potSegment || l.segment_id === potSegment) &&
-      (!potProducer || l.producer_id === potProducer)
+  const filteredPotLeases = selectedPotSegmentLeases.filter(
+    (l: any) => !potProducer || String(l.producer_id || '') === String(potProducer)
   )
 
   async function addArea() {
     if (!newArea || !companyId) return
-    await supabase.from('areas').insert({ company_id: isSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId, name: newArea })
+    await supabase.from('areas').insert({ company_id: userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId, name: newArea })
     setNewArea('')
     loadAll()
   }
 
   async function addSegment() {
     if (!newSegment || !companyId) return
-    await supabase.from('segments').insert({ company_id: currentUserRole === 'super_admin' && selectedAdminCompanyId ? selectedAdminCompanyId : companyId, name: newSegment })
+    await supabase.from('segments').insert({ company_id: userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId, name: newSegment })
     setNewSegment('')
     loadAll()
   }
@@ -1007,6 +1402,480 @@ const provingCompliancePercent =
     loadAll()
   }
 
+
+
+
+
+
+
+  function asArray(value: any): any[] {
+    return Array.isArray(value) ? value : []
+  }
+
+
+  function getCurrentAuthUserIdForAreaAccess() {
+    return currentAuthUserId || asArray(userRoles)?.[0]?.user_id || ''
+  }
+
+  function getAllowedAreaIdsForCurrentUser() {
+    const areaRows = asArray(areas)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return areaRows.map((area: any) => String(area.id))
+
+    const uid = getCurrentAuthUserIdForAreaAccess()
+    if (!uid) return []
+
+    return asArray(userAreaAccess)
+      .filter((row: any) => String(row.user_id || row.profile_id || '') === String(uid))
+      .map((row: any) => String(row.area_id))
+  }
+
+  function getScopedAreas(): any[] {
+    const areaRows = asArray(areas)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return areaRows
+
+    const allowed = getAllowedAreaIdsForCurrentUser()
+    return areaRows.filter((area: any) => allowed.includes(String(area.id)))
+  }
+
+  function getVisibleAreas() {
+    return getScopedAreas()
+  }
+
+  function userCanAccessArea(areaId: string) {
+    if (userIsSuperAdmin || userIsCompanyAdmin) return true
+    return getAllowedAreaIdsForCurrentUser().includes(String(areaId))
+  }
+
+  function buildScopedHierarchyIds(areaIdsInput?: Set<string>) {
+    const areaIds = areaIdsInput || new Set(getScopedAreas().map((area: any) => String(area.id || '')))
+    const segmentIds = new Set<string>()
+    const leaseIds = new Set<string>()
+    const meterIds = new Set<string>()
+
+    const add = (set: Set<string>, value: any) => {
+      const normalized = String(value || '')
+      if (!normalized || set.has(normalized)) return false
+      set.add(normalized)
+      return true
+    }
+
+    let changed = true
+    let guard = 0
+    while (changed && guard < 10) {
+      changed = false
+      guard += 1
+
+      asArray(segments).forEach((segment: any) => {
+        if (areaIds.has(String(segment.area_id || ''))) {
+          changed = add(segmentIds, segment.id) || changed
+        }
+      })
+
+      asArray(leases).forEach((lease: any) => {
+        if (
+          areaIds.has(String(lease.area_id || '')) ||
+          segmentIds.has(String(lease.segment_id || ''))
+        ) {
+          changed = add(leaseIds, lease.id) || changed
+          changed = add(segmentIds, lease.segment_id) || changed
+        }
+      })
+
+      asArray(meters).forEach((meter: any) => {
+        if (
+          areaIds.has(String(meter.area_id || '')) ||
+          segmentIds.has(String(meter.segment_id || '')) ||
+          leaseIds.has(String(meter.lease_id || ''))
+        ) {
+          changed = add(meterIds, meter.id) || changed
+          changed = add(leaseIds, meter.lease_id) || changed
+          changed = add(segmentIds, meter.segment_id) || changed
+        }
+      })
+
+      asArray(leases).forEach((lease: any) => {
+        if (leaseIds.has(String(lease.id || ''))) {
+          changed = add(segmentIds, lease.segment_id) || changed
+        }
+      })
+    }
+
+    return { areaIds, segmentIds, leaseIds, meterIds }
+  }
+
+  function getScopedSegments(): any[] {
+    const segmentRows = asArray(segments)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return segmentRows
+
+    const { segmentIds } = buildScopedHierarchyIds()
+    return segmentRows.filter((segment: any) => segmentIds.has(String(segment.id || '')))
+  }
+
+  function getScopedLeases(): any[] {
+    const leaseRows = asArray(leases)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return leaseRows
+
+    const { leaseIds } = buildScopedHierarchyIds()
+    return leaseRows.filter((lease: any) => leaseIds.has(String(lease.id || '')))
+  }
+
+  function getScopedMeters(): any[] {
+    const meterRows = asArray(meters)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return meterRows
+
+    const { meterIds } = buildScopedHierarchyIds()
+    return meterRows.filter((meter: any) => meterIds.has(String(meter.id || '')))
+  }
+
+  function getVisibleSegments(areaId: string) {
+    if (!areaId) return []
+    if (!userCanAccessArea(areaId)) return []
+
+    const areaIds = new Set([String(areaId)])
+    const { segmentIds } = buildScopedHierarchyIds(areaIds)
+    const rows = getScopedSegments().filter((segment: any) =>
+      segmentIds.has(String(segment.id || '')) || String(segment.area_id || '') === String(areaId)
+    )
+
+    return rows.sort((a: any, b: any) =>
+      String(a.segment_name || a.name || '').localeCompare(String(b.segment_name || b.name || ''))
+    )
+  }
+
+  function sortLeasesForDropdown(rows: any[]) {
+    return asArray(rows).sort((a: any, b: any) =>
+      String(a.lease_name || a.name || a.lease_number || '').localeCompare(String(b.lease_name || b.name || b.lease_number || ''))
+    )
+  }
+
+  function sortMetersForDropdown(rows: any[]) {
+    return asArray(rows).sort((a: any, b: any) =>
+      String(a.meter_number || a.meter_name || '').localeCompare(String(b.meter_number || b.meter_name || ''))
+    )
+  }
+
+  function getVisibleLeases(segmentId: string) {
+    if (!segmentId) return []
+
+    const scopedLeaseRows = getScopedLeases()
+    const selectedSegmentRow: any = asArray(segments).find((segment: any) => String(segment.id || '') === String(segmentId))
+    const selectedSegmentName = String(selectedSegmentRow?.segment_name || selectedSegmentRow?.name || '').trim().toLowerCase()
+
+    // Primary behavior: selecting a segment only shows leases linked to that segment.
+    const exactSegmentMatches = scopedLeaseRows.filter((lease: any) => String(lease.segment_id || '') === String(segmentId))
+    if (exactSegmentMatches.length > 0) return sortLeasesForDropdown(exactSegmentMatches)
+
+    // Legacy data safety: support old rows that stored the segment name instead of segment_id.
+    // Do NOT fall back to all leases here, because that defeats segment segregation.
+    const nameMatches = selectedSegmentName
+      ? scopedLeaseRows.filter((lease: any) => {
+          const leaseSegmentName = String(
+            lease.segment_name || lease.segment || lease.route_segment || lease.system_segment || ''
+          ).trim().toLowerCase()
+          return leaseSegmentName === selectedSegmentName
+        })
+      : []
+
+    return sortLeasesForDropdown(nameMatches)
+  }
+
+  function getVisibleMeters(leaseId: string) {
+    if (!leaseId) return []
+
+    const scopedMeterRows = getScopedMeters()
+
+    // Primary behavior: selecting a lease only shows meters linked to that lease.
+    const exactLeaseMatches = scopedMeterRows.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
+    if (exactLeaseMatches.length > 0) return sortMetersForDropdown(exactLeaseMatches)
+
+    // Legacy data safety: support old rows that stored the lease name/number instead of lease_id.
+    // Do NOT fall back to all meters here, because that defeats lease segregation.
+    const selectedLeaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(leaseId))
+    const selectedLeaseName = String(selectedLeaseRow?.lease_name || selectedLeaseRow?.name || '').trim().toLowerCase()
+    const selectedLeaseNumber = String(selectedLeaseRow?.lease_number || '').trim().toLowerCase()
+
+    const nameMatches = scopedMeterRows.filter((meter: any) => {
+      const meterLeaseName = String(meter.lease_name || meter.lease || meter.lease_number || '').trim().toLowerCase()
+      return Boolean(meterLeaseName) && (meterLeaseName === selectedLeaseName || meterLeaseName === selectedLeaseNumber)
+    })
+
+    return sortMetersForDropdown(nameMatches)
+  }
+
+  function getScopedReadings(): any[] {
+    const readingRows = asArray(readings)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return readingRows
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
+    const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
+    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
+
+    return readingRows.filter((reading: any) =>
+      areaIds.has(String(reading.area_id || '')) ||
+      meterIds.has(String(reading.meter_id || '')) ||
+      leaseIds.has(String(reading.lease_id || ''))
+    )
+  }
+
+  function getScopedTickets(): any[] {
+    const ticketRows = asArray(tickets)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return ticketRows
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
+    const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
+    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
+    const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
+
+    return ticketRows.filter((ticket: any) =>
+      areaIds.has(String(ticket.area_id || ticket.observed_inputs?.area_id || '')) ||
+      segmentIds.has(String(ticket.segment_id || ticket.observed_inputs?.segment_id || '')) ||
+      leaseIds.has(String(ticket.lease_id || ticket.observed_inputs?.lease_id || '')) ||
+      meterIds.has(String(ticket.meter_id || ticket.observed_inputs?.meter_id || ''))
+    )
+  }
+
+  function getScopedPotQuality(): any[] {
+    const rows = asArray(potQuality)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return rows
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
+    const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
+    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
+
+    return rows.filter((pot: any) =>
+      areaIds.has(String(pot.area_id || '')) ||
+      segmentIds.has(String(pot.segment_id || '')) ||
+      leaseIds.has(String(pot.lease_id || ''))
+    )
+  }
+
+  function getScopedProvings(): any[] {
+    const rows = asArray(provings)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return rows
+
+    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
+    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
+    const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
+
+    return rows.filter((proving: any) =>
+      areaIds.has(String(proving.area_id || '')) ||
+      leaseIds.has(String(proving.lease_id || '')) ||
+      meterIds.has(String(proving.meter_id || ''))
+    )
+  }
+
+  function getAreaAccessDebugText() {
+    if (userIsSuperAdmin || userIsCompanyAdmin) return 'Admin view: all areas'
+    const uid = getCurrentAuthUserIdForAreaAccess()
+    const allowed = getScopedAreas().map((area: any) => area.name || area.area_name || area.id).join(', ')
+    return `User ${uid || 'unknown'} allowed areas: ${allowed || 'none assigned'}`
+  }
+
+  function getAreaAccessUsers() {
+    const activeCompany = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    return asArray(allUserRoles.length ? allUserRoles : userRoles)
+      .filter((role: any) => {
+        const rowCompanyId = role.company_id || role.companyId
+        return !activeCompany || !rowCompanyId || String(rowCompanyId) === String(activeCompany)
+      })
+      .filter((role: any) => role.active !== false)
+  }
+
+  function toggleAccessArea(areaId: string) {
+    setSelectedAccessAreaIds((prev) =>
+      prev.includes(areaId) ? prev.filter((id) => id !== areaId) : [...prev, areaId]
+    )
+  }
+
+  function beginEditAreaAccess(userId: string) {
+    setSelectedAccessUserId(userId)
+
+    const current = userAreaAccess
+      .filter((row: any) => String(row.user_id || row.profile_id || '') === String(userId))
+      .map((row: any) => String(row.area_id))
+
+    setSelectedAccessAreaIds(current)
+  }
+
+
+  async function saveSegmentAreaLink() {
+    if (!hierarchySegmentId || !hierarchyAreaId) {
+      alert('Select a segment and area first.')
+      return
+    }
+
+    const { error } = await supabase
+      .from('segments')
+      .update({ area_id: hierarchyAreaId })
+      .eq('id', hierarchySegmentId)
+
+    if (error) {
+      alert('Could not save segment area: ' + error.message)
+      return
+    }
+
+    await loadAll()
+    setHierarchySegmentId('')
+    setHierarchyAreaId('')
+    alert('Segment assigned to area.')
+  }
+
+  async function saveLeaseSegmentLink() {
+    if (!hierarchyLeaseId || !hierarchyLeaseSegmentId) {
+      alert('Select a lease and segment first.')
+      return
+    }
+
+    const selectedSegment = segments.find((s: any) => String(s.id) === String(hierarchyLeaseSegmentId))
+
+    const { error } = await supabase
+      .from('leases')
+      .update({
+        segment_id: hierarchyLeaseSegmentId,
+        area_id: (selectedSegment as any)?.area_id || null,
+      })
+      .eq('id', hierarchyLeaseId)
+
+    if (error) {
+      alert('Could not save lease segment: ' + error.message)
+      return
+    }
+
+    await loadAll()
+    setHierarchyLeaseId('')
+    setHierarchyLeaseSegmentId('')
+    alert('Lease assigned to segment.')
+  }
+
+  async function saveMeterLeaseLink() {
+    if (!hierarchyMeterId || !hierarchyMeterLeaseId) {
+      alert('Select a meter and lease first.')
+      return
+    }
+
+    const selectedLease = leases.find((l: any) => String(l.id) === String(hierarchyMeterLeaseId))
+
+    const { error } = await supabase
+      .from('meters')
+      .update({
+        lease_id: hierarchyMeterLeaseId,
+        segment_id: (selectedLease as any)?.segment_id || null,
+        area_id: (selectedLease as any)?.area_id || null,
+      })
+      .eq('id', hierarchyMeterId)
+
+    if (error) {
+      alert('Could not save meter lease: ' + error.message)
+      return
+    }
+
+    await loadAll()
+    setHierarchyMeterId('')
+    setHierarchyMeterLeaseId('')
+    alert('Meter assigned to lease.')
+  }
+
+  async function saveUserAreaAccess() {
+    if (!selectedAccessUserId) {
+      alert('Select a user first.')
+      return
+    }
+
+    const activeAreaCompanyId = (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId)
+
+    if (!(userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId)) {
+      alert('No company selected.')
+      return
+    }
+
+    const { error: deleteError } = await supabase
+      .from('user_area_access')
+      .delete()
+      .eq('company_id', (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId))
+      .eq('user_id', selectedAccessUserId)
+
+    if (deleteError) {
+      alert('Could not clear old area access: ' + deleteError.message)
+      return
+    }
+
+    if (selectedAccessAreaIds.length) {
+      const inserts = selectedAccessAreaIds.map((areaId) => ({
+        company_id: (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId),
+        user_id: selectedAccessUserId,
+        area_id: areaId,
+      }))
+
+      const { error: insertError } = await supabase.from('user_area_access').insert(inserts)
+
+      if (insertError) {
+        alert('Could not save area access: ' + insertError.message)
+        return
+      }
+    }
+
+    await loadAll()
+    alert('Area access saved.')
+  }
+function handleReadingAreaSelect(areaId: string) {
+    setSelectedReadingArea(areaId)
+    setSelectedReadingSegment('')
+    setSelectedReadingLease('')
+    setSelectedReadingMeter('')
+  }
+
+  function handleReadingSegmentSelect(segmentId: string) {
+    setSelectedReadingSegment(segmentId)
+    setSelectedReadingLease('')
+    setSelectedReadingMeter('')
+  }
+
+  function handleReadingLeaseSelect(leaseId: string) {
+    setSelectedReadingLease(leaseId)
+
+    const leaseMeters = getVisibleMeters(leaseId)
+
+    if (leaseMeters.length === 1) {
+      setSelectedReadingMeter(leaseMeters[0].id)
+      autofillOpeningReadingForLease(leaseId, leaseMeters[0].id)
+    } else {
+      setSelectedReadingMeter('')
+      autofillOpeningReadingForLease(leaseId)
+    }
+  }
+
+
+  function getPreviousClosingReadingForLease(leaseId: string, meterId = '') {
+    const readingRows = typeof readings !== 'undefined' ? readings : []
+
+    const matchingRows = (readingRows || [])
+      .filter((row: any) => {
+        const sameLease = leaseId && String(row.lease_id || '') === String(leaseId)
+        const sameMeter = meterId ? String(row.meter_id || '') === String(meterId) : true
+        return sameLease && sameMeter && row.closing_reading !== null && row.closing_reading !== undefined && row.closing_reading !== ''
+      })
+      .sort((a: any, b: any) => {
+        const ad = new Date(a.created_at || a.reading_date || 0).getTime()
+        const bd = new Date(b.created_at || b.reading_date || 0).getTime()
+        return bd - ad
+      })
+
+    return matchingRows[0]?.closing_reading ?? ''
+  }
+
+  function autofillOpeningReadingForLease(leaseId: string, meterId = '') {
+    const previousClosing = getPreviousClosingReadingForLease(leaseId, meterId)
+    if (previousClosing !== '' && previousClosing !== null && previousClosing !== undefined) {
+      setReadingOpen(String(previousClosing))
+    }
+  }
+
+  function getSelectedReadingMeterNumber() {
+    const meter = meters.find((m: any) => String(m.id) === String(selectedReadingMeter))
+    return meter?.meter_number || meter?.meter_name || ''
+  }
+
   async function saveReading() {
     if (isReadOnly) {
       alert('System is in read-only auditor mode.')
@@ -1018,16 +1887,16 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     await supabase.from('operator_readings').insert({
       company_id: companyId,
-      meter_id: selectedReadingMeter || null,
+      area_id: selectedReadingArea || null,
       segment_id: selectedReadingSegment || null,
+      lease_id: selectedReadingLease || null,
+      meter_id: selectedReadingMeter || null,
+      movement_type: getSelectedReadingMovementType(),
       opening_reading: Number(readingOpen || 0),
       closing_reading: Number(readingClose || 0),
       indicated_volume: iv,
-      api_gravity: Number(readingGravity || 0),
-      temperature: Number(readingTemp || 0),
       average_temperature: Number(readingAvgTemp || 0),
       average_pressure: Number(readingAvgPressure || 0),
-      bsw: Number(readingBSW || 0),
       meter_factor: Number(readingMF || 0),
     })
 
@@ -1042,9 +1911,21 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     loadAll()
   }
 
+
+  function handlePotAreaSelect(areaId: string) {
+    setSelectedPotArea(areaId)
+    setSelectedPotSegment('')
+    setSelectedPotLease('')
+  }
+
+  function handlePotSegmentSelect(segmentId: string) {
+    setSelectedPotSegment(segmentId)
+    setSelectedPotLease('')
+  }
+
   async function savePotQuality() {
-    if (!companyId || !potSegment || !potProducer || !potLease || !potDate) {
-      alert('Select segment, producer, lease, and sample date first.')
+    if (!companyId || !selectedPotArea || !(selectedPotSegment || potSegment) || !potProducer || !(selectedPotLease || potLease) || !potDate) {
+      alert('Select area, segment, producer, lease, and sample date first.')
       return
     }
 
@@ -1053,9 +1934,10 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     const { error } = await supabase.from('pot_quality').insert({
       company_id: companyId,
-      segment_id: potSegment,
+      area_id: selectedPotArea || null,
+      segment_id: selectedPotSegment || potSegment,
       producer_id: potProducer,
-      lease_id: potLease,
+      lease_id: selectedPotLease || potLease,
       sample_date: potDate,
       api_gravity: Number(
         calculateApi11Corrections({
@@ -1079,7 +1961,6 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
           averagePressure: 0,
         }).api_gravity_60
       ),
-      bsw: bswNumber,
       csw,
       sample_temperature: Number(potTemp || 0),
       notes: potNotes,
@@ -1135,6 +2016,30 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     window.open(data.signedUrl, '_blank')
   }
+function handleProvingAreaSelect(areaId: string) {
+    setSelectedProvingArea(areaId)
+    setSelectedProvingSegment('')
+    setSelectedProvingLease('')
+    setProvingMeter('')
+  }
+
+  function handleProvingSegmentSelect(segmentId: string) {
+    setSelectedProvingSegment(segmentId)
+    setSelectedProvingLease('')
+    setProvingMeter('')
+  }
+
+  function handleProvingLeaseSelect(leaseId: string) {
+    setSelectedProvingLease(leaseId)
+
+    const leaseMeters = getVisibleMeters(leaseId)
+
+    if (leaseMeters.length === 1) {
+      setProvingMeter(leaseMeters[0].id)
+    } else {
+      setProvingMeter('')
+    }
+  }
 
   async function saveProving() {
     if (!companyId || !provingMeter || !provingDate) {
@@ -1153,7 +2058,10 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       .from('meter_provings')
       .insert({
         company_id: companyId,
-        meter_id: provingMeter,
+        area_id: selectedProvingArea || null,
+      segment_id: selectedProvingSegment || null,
+      lease_id: selectedProvingLease || null,
+      meter_id: provingMeter,
         proving_date: provingDate,
         prover_volume: Number(proverVolume || 0),
         indicated_volume: Number(provingIndicatedVolume || 0),
@@ -1222,6 +2130,209 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     loadAll()
   }
 
+
+  function normalizeGaugeToDecimal(feetOrDecimal: any, inches?: any, fraction?: any) {
+    const feetValue = Number(feetOrDecimal || 0)
+    const inchesValue = Number(inches || 0)
+    const fractionValue = Number(fraction || 0)
+
+    if (inches !== undefined || fraction !== undefined) {
+      return feetValue + (inchesValue / 12) + (fractionValue / 12)
+    }
+
+    return feetValue
+  }
+
+  function getActiveTankCalibration(tankId: string) {
+    return (
+      tankCalibrationVersions.find((version: any) => version.tank_id === tankId && version.active !== false) ||
+      tankCalibrationVersions.find((version: any) => version.tank_id === tankId)
+    )
+  }
+
+  function getTankBarrelsAtGauge(tankId: string, gauge: number) {
+    const calibration = getActiveTankCalibration(tankId)
+
+    if (!calibration || !Number.isFinite(gauge)) return 0
+
+    const rows = tankStrappingRows
+      .filter((row: any) => row.tank_id === tankId && row.calibration_version_id === calibration.id)
+      .sort((a: any, b: any) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
+
+    if (rows.length === 0) return 0
+
+    const exact = rows.find((row: any) => Number(row.gauge_decimal) === gauge)
+    if (exact) return Number(exact.barrels || 0)
+
+    const lower = rows.filter((row: any) => Number(row.gauge_decimal) <= gauge).pop()
+    const upper = rows.find((row: any) => Number(row.gauge_decimal) >= gauge)
+
+    if (!lower && upper) return Number(upper.barrels || 0)
+    if (lower && !upper) return Number(lower.barrels || 0)
+    if (!lower || !upper) return 0
+
+    const lowerGauge = Number(lower.gauge_decimal)
+    const upperGauge = Number(upper.gauge_decimal)
+    const lowerBbl = Number(lower.barrels || 0)
+    const upperBbl = Number(upper.barrels || 0)
+
+    if (upperGauge === lowerGauge) return lowerBbl
+
+    const ratio = (gauge - lowerGauge) / (upperGauge - lowerGauge)
+    return lowerBbl + ((upperBbl - lowerBbl) * ratio)
+  }
+
+  function getDeadwoodAdjustment(tankId: string, gauge: number) {
+    const calibration = getActiveTankCalibration(tankId)
+
+    if (!calibration) return 0
+
+    return tankDeadwoodRules
+      .filter((rule: any) =>
+        rule.tank_id === tankId &&
+        rule.calibration_version_id === calibration.id &&
+        Number(rule.start_gauge || 0) <= gauge &&
+        Number(rule.end_gauge || 0) >= gauge
+      )
+      .reduce((sum: number, rule: any) => {
+        const value = Number(rule.adjustment_bbl || 0)
+        return rule.adjustment_type === 'subtract' ? sum - value : sum + value
+      }, 0)
+  }
+
+  function calculateTankMovement(tankId: string, opening: number, closing: number, direction: string) {
+    const openingGross = getTankBarrelsAtGauge(tankId, opening)
+    const closingGross = getTankBarrelsAtGauge(tankId, closing)
+    const openingCorrected = openingGross + getDeadwoodAdjustment(tankId, opening)
+    const closingCorrected = closingGross + getDeadwoodAdjustment(tankId, closing)
+    const rawMovement = direction === 'receipt'
+      ? closingCorrected - openingCorrected
+      : openingCorrected - closingCorrected
+
+    return {
+      openingGross,
+      closingGross,
+      openingCorrected,
+      closingCorrected,
+      movementBbl: Math.abs(rawMovement),
+      signedMovementBbl: rawMovement,
+    }
+  }
+
+
+  function gaugePartsToDecimal(feet: any, inches: any, eighths: any) {
+    return Number(feet || 0) + (Number(inches || 0) / 12) + ((Number(eighths || 0) / 8) / 12)
+  }
+
+  function decimalGaugeToParts(decimalGauge: any) {
+    const decimal = Number(decimalGauge || 0)
+    const feet = Math.floor(decimal)
+    const totalInches = (decimal - feet) * 12
+    const inches = Math.floor(totalInches)
+    const eighths = Math.round((totalInches - inches) * 8)
+
+    return { feet, inches, eighths }
+  }
+
+  function getPreviousTankTicket(tankId: string) {
+    if (!tankId) return null
+
+    return tickets
+      .filter((ticket: any) =>
+        ticket.status === 'approved' &&
+        (ticket.tank_id === tankId || ticket.observed_inputs?.tank_id === tankId)
+      )
+      .sort((a: any, b: any) =>
+        new Date(b.approved_at || b.created_at || 0).getTime() -
+        new Date(a.approved_at || a.created_at || 0).getTime()
+      )[0] || null
+  }
+
+  function getPreviousTankClosingGauge(tankId: string) {
+    const previous = getPreviousTankTicket(tankId)
+
+    return (
+      (previous as any)?.closing_gauge ||
+      previous?.observed_inputs?.closing_gauge ||
+      previous?.observed_inputs?.closing_gauge_decimal ||
+      ''
+    )
+  }
+
+  function calculateTankTicketSnapshot(tankId: string) {
+    const openingGaugeDecimal = Number(getPreviousTankClosingGauge(tankId) || openingGauge || 0)
+    const closingGaugeDecimal = gaugePartsToDecimal(tankClosingFeet, tankClosingInches, tankClosingEighths)
+
+    const movement = tankId
+      ? calculateTankMovement(tankId, openingGaugeDecimal, closingGaugeDecimal, tankMovementDirection)
+      : {
+          openingGross: 0,
+          closingGross: 0,
+          openingCorrected: 0,
+          closingCorrected: 0,
+          movementBbl: 0,
+          signedMovementBbl: 0,
+        }
+
+    const corrections = calculateApi11Corrections({
+      productGroup: 'crude',
+      observedApiGravity: Number(tankObservedGravity || 0),
+      observedTemperature: Number(tankObservedTemp || tankAverageTemp || 60),
+      observedPressure: 0,
+      averageTemperature: Number(tankAverageTemp || tankObservedTemp || 60),
+      averagePressure: 0,
+      apiRounding: 1,
+    })
+
+    const ctl = roundTo(corrections.ctl, 5)
+    const cpl = roundTo(corrections.cpl, 5)
+    const ctlp = roundTo(corrections.ctlp, 5)
+    const ccf = corrections.ccf
+    const swDecimal = Number(tankSwPercent || 0) / 100
+    const gov = Number(movement.movementBbl || 0)
+    const gsv = gov * ccf
+    const nsv = gsv * (1 - swDecimal)
+
+    return {
+      openingGaugeDecimal,
+      closingGaugeDecimal,
+      closingGaugeParts: decimalGaugeToParts(closingGaugeDecimal),
+      movement,
+      corrections,
+      ctl,
+      cpl,
+      ctlp,
+      ccf,
+      gov,
+      gsv,
+      nsv,
+      swDecimal,
+      swPercent: Number(tankSwPercent || 0),
+      averageTemp: Number(tankAverageTemp || 0),
+      ambientTemp: Number(tankAmbientTemp || 0),
+      observedGravity: Number(tankObservedGravity || 0),
+      observedTemp: Number(tankObservedTemp || 0),
+    }
+  }
+
+  function getPreviousClosingForLease(leaseId: string, meterId?: string) {
+    const previous = tickets
+      .filter((ticket: any) =>
+        ticket.status === 'approved' &&
+        (ticket.lease_id === leaseId || ticket.observed_inputs?.lease_id === leaseId) &&
+        (!meterId || ticket.meter_id === meterId)
+      )
+      .sort((a: any, b: any) => new Date(b.approved_at || b.created_at || 0).getTime() - new Date(a.approved_at || a.created_at || 0).getTime())[0]
+
+    return (
+      (previous as any)?.closing_reading ||
+      previous?.observed_inputs?.closing_reading ||
+      previous?.observed_inputs?.closing_meter_reading ||
+      previous?.observed_inputs?.ending_reading ||
+      ''
+    )
+  }
+
   async function createTicket() {
     if (!companyId) return
 
@@ -1242,7 +2353,19 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       (p) => p.segment_id === selectedSegment && p.producer_id === selectedProducer && p.lease_id === selectedLease
     )
 
-    const iv = Number(latestReading?.indicated_volume || 0)
+    const tankTicketSnapshot = ticketType === 'tank' && selectedTank
+      ? calculateTankTicketSnapshot(selectedTank)
+      : null
+
+    const previousClosingReading = getPreviousClosingForLease(selectedLease, selectedMeter)
+    const openingReading = Number(previousClosingReading || 0)
+    const closingReading = Number(manualClosingReading || latestReading?.indicated_volume || 0)
+
+    const tankCalculation = tankTicketSnapshot?.movement || null
+
+    const iv = tankTicketSnapshot
+      ? Number(tankTicketSnapshot.gov || 0)
+      : Number(closingReading || latestReading?.indicated_volume || 0)
     const contractProfile = getProducerProfile(
       contractProfiles,
       selectedProducer || null
@@ -1299,25 +2422,41 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     const ctlp = roundTo(corrections.ctlp, ctlpRounding)
     const ccf = corrections.ccf
 
+    const finalCtl = tankTicketSnapshot ? tankTicketSnapshot.ctl : ctl
+    const finalCpl = tankTicketSnapshot ? tankTicketSnapshot.cpl : cpl
+    const finalCtlp = tankTicketSnapshot ? tankTicketSnapshot.ctlp : ctlp
+    const finalCcf = tankTicketSnapshot ? tankTicketSnapshot.ccf : ccf
+
     const factorToUse = Number(latestApprovedProving?.accepted_meter_factor || latestReading?.meter_factor || 1)
     const mf = roundTo(factorToUse, 4)
     const csw = Number(latestPot?.csw || 1)
     const isApi12 = selectedContractStandard.includes('API 12')
-    const gsv = isApi12 ? iv * ctl * cpl * mf : iv * ccf * mf
-    const nsv = gsv * csw
+    const gsv = tankTicketSnapshot
+      ? tankTicketSnapshot.gsv
+      : isApi12 ? iv * ctl * cpl * mf : iv * ccf * mf
+    const nsv = tankTicketSnapshot
+      ? tankTicketSnapshot.nsv
+      : gsv * csw
 
-    await supabase.from('tickets').insert({
+    const ticketInsertPayload: any = {
       company_id: companyId,
       ticket_number: generatedNumber,
       ticket_type: ticketType,
       status: 'draft',
       producer_id: selectedProducer || null,
       segment_id: selectedSegment || null,
+      lease_id: selectedLease || null,
+      tank_id: selectedTank || null,
+      line_fill_id: selectedLineFill || null,
+      opening_reading: openingReading || null,
+      closing_reading: closingReading || null,
+      opening_gauge: tankTicketSnapshot?.openingGaugeDecimal ?? (openingGauge ? Number(openingGauge) : null),
+      closing_gauge: tankTicketSnapshot?.closingGaugeDecimal ?? (closingGauge ? Number(closingGauge) : null),
+      movement_direction: ticketType === 'tank' ? tankMovementDirection : null,
       meter_id: selectedMeter || null,
       linked_reading_id: latestReading?.id || null,
       linked_proving_id: latestApprovedProving?.id || null,
       calculation_profile_id: profile?.id || null,
-      contract_profile_id: contractProfile?.id || null,
       calculation_profile_snapshot: {
         ...(profile || {}),
         contract_profile: contractProfile || null,
@@ -1339,6 +2478,28 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       ccf,
       observed_inputs: {
         iv,
+        lease_id: selectedLease || null,
+        opening_reading: openingReading || null,
+        closing_reading: closingReading || null,
+        previous_closing_source: previousClosingReading ? 'previous_approved_ticket_for_lease' : 'none',
+        tank_id: selectedTank || null,
+        line_fill_id: selectedLineFill || null,
+        opening_gauge: openingGauge || null,
+        closing_gauge: closingGauge || null,
+        tank_movement_direction: ticketType === 'tank' ? tankMovementDirection : null,
+        tank_opening_bbl: tankCalculation?.openingCorrected ?? null,
+        tank_closing_bbl: tankCalculation?.closingCorrected ?? null,
+        tank_gov: tankTicketSnapshot?.gov ?? null,
+        tank_gsv: tankTicketSnapshot?.gsv ?? null,
+        tank_nsv: tankTicketSnapshot?.nsv ?? null,
+        tank_closing_feet: tankClosingFeet || null,
+        tank_closing_inches: tankClosingInches || null,
+        tank_closing_eighths: tankClosingEighths || null,
+        tank_average_temp: tankAverageTemp || null,
+        tank_ambient_temp: tankAmbientTemp || null,
+        tank_observed_gravity: tankObservedGravity || null,
+        tank_observed_temp: tankObservedTemp || null,
+        tank_sw_percent: tankSwPercent || null,
         ctl,
         cpl,
         ctlp,
@@ -1349,11 +2510,8 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
         observed_pressure: corrections.observed_pressure,
         api_gravity_60: corrections.api_gravity_60,
         density_60: corrections.density_60,
-        api_gravity: corrections.api_gravity_60,
-        temperature: corrections.observed_temperature,
         average_temperature: corrections.average_temperature,
         average_pressure: corrections.average_pressure,
-        bsw_percent: latestPot?.bsw || null,
         csw,
         mf_source: latestApprovedProving ? 'latest_approved_proving' : 'reading_fallback',
         pot_source: latestPot ? 'latest_pot_quality' : 'none',
@@ -1370,6 +2528,9 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
         cpl,
         ctlp,
         ccf,
+        tank_opening_bbl: tankCalculation?.openingCorrected ?? null,
+        tank_closing_bbl: tankCalculation?.closingCorrected ?? null,
+        tank_movement_bbl: tankCalculation?.movementBbl ?? null,
         gsv: roundTo(gsv, volumeRounding),
         nsv: roundTo(nsv, volumeRounding),
         api_gravity_60: corrections.api_gravity_60,
@@ -1377,9 +2538,81 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
         product_sub_group: corrections.product_sub_group,
         formula_profile: isApi12 ? 'API 12 2021' : 'API 11.1',
       },
-    })
+    }
+    let ticketInsertResult = await supabase.from('tickets').insert(ticketInsertPayload).select().maybeSingle()
 
-    alert(`Draft ticket created: ${generatedNumber}`)
+    if (ticketInsertResult.error) {
+      console.error('Full ticket insert failed:', ticketInsertResult.error)
+
+      if (String(ticketInsertResult.error.message || '').includes('contract_profile_id')) {
+        delete ticketInsertPayload.contract_profile_id
+      }
+
+      const fallbackTicketPayload: any = {
+        company_id: companyId,
+        ticket_number: generatedNumber,
+        ticket_type: ticketType,
+        status: 'draft',
+        producer_id: selectedProducer || null,
+        segment_id: selectedSegment || null,
+        meter_id: selectedMeter || null,
+        linked_reading_id: latestReading?.id || null,
+        linked_proving_id: latestApprovedProving?.id || null,
+        calculation_profile_id: profile?.id || null,
+        calculation_profile_snapshot: {
+          ...(profile || {}),
+          contract_profile: contractProfile || null,
+          selected_standard: selectedContractStandard,
+          selected_calculation_method: selectedCalculationMethod,
+          selected_product_group: selectedProductGroup,
+          selected_factor_type: selectedFactorType,
+        },
+        api_chapter: profile?.standard || null,
+        calculation_method: corrections.api_engine,
+        observed_api_gravity: tankTicketSnapshot?.observedGravity || corrections.observed_api_gravity,
+        observed_temperature: tankTicketSnapshot?.observedTemp || corrections.observed_temperature,
+        observed_pressure: corrections.observed_pressure,
+        api_gravity_60: tankTicketSnapshot?.corrections?.api_gravity_60 || corrections.api_gravity_60,
+        density_60: tankTicketSnapshot?.corrections?.density_60 || corrections.density_60,
+        ctl: tankTicketSnapshot?.ctl || ctl,
+        cpl: tankTicketSnapshot?.cpl || cpl,
+        ctlp: tankTicketSnapshot?.ctlp || ctlp,
+        ccf: tankTicketSnapshot?.ccf || ccf,
+        observed_inputs: {
+          ...(ticketInsertPayload.observed_inputs || {}),
+          lease_id: selectedLease || null,
+          tank_id: selectedTank || null,
+          line_fill_id: selectedLineFill || null,
+          opening_reading: openingReading || null,
+          closing_reading: closingReading || null,
+          opening_gauge: tankTicketSnapshot?.openingGaugeDecimal ?? (openingGauge ? Number(openingGauge) : null),
+          closing_gauge: tankTicketSnapshot?.closingGaugeDecimal ?? (closingGauge ? Number(closingGauge) : null),
+          movement_direction: ticketType === 'tank' ? tankMovementDirection : null,
+        },
+        calculation_results: ticketInsertPayload.calculation_results || {},
+      }
+
+      ticketInsertResult = await supabase.from('tickets').insert(fallbackTicketPayload).select().maybeSingle()
+
+      if (ticketInsertResult.error) {
+        alert('Could not create ticket: ' + ticketInsertResult.error.message)
+        return
+      }
+    }
+
+    if (ticketInsertResult.data) {
+      setSelectedTicket(ticketInsertResult.data as any)
+    }
+
+    alert(`Draft ticket created: ${generatedNumber}. If it does not show, press Force Refresh Tickets.`)
+    setTankClosingFeet('')
+    setTankClosingInches('')
+    setTankClosingEighths('')
+    setTankAverageTemp('')
+    setTankAmbientTemp('')
+    setTankObservedGravity('')
+    setTankObservedTemp('')
+    setTankSwPercent('')
     loadAll()
   }
 
@@ -1399,82 +2632,361 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     loadAll()
   }
 
-  async function generatePdfPreview(ticket: Ticket) {
-    const companyName = getCompanyDisplayName()
-    const companyLogoUrl = getCompanyLogoUrl()
-    const companyAccent = getCompanyAccentColor()
-    const companyLogoDataUrl = companyLogoUrl ? await getImageDataUrl(companyLogoUrl) : ''
+
+  function formatGaugeFeetInchesEighths(decimalGauge: any) {
+    const parts = decimalGaugeToParts(decimalGauge)
+    return `${parts.feet}' ${parts.inches}-${parts.eighths}/8"`
+  }
+
+  function getTankDisplayName(tankId?: string | null) {
+    const tank = tanks.find((t: any) => t.id === tankId)
+    if (!tank) return ''
+    return `${tank.tank_number || ''}${tank.tank_name ? ` - ${tank.tank_name}` : ''}`
+  }
 
 
-    const producer = producers.find((p) => p.id === ticket.producer_id)
-    const meter = meters.find((m) => m.id === ticket.meter_id)
-    const segment = segments.find((s) => s.id === ticket.segment_id)
+  function formatTicketNumberValue(value: any) {
+    if (value === null || value === undefined || value === '') return '—'
+    return String(value)
+  }
+
+  function formatBbl(value: any) {
+    const num = Number(value || 0)
+    return Number.isFinite(num) ? num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'
+  }
+
+  function formatMeasurementNumber(value: any, digits = 4) {
+    const num = Number(value || 0)
+    return Number.isFinite(num) ? num.toFixed(digits) : '0'
+  }
+
+  function uniqueCsvCount(value: any) {
+    const items = String(value || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+    return new Set(items).size
+  }
+
+  function generatePdfPreview(ticket: any) {
+    const producer = producers.find((item: any) => item.id === ticket.producer_id)
+    const meter = meters.find((item: any) => item.id === ticket.meter_id)
+    const segment = segments.find((item: any) => item.id === ticket.segment_id)
+    const lease = leases.find((item: any) => item.id === ticket.lease_id)
+
+    const observed = ticket.observed_inputs || {}
+    const calc = ticket.calculation_results || {}
+    const isFlowX = observed.source === 'flowx_transporter_summary'
+
+    const companyName = getCompanyDisplayName ? getCompanyDisplayName() : (companySettings?.company_name || 'Measurement Platform')
+    const logoUrl = (typeof getCompanyLogoUrl === 'function' ? getCompanyLogoUrl() : '') || companySettings?.logo_url || ''
+    const ticketNumber = ticket.ticket_number || ticket.id || 'Ticket'
+    const createdAt = ticket.created_at ? new Date(ticket.created_at).toLocaleString() : new Date().toLocaleString()
+    const approvedAt = ticket.approved_at ? new Date(ticket.approved_at).toLocaleString() : 'Pending Approval'
+
+    const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name || '—'
+    const assignedPot = observed.assigned_pot_label || ticket.assigned_pot_id || '—'
+    const sourceTicketCount = uniqueCsvCount(observed.ticket_numbers)
+    const sourceBatchCount = uniqueCsvCount(observed.batch_numbers)
+    const sourceTruckCount = uniqueCsvCount(observed.truck_numbers)
+    const sourceLeaseCount = uniqueCsvCount(observed.leases)
 
     const html = `
-      <html>
-        <head>
-          <title>${ticket.ticket_number}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
-            .brand-header { border-bottom: 5px solid ${companyAccent}; padding-bottom: 14px; margin-bottom: 22px; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
-            .brand-name { font-size: 28px; font-weight: 900; color: ${companyAccent}; }
-            .brand-subtitle { font-size: 12px; color: #555; margin-top: 4px; }
-            .brand-logo { max-height: 70px; max-width: 160px; object-fit: contain; }
-            .box { border: 1px solid #333; padding: 12px; margin: 12px 0; }
-            .row { display: flex; justify-content: space-between; border-bottom: 1px solid #ddd; padding: 6px 0; }
-          </style>
-        </head>
-        <body>
-          <div class="brand-header">
-            <div>
-              <div class="brand-name">${companyName}</div>
-              <div class="brand-subtitle">Measurement Ticket</div>
-            </div>
-            ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}
-          </div>
-          <h1>${ticket.ticket_number}</h1>
-          <div class="box">
-            <div class="row"><strong>Status</strong><span>${ticket.status}${ticket.is_locked ? ' • LOCKED' : ''}</span></div>
-            <div class="row"><strong>Type</strong><span>${ticket.ticket_type}</span></div>
-            <div class="row"><strong>Producer</strong><span>${producer?.name || ''}</span></div>
-            <div class="row"><strong>Meter</strong><span>${meter?.meter_number || ''}</span></div>
-            <div class="row"><strong>Segment</strong><span>${segment?.name || ''}</span></div>
-            <div class="row"><strong>Profile</strong><span>${ticket.calculation_profile_snapshot?.name || ''}</span></div>
-            <div class="row"><strong>Contract Profile</strong><span>${ticket.observed_inputs?.contract_profile_name || ticket.calculation_profile_snapshot?.contract_profile?.name || 'Default'}</span></div>
-            <div class="row"><strong>Calculation Method</strong><span>${ticket.observed_inputs?.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL'}</span></div>
-          </div>
-          <div class="box">
-            <h3>Observed Inputs</h3>
-            <div class="row"><strong>IV</strong><span>${ticket.observed_inputs?.iv ?? ''}</span></div>
-            <div class="row"><strong>CTL</strong><span>${ticket.observed_inputs?.ctl ?? ''}</span></div>
-            <div class="row"><strong>CPL</strong><span>${ticket.observed_inputs?.cpl ?? ''}</span></div>
-            <div class="row"><strong>CTLP</strong><span>${ticket.observed_inputs?.ctlp ?? ''}</span></div>
-            <div class="row"><strong>${ticket.observed_inputs?.factor_type || 'MF'}</strong><span>${ticket.observed_inputs?.mf ?? ''}</span></div>
-            <div class="row"><strong>Observed API Gravity</strong><span>${ticket.observed_inputs?.observed_api_gravity ?? ticket.observed_inputs?.api_gravity ?? ''}</span></div>
-            <div class="row"><strong>Observed Temp</strong><span>${ticket.observed_inputs?.observed_temperature ?? ticket.observed_inputs?.temperature ?? ''}</span></div>
-            <div class="row"><strong>API Gravity @60</strong><span>${formatOneDecimal(ticket.observed_inputs?.api_gravity_60 ?? ticket.api_gravity_60)}</span></div>
-            <div class="row"><strong>Density @60 kg/m³</strong><span>${ticket.observed_inputs?.density_60 ?? ticket.density_60 ?? ''}</span></div>
-            <div class="row"><strong>Avg Temp</strong><span>${ticket.observed_inputs?.average_temperature ?? ''}</span></div>
-            <div class="row"><strong>Avg Pressure</strong><span>${ticket.observed_inputs?.average_pressure ?? ''}</span></div>
-            <div class="row"><strong>BS&W %</strong><span>${ticket.observed_inputs?.bsw_percent ?? ''}</span></div>
-            <div class="row"><strong>CSW</strong><span>${ticket.observed_inputs?.csw ?? ''}</span></div>
-          </div>
-          <div class="box">
-            <h3>Calculated Results</h3>
-            <div class="row"><strong>CCF</strong><span>${ticket.calculation_results?.ccf ?? ''}</span></div>
-            <div class="row"><strong>GSV</strong><span>${ticket.calculation_results?.gsv ?? ''}</span></div>
-            <div class="row"><strong>NSV</strong><span>${ticket.calculation_results?.nsv ?? ''}</span></div>
-          </div>
-          <script>window.print()</script>
-        </body>
-      </html>
-    `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${ticketNumber}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #f4f5f7;
+      color: #111827;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12px;
+    }
+    .page {
+      width: 8.5in;
+      min-height: 11in;
+      margin: 0 auto;
+      background: #fff;
+      padding: 0.45in;
+    }
+    .header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      border-bottom: 4px solid #c46a2b;
+      padding-bottom: 14px;
+      margin-bottom: 16px;
+      align-items: center;
+    }
+    .brand { display: flex; gap: 14px; align-items: center; }
+    .logo {
+      width: 110px;
+      max-height: 62px;
+      object-fit: contain;
+    }
+    .brand-title {
+      font-size: 24px;
+      font-weight: 900;
+      letter-spacing: 0.2px;
+      margin-bottom: 4px;
+    }
+    .brand-subtitle {
+      font-size: 12px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+    }
+    .ticket-box {
+      border: 2px solid #111827;
+      padding: 10px 14px;
+      text-align: right;
+      min-width: 220px;
+    }
+    .ticket-box .label {
+      color: #6b7280;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .ticket-box .number {
+      font-size: 19px;
+      font-weight: 900;
+      margin-top: 4px;
+    }
+    .status {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: ${ticket.status === 'approved' ? '#dcfce7' : '#fef3c7'};
+      color: ${ticket.status === 'approved' ? '#166534' : '#92400e'};
+      font-weight: 800;
+      text-transform: uppercase;
+      font-size: 10px;
+    }
+    .section {
+      border: 1px solid #d1d5db;
+      margin-top: 12px;
+      break-inside: avoid;
+    }
+    .section-title {
+      background: #111827;
+      color: #fff;
+      font-weight: 900;
+      padding: 8px 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      font-size: 11px;
+    }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+    .cell {
+      padding: 8px 10px;
+      border-right: 1px solid #e5e7eb;
+      border-bottom: 1px solid #e5e7eb;
+      min-height: 38px;
+    }
+    .cell:nth-child(2n) { border-right: 0; }
+    .grid-3 .cell:nth-child(2n) { border-right: 1px solid #e5e7eb; }
+    .grid-3 .cell:nth-child(3n) { border-right: 0; }
+    .small-label {
+      color: #6b7280;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      margin-bottom: 3px;
+    }
+    .value {
+      font-size: 13px;
+      font-weight: 800;
+      word-break: break-word;
+    }
+    .volume {
+      font-size: 18px;
+      font-weight: 900;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th {
+      background: #f3f4f6;
+      text-align: left;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #374151;
+      padding: 7px 8px;
+      border-bottom: 1px solid #d1d5db;
+    }
+    td {
+      padding: 8px;
+      border-bottom: 1px solid #e5e7eb;
+      font-weight: 700;
+    }
+    .right { text-align: right; }
+    .notes {
+      white-space: pre-wrap;
+      min-height: 45px;
+      padding: 10px;
+    }
+    .signatures {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      margin-top: 34px;
+    }
+    .sig-line {
+      border-top: 1px solid #111827;
+      padding-top: 7px;
+      color: #374151;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+    }
+    .footer {
+      margin-top: 24px;
+      border-top: 1px solid #d1d5db;
+      padding-top: 8px;
+      display: flex;
+      justify-content: space-between;
+      color: #6b7280;
+      font-size: 10px;
+    }
+    @media print {
+      body { background: #fff; }
+      .page { margin: 0; width: auto; min-height: auto; }
+      @page { size: letter; margin: 0.35in; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <div class="brand">
+        ${logoUrl ? `<img class="logo" src="${logoUrl}" />` : ''}
+        <div>
+          <div class="brand-title">${companyName}</div>
+          <div class="brand-subtitle">Measurement Ticket</div>
+        </div>
+      </div>
+      <div class="ticket-box">
+        <div class="label">Ticket Number</div>
+        <div class="number">${ticketNumber}</div>
+        <div class="status">${ticket.status || 'draft'}</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Ticket Information</div>
+      <div class="grid-3">
+        <div class="cell"><div class="small-label">Ticket Type</div><div class="value">${ticket.ticket_type || '—'}</div></div>
+        <div class="cell"><div class="small-label">Created</div><div class="value">${createdAt}</div></div>
+        <div class="cell"><div class="small-label">Approved</div><div class="value">${approvedAt}</div></div>
+        <div class="cell"><div class="small-label">Segment</div><div class="value">${segment?.name || observed.segment_name || '—'}</div></div>
+        <div class="cell"><div class="small-label">Producer</div><div class="value">${producer?.name || observed.producer_name || '—'}</div></div>
+        <div class="cell"><div class="small-label">Lease</div><div class="value">${((lease as any)?.name || (lease as any)?.lease_name || (lease as any)?.lease_number) || observed.lease_name || (isFlowX ? `${sourceLeaseCount || '—'} lease(s)` : '—')}</div></div>
+        <div class="cell"><div class="small-label">Meter / Rack</div><div class="value">${meter?.meter_number || observed.meter_number || '—'}</div></div>
+        <div class="cell"><div class="small-label">Transporter</div><div class="value">${transporter}</div></div>
+        <div class="cell"><div class="small-label">Assigned POT</div><div class="value">${assignedPot}</div></div>
+      </div>
+    </div>
+
+    ${isFlowX ? `
+    <div class="section">
+      <div class="section-title">Flow-X Transporter Summary</div>
+      <div class="grid-3">
+        <div class="cell"><div class="small-label">Source Rows</div><div class="value">${observed.source_rows || '—'}</div></div>
+        <div class="cell"><div class="small-label">Source Ticket Count</div><div class="value">${sourceTicketCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">Source Batch Count</div><div class="value">${sourceBatchCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">Truck Count</div><div class="value">${sourceTruckCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">Lease Count</div><div class="value">${sourceLeaseCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">LACT</div><div class="value">${observed.lact_name || ticket.lact_name || '—'}</div></div>
+      </div>
+    </div>
+    ` : ''}
+
+    <div class="section">
+      <div class="section-title">Volumes</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th class="right">Barrels</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Gross Observed / GOV</td><td class="right volume">${formatBbl(calc.gov || observed.gross_volume_bbl)}</td></tr>
+          <tr><td>Gross Standard / GSV</td><td class="right volume">${formatBbl(calc.gsv || observed.gross_volume_bbl)}</td></tr>
+          <tr><td>Net Standard / NSV</td><td class="right volume">${formatBbl(calc.nsv || observed.net_volume_bbl)}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Quality / Corrections</div>
+      <div class="grid-3">
+        <div class="cell"><div class="small-label">Observed API</div><div class="value">${formatMeasurementNumber(observed.observed_api_gravity || observed.api_observed || observed.api_gravity_observed, 2)}</div></div>
+        <div class="cell"><div class="small-label">API Gravity @ 60°F</div><div class="value">${formatMeasurementNumber(calc.api_gravity_60 || observed.api_gravity_60 || calc.api_gravity || observed.api_gravity, 2)}</div></div>
+        <div class="cell"><div class="small-label">BS&W %</div><div class="value">${formatMeasurementNumber(calc.bsw_percent || observed.bsw_percent || observed.bsw, 4)}</div></div>
+        <div class="cell"><div class="small-label">Observed Temp °F</div><div class="value">${formatMeasurementNumber(observed.observed_temperature || observed.temperature || observed.average_temperature || calc.average_temperature, 2)}</div></div>
+        <div class="cell"><div class="small-label">Average Temp °F</div><div class="value">${formatMeasurementNumber(calc.average_temperature || observed.average_temperature, 2)}</div></div>
+        <div class="cell"><div class="small-label">Observed Pressure</div><div class="value">${formatMeasurementNumber(observed.observed_pressure || observed.pressure || observed.average_pressure || calc.average_pressure, 2)}</div></div>
+        <div class="cell"><div class="small-label">Average Pressure</div><div class="value">${formatMeasurementNumber(calc.average_pressure || observed.average_pressure, 2)}</div></div>
+        <div class="cell"><div class="small-label">API Correction Δ</div><div class="value">${formatMeasurementNumber((calc.api_gravity_60 || observed.api_gravity_60 || calc.api_gravity || observed.api_gravity || 0) - (observed.observed_api_gravity || observed.api_observed || observed.api_gravity_observed || 0), 2)}</div></div>
+        <div class="cell"><div class="small-label">CTL</div><div class="value">${formatMeasurementNumber(calc.ctl || observed.ctl, 5)}</div></div>
+        <div class="cell"><div class="small-label">CPL</div><div class="value">${formatMeasurementNumber(calc.cpl || observed.cpl, 5)}</div></div>
+        <div class="cell"><div class="small-label">CTPL</div><div class="value">${formatMeasurementNumber(calc.ctpl || observed.ctpl, 5)}</div></div>
+        <div class="cell"><div class="small-label">POT Quality Source</div><div class="value">${assignedPot}</div></div>
+        <div class="cell"><div class="small-label">Calculation Method</div><div class="value">${observed.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'Standard'}</div></div>
+      </div>
+    </div>
+
+    ${isFlowX ? `
+    <div class="section">
+      <div class="section-title">Source Data</div>
+      <div class="notes">
+        Source Flow-X CSV retained separately. This ticket is a transporter summary generated from ${observed.source_rows || '—'} source rows.
+      </div>
+    </div>
+    ` : ''}
+
+    <div class="section">
+      <div class="section-title">Notes</div>
+      <div class="notes">${ticket.notes || observed.notes || ''}</div>
+    </div>
+
+    <div class="signatures">
+      <div class="sig-line">Prepared By</div>
+      <div class="sig-line">Approved By</div>
+    </div>
+
+    <div class="footer">
+      <div>Generated by TEFCO Measurement Platform</div>
+      <div>${new Date().toLocaleString()}</div>
+    </div>
+  </div>
+  <script>
+    window.onload = () => {
+      window.focus();
+    };
+  </script>
+</body>
+</html>`
 
     const printWindow = window.open('', '_blank')
-    if (printWindow) {
-      printWindow.document.write(html)
-      printWindow.document.close()
+    if (!printWindow) {
+      alert('Popup blocked. Allow popups to preview PDF.')
+      return
     }
+
+    printWindow.document.open()
+    printWindow.document.write(html)
+    printWindow.document.close()
   }
 
   
@@ -1503,81 +3015,141 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
   }
 
 function getCompanyDisplayName() {
+    const activeAreaCompanyId =
+      userIsSuperAdmin && selectedAdminCompanyId
+        ? selectedAdminCompanyId
+        : companyId
+
+    const selectedCompany = companies.find((company: any) => company.id === (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId))
+
     return (
-      companyNameInput ||
       companySettings?.company_name ||
-      companySettings?.name ||
-      '${companyName}'
+      companyNameInput ||
+      selectedCompany?.name ||
+      'Measurement App'
     )
   }
 
   function getCompanyAccentColor() {
-    return companySettings?.accent_color || '#c46a2b'
+    return companySettings?.accent_color || companyAccentInput || '#c46a2b'
+  }
+
+  function hexToRgb(hex: string) {
+    const cleaned = String(hex || '#c46a2b').replace('#', '')
+    const value = cleaned.length === 3
+      ? cleaned.split('').map((char) => char + char).join('')
+      : cleaned
+
+    const bigint = parseInt(value, 16)
+
+    if (Number.isNaN(bigint)) {
+      return { r: 196, g: 106, b: 43 }
+    }
+
+    return {
+      r: (bigint >> 16) & 255,
+      g: (bigint >> 8) & 255,
+      b: bigint & 255,
+    }
+  }
+
+  function accentRgba(alpha: number) {
+    const { r, g, b } = hexToRgb(getCompanyAccentColor())
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+  }
+
+  function accentGradient() {
+    return `linear-gradient(135deg, ${getCompanyAccentColor()}, ${accentRgba(0.55)})`
   }
 
   function getCompanyLogoUrl() {
-    if (companyLogoFile) {
-      return URL.createObjectURL(companyLogoFile)
-    }
-
     return companySettings?.logo_url || ''
   }
 
   async function saveCompanySettings() {
-    if (!companyId && currentUserRole !== 'super_admin') {
-      alert('Company not loaded.')
+    const activeAreaCompanyId =
+      userIsSuperAdmin && selectedAdminCompanyId
+        ? selectedAdminCompanyId
+        : companyId
+
+    if (!(userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId)) {
+      alert('No company selected.')
       return
     }
 
-    let logoUrl = companySettings?.logo_url || null
+    let logoUrl = companySettings?.logo_url || ''
 
-    if (companyLogoFile && companyId) {
-      const ext = companyLogoFile.name.split('.').pop() || 'png'
-      const logoPath = `${companyId}/company-logo.${ext}`
+    if (companyLogoFile) {
+      const fileExt = companyLogoFile.name.split('.').pop() || 'png'
+      const filePath = `${(userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId)}/logo-${Date.now()}.${fileExt}`
 
       const { error: uploadError } = await supabase.storage
         .from('company-logos')
-        .upload(logoPath, companyLogoFile, {
+        .upload(filePath, companyLogoFile, {
+          cacheControl: '3600',
           upsert: true,
-          contentType: companyLogoFile.type || 'image/png',
         })
 
       if (uploadError) {
-        alert('Could not upload logo: ' + uploadError.message)
+        alert('Logo upload failed: ' + uploadError.message)
         return
       }
 
-      const { data } = supabase.storage.from('company-logos').getPublicUrl(logoPath)
-      logoUrl = data?.publicUrl || null
+      const { data: publicUrlData } = supabase.storage
+        .from('company-logos')
+        .getPublicUrl(filePath)
+
+      logoUrl = publicUrlData.publicUrl
     }
 
     const payload = {
-      company_id: companyId || null,
-      company_name: companyNameInput || null,
-      address_line1: companyAddress1Input || null,
-      address_line2: companyAddress2Input || null,
-      phone: companyPhoneInput || null,
+      company_id: (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId),
+      company_name: companyNameInput || '',
+      address_line1: companyAddress1Input || '',
+      address_line2: companyAddress2Input || '',
+      phone: companyPhoneInput || '',
       accent_color: companyAccentInput || '#c46a2b',
-      logo_url: logoUrl,
+      logo_url: logoUrl || companySettings?.logo_url || '',
+      updated_at: new Date().toISOString(),
     }
 
     const { data, error } = await supabase
       .from('company_settings')
       .upsert(payload, { onConflict: 'company_id' })
       .select()
-      .maybeSingle()
+      .single()
 
     if (error) {
       alert('Could not save company branding: ' + error.message)
       return
     }
 
-    if (data) setCompanySettings(data)
-    setCompanyLogoFile(null)
+    if (companyNameInput) {
+      await supabase
+        .from('companies')
+        .update({ name: companyNameInput })
+        .eq('id', (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId))
+    }
+
+    setCompanySettings(data as any)
+    logo_url: logoUrl || companySettings?.logo_url || '',
+    setCompanyNameInput((data as any).company_name || '')
+    setCompanyAddress1Input((data as any).address_line1 || '')
+    setCompanyAddress2Input((data as any).address_line2 || '')
+    setCompanyPhoneInput((data as any).phone || '')
+    setCompanyAccentInput((data as any).accent_color || '#c46a2b')
+
+    await loadAll()
     alert('Company branding saved.')
   }
 
 async function createCompany() {
+    if (!userIsSuperAdmin) {
+      alert('Only super admins can create companies.')
+      return
+    }
+
+
     const name = newCompanyName.trim()
 
     if (!name) {
@@ -1617,8 +3189,2698 @@ async function createCompany() {
     alert('Company created.')
   }
 
+
+  function parseMeterCsv(text: string) {
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    if (lines.length < 2) return []
+
+    const headers = lines[0].split(',').map((header) => header.trim().toLowerCase())
+
+    return lines.slice(1).map((line) => {
+      const values = line.split(',').map((value) => value.trim())
+      const row: Record<string, string> = {}
+
+      headers.forEach((header, index) => {
+        row[header] = values[index] || ''
+      })
+
+      return row
+    })
+  }
+
+  async function findOrCreateByName(tableName: string, nameColumn: string, name: string, extra: Record<string, any> = {}) {
+    if (!name) return null
+
+    const { data: existing } = await supabase
+      .from(tableName)
+      .select('*')
+      .eq(nameColumn, name)
+      .maybeSingle()
+
+    if (existing) return existing
+
+    const { data, error } = await supabase
+      .from(tableName)
+      .insert({
+        company_id: userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId,
+        [nameColumn]: name,
+        ...extra,
+      })
+      .select()
+      .single()
+
+    if (error) throw error
+
+    return data
+  }
+
+
+  async function createTankAsset() {
+    if (!newTankNumber) {
+      alert('Enter tank number.')
+      return
+    }
+
+    const activeAreaCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    const { error } = await supabase.from('tanks').insert({
+      company_id: (userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId),
+      segment_id: newTankSegmentId || null,
+      tank_number: newTankNumber,
+      tank_name: newTankName || null,
+      active: true,
+    })
+
+    if (error) {
+      alert('Could not create tank: ' + error.message)
+      return
+    }
+
+    setNewTankNumber('')
+    setNewTankName('')
+    setNewTankSegmentId('')
+    await loadAll()
+  }
+
+  async function createLineFillAsset() {
+    if (!newLineFillName) {
+      alert('Enter line fill name.')
+      return
+    }
+
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    const { error } = await supabase.from('line_fills').insert({
+      company_id: activeCompanyID,
+      segment_id: newLineFillSegmentId || null,
+      line_name: newLineFillName,
+      capacity_bbl: newLineFillCapacity ? Number(newLineFillCapacity) : null,
+      active: true,
+    })
+
+    if (error) {
+      alert('Could not create line fill: ' + error.message)
+      return
+    }
+
+    setNewLineFillName('')
+    setNewLineFillSegmentId('')
+    setNewLineFillCapacity('')
+    await loadAll()
+  }
+
+
+  async function saveDeadwoodRule() {
+    if (!deadwoodTankId) {
+      alert('Select a tank.')
+      return
+    }
+
+    if (!deadwoodStartGauge || !deadwoodEndGauge || !deadwoodAdjustmentBbl) {
+      alert('Enter start gauge, end gauge, and adjustment barrels.')
+      return
+    }
+
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const calibration = getActiveTankCalibration(deadwoodTankId)
+
+    if (!calibration) {
+      alert('This tank needs a strapping calibration version before adding deadwood rules.')
+      return
+    }
+
+    const { error } = await supabase.from('tank_deadwood_rules').insert({
+      company_id: activeCompanyID,
+      tank_id: deadwoodTankId,
+      calibration_version_id: calibration.id,
+      start_gauge: Number(deadwoodStartGauge),
+      end_gauge: Number(deadwoodEndGauge),
+      adjustment_bbl: Number(deadwoodAdjustmentBbl),
+      adjustment_type: deadwoodAdjustmentType,
+      description: deadwoodDescription || null,
+      active: true,
+    })
+
+    if (error) {
+      alert('Could not save deadwood rule: ' + error.message)
+      return
+    }
+
+    setDeadwoodStartGauge('')
+    setDeadwoodEndGauge('')
+    setDeadwoodAdjustmentBbl('')
+    setDeadwoodAdjustmentType('add')
+    setDeadwoodDescription('')
+    alert('Deadwood rule saved.')
+    await loadAll()
+  }
+
+  async function deleteDeadwoodRule(ruleId: string) {
+    const { error } = await supabase
+      .from('tank_deadwood_rules')
+      .update({ active: false })
+      .eq('id', ruleId)
+
+    if (error) {
+      alert('Could not delete deadwood rule: ' + error.message)
+      return
+    }
+
+    await loadAll()
+  }
+
+
+  function columnLettersToIndex(letters: string) {
+    return letters.split('').reduce((sum, char) => sum * 26 + char.charCodeAt(0) - 64, 0) - 1
+  }
+
+  function cellRefToPosition(ref: string) {
+    const match = String(ref || '').match(/^([A-Z]+)(\d+)$/i)
+
+    if (!match) return { row: 0, col: 0 }
+
+    return {
+      col: columnLettersToIndex(match[1].toUpperCase()),
+      row: Number(match[2]) - 1,
+    }
+  }
+
+  function parseXmlText(xml: string) {
+    return new DOMParser().parseFromString(xml, 'application/xml')
+  }
+
+  async function readXlsxSheets(file: File) {
+    const zip = await JSZip.loadAsync(await file.arrayBuffer())
+    const workbookXml = await zip.file('xl/workbook.xml')?.async('text')
+    const relsXml = await zip.file('xl/_rels/workbook.xml.rels')?.async('text')
+
+    if (!workbookXml || !relsXml) {
+      throw new Error('Could not read XLSX workbook.')
+    }
+
+    const workbook = parseXmlText(workbookXml)
+    const rels = parseXmlText(relsXml)
+
+    const relMap: Record<string, string> = {}
+    Array.from(rels.getElementsByTagName('Relationship')).forEach((rel: any) => {
+      relMap[rel.getAttribute('Id')] = rel.getAttribute('Target')
+    })
+
+    const sharedStringsXml = await zip.file('xl/sharedStrings.xml')?.async('text')
+    const sharedStrings = sharedStringsXml
+      ? Array.from(parseXmlText(sharedStringsXml).getElementsByTagName('si')).map((si: any) =>
+          Array.from(si.getElementsByTagName('t')).map((t: any) => t.textContent || '').join('')
+        )
+      : []
+
+    const sheets = await Promise.all(
+      Array.from(workbook.getElementsByTagName('sheet')).map(async (sheet: any) => {
+        const name = sheet.getAttribute('name') || 'Sheet'
+        const relId = sheet.getAttribute('r:id')
+        const target = relMap[relId] || ''
+        const sheetPath = target.startsWith('worksheets/')
+          ? `xl/${target}`
+          : `xl/worksheets/${target.split('/').pop()}`
+        const sheetXml = await zip.file(sheetPath)?.async('text')
+
+        if (!sheetXml) return { name, rows: [] as any[][] }
+
+        const doc = parseXmlText(sheetXml)
+        const rows: any[][] = []
+
+        Array.from(doc.getElementsByTagName('c')).forEach((cell: any) => {
+          const ref = cell.getAttribute('r') || ''
+          const type = cell.getAttribute('t') || ''
+          const { row, col } = cellRefToPosition(ref)
+          const v = cell.getElementsByTagName('v')[0]?.textContent || ''
+          const inline = cell.getElementsByTagName('t')[0]?.textContent || ''
+          let value: any = ''
+
+          if (type === 's') {
+            value = sharedStrings[Number(v)] || ''
+          } else if (type === 'inlineStr') {
+            value = inline
+          } else {
+            value = v
+          }
+
+          if (value !== '' && !Number.isNaN(Number(value))) {
+            value = Number(value)
+          }
+
+          rows[row] = rows[row] || []
+          rows[row][col] = value
+        })
+
+        return { name, rows }
+      })
+    )
+
+    return sheets
+  }
+
+  function parseGaugeTextToDecimal(value: any) {
+    if (value === null || value === undefined || value === '') return null
+    if (typeof value === 'number') return value
+
+    const textValue = String(value).trim()
+
+    const feetInchMatch = textValue.match(/(\d+(?:\.\d+)?)\s*'\s*[-]?\s*(\d+(?:\.\d+)?)?/)
+    if (feetInchMatch) {
+      return Number(feetInchMatch[1]) + (Number(feetInchMatch[2] || 0) / 12)
+    }
+
+    const numeric = Number(textValue.replace(/[^0-9.-]/g, ''))
+    return Number.isFinite(numeric) ? numeric : null
+  }
+
+  function extractRefineryStrappingRowsFromSheet(rows: any[][]) {
+    const output: any[] = []
+
+    // Detect multi-pair refinery format:
+    // FT-IN | Barrels | FT-IN | Barrels
+    // Yellow rows are whole feet, but the cell value is the foot number, not inch 12/13/14/etc.
+    // Following rows 1-11 are inches under that current foot.
+    for (let r = 0; r < rows.length; r += 1) {
+      const row = rows[r] || []
+
+      for (let c = 0; c < row.length - 1; c += 1) {
+        const leftHeader = String((row || [])[c] ?? '').trim().toLowerCase()
+        const rightHeader = String((row || [])[c + 1] ?? '').trim().toLowerCase()
+
+        if (leftHeader === 'ft-in' && rightHeader.includes('barrel')) {
+          let currentFeet: number | null = null
+
+          for (let rr = r + 1; rr < rows.length; rr += 1) {
+            const dataRow = rows[rr] || []
+            const gaugeCell = dataRow[c]
+            const barrels = Number(dataRow[c + 1])
+            const gaugeValue = Number(gaugeCell)
+
+            if (!Number.isFinite(gaugeValue) || !Number.isFinite(barrels)) continue
+
+            let inches = gaugeValue
+
+            // In this format, a value greater than 11 means a new whole-foot row.
+            // Example: 12 with 396.50 = 12' 0", then 1 = 12' 1", etc.
+            if (currentFeet === null || gaugeValue > 11) {
+              currentFeet = gaugeValue
+              inches = 0
+            }
+
+            const gaugeDecimal = currentFeet + (inches / 12)
+
+            output.push({
+              gauge_decimal: gaugeDecimal,
+              gauge_feet: currentFeet,
+              gauge_inches: inches,
+              gauge_fraction: null,
+              barrels,
+              increment_bbl: null,
+              notes: 'Imported from XLSX refinery strapping table',
+            })
+          }
+        }
+      }
+    }
+
+    return output
+  }
+
+  function extractIncrementFactorSheetRows(rows: any[][]) {
+    const output: any[] = []
+
+    const headerRowIndex = rows.findIndex((row) => {
+      const safeRow = Array.isArray(row) ? row : []
+
+      return (
+        safeRow.some((value) => String(value ?? '').toLowerCase().includes('gauge from')) &&
+        safeRow.some((value) => String(value ?? '').toLowerCase().includes('total volume'))
+      )
+    })
+
+    if (headerRowIndex < 0) return output
+
+    const headers = (rows[headerRowIndex] || []).map((value) => String(value || '').trim().toLowerCase())
+    const gaugeFromIndex = headers.findIndex((header) => String(header ?? '').includes('gauge from'))
+    const totalVolumeIndex = headers.findIndex((header) => String(header ?? '').includes('total volume'))
+    const incrementalVolumeIndex = headers.findIndex((header) => String(header ?? '').includes('incremental volume'))
+
+    for (let r = headerRowIndex + 1; r < rows.length; r += 1) {
+      const row = rows[r] || []
+      const gauge = parseGaugeTextToDecimal(row[gaugeFromIndex])
+      const barrels = Number(row[totalVolumeIndex])
+      const increment = Number(row[incrementalVolumeIndex])
+
+      if (gauge === null || !Number.isFinite(barrels)) continue
+
+      output.push({
+        gauge_decimal: gauge,
+        gauge_feet: Math.floor(gauge),
+        gauge_inches: Number(((gauge - Math.floor(gauge)) * 12).toFixed(4)),
+        gauge_fraction: null,
+        barrels,
+        increment_bbl: Number.isFinite(increment) ? increment : null,
+        notes: 'Imported from XLSX increment factor sheet',
+      })
+    }
+
+    return output
+  }
+
+  async function parseStrappingFileRows(file: File) {
+    const lowerName = file.name.toLowerCase()
+
+    if (lowerName.endsWith('.xlsx')) {
+      const sheets = await readXlsxSheets(file)
+      let rows: any[] = []
+
+      for (const sheet of sheets) {
+        const refineryRows = extractRefineryStrappingRowsFromSheet(sheet.rows)
+        const ifsRows = extractIncrementFactorSheetRows(sheet.rows)
+
+        rows = [...rows, ...refineryRows, ...ifsRows]
+      }
+
+      const unique = new Map<string, any>()
+      rows.forEach((row) => {
+        const key = Number(row.gauge_decimal).toFixed(6)
+        if (!unique.has(key)) unique.set(key, row)
+      })
+
+      return Array.from(unique.values()).sort((a, b) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
+    }
+
+    const csvText = await file.text()
+    return parseMeterCsv(csvText)
+  }
+
+  async function importTankStrappingCsv() {
+    if (!selectedStrappingTankId || !strappingCsvFile) {
+      alert('Select a tank and CSV/XLSX file.')
+      return
+    }
+
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    const { data: latestVersions } = await supabase
+      .from('tank_calibration_versions')
+      .select('version_number')
+      .eq('tank_id', selectedStrappingTankId)
+      .order('version_number', { ascending: false })
+      .limit(1)
+
+    const nextVersion = Number(latestVersions?.[0]?.version_number || 0) + 1
+
+    const { data: version, error: versionError } = await supabase
+      .from('tank_calibration_versions')
+      .insert({
+        company_id: activeCompanyID,
+        tank_id: selectedStrappingTankId,
+        version_number: nextVersion,
+        name: `Version ${nextVersion}`,
+        active: true,
+      })
+      .select()
+      .single()
+
+    if (versionError || !version) {
+      alert('Could not create calibration version: ' + (versionError?.message || 'unknown error'))
+      return
+    }
+
+    await supabase
+      .from('tank_calibration_versions')
+      .update({ active: false })
+      .eq('tank_id', selectedStrappingTankId)
+      .neq('id', version.id)
+
+    const rows = await parseStrappingFileRows(strappingCsvFile)
+
+    const insertRows = rows
+      .map((row: any) => {
+        const gaugeDecimal = Number(
+          row.gauge_decimal ||
+          row.gauge ||
+          normalizeGaugeToDecimal(row.gauge_feet || row.feet, row.gauge_inches || row.inches, row.gauge_fraction || row.fraction)
+        )
+
+        const barrels = Number(row.barrels || row.bbl || row.volume_bbl || row.volume)
+
+        if (!Number.isFinite(gaugeDecimal) || !Number.isFinite(barrels)) return null
+
+        return {
+          company_id: activeCompanyID,
+          tank_id: selectedStrappingTankId,
+          calibration_version_id: version.id,
+          gauge_decimal: gaugeDecimal,
+          gauge_feet: row.gauge_feet || row.feet || null,
+          gauge_inches: row.gauge_inches || row.inches || null,
+          gauge_fraction: row.gauge_fraction || row.fraction || null,
+          barrels,
+          increment_bbl: row.increment || row.increment_bbl || null,
+          notes: row.notes || null,
+        }
+      })
+      .filter(Boolean) as any[]
+
+    if (insertRows.length === 0) {
+      await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
+      alert('No valid strapping rows found.')
+      return
+    }
+
+    const { error } = await supabase.from('tank_strapping_rows').insert(insertRows)
+
+    if (error) {
+      await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
+      alert('Could not import strapping chart: ' + error.message)
+      return
+    }
+
+    setStrappingCsvFile(null)
+    setSelectedStrappingTankId('')
+    alert(`Imported ${insertRows.length} strapping rows as calibration Version ${nextVersion}. Test 14 ft 4 in should now lookup around 474.60 bbl on the Delek 401 low leg chart.`)
+    await loadAll()
+  }
+
+
+  function normalizeFlowXHeader(header: string) {
+    return String(header || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+  }
+
+  function parseGenericCsv(textValue: string) {
+    const rows: string[][] = []
+    let current = ''
+    let row: string[] = []
+    let inQuotes = false
+
+    for (let i = 0; i < textValue.length; i += 1) {
+      const char = textValue[i]
+      const next = textValue[i + 1]
+
+      if (char === '"' && inQuotes && next === '"') {
+        current += '"'
+        i += 1
+      } else if (char === '"') {
+        inQuotes = !inQuotes
+      } else if (char === ',' && !inQuotes) {
+        row.push(current.trim())
+        current = ''
+      } else if ((char === '\n' || char === '\r') && !inQuotes) {
+        if (current || row.length) {
+          row.push(current.trim())
+          rows.push(row)
+          row = []
+          current = ''
+        }
+        if (char === '\r' && next === '\n') i += 1
+      } else {
+        current += char
+      }
+    }
+
+    if (current || row.length) {
+      row.push(current.trim())
+      rows.push(row)
+    }
+
+    if (rows.length < 2) return []
+
+    const headers = rows[0].map(normalizeFlowXHeader)
+
+    return rows.slice(1).map((values) => {
+      const output: Record<string, string> = {}
+      headers.forEach((header, index) => {
+        output[header] = values[index] || ''
+      })
+      return output
+    })
+  }
+
+  function getFlowXValue(row: any, names: string[]) {
+    for (const name of names) {
+      const key = normalizeFlowXHeader(name)
+      if (row[key] !== undefined && row[key] !== '') return row[key]
+    }
+
+    return ''
+  }
+
+  function getFlowXNumber(row: any, names: string[]) {
+    const raw = getFlowXValue(row, names)
+    const value = Number(String(raw).replace(/,/g, ''))
+    return Number.isFinite(value) ? value : 0
+  }
+
+  function getFlowXDate(row: any, names: string[]) {
+    const raw = getFlowXValue(row, names)
+    if (!raw) return null
+
+    const date = new Date(raw)
+    return Number.isNaN(date.getTime()) ? null : date.toISOString()
+  }
+
+  function getFlowXSplits() {
+    const splits = [
+      { customer: flowxTransporter1, percent: Number(flowxPercent1 || 0) },
+      { customer: flowxTransporter2, percent: Number(flowxPercent2 || 0) },
+      { customer: flowxTransporter3, percent: Number(flowxPercent3 || 0) },
+      { customer: flowxTransporter4, percent: Number(flowxPercent4 || 0) },
+    ].filter((split) => split.customer && split.percent > 0)
+
+    const total = splits.reduce((sum, split) => sum + split.percent, 0)
+
+    if (splits.length === 0) return []
+
+    return splits.map((split) => ({
+      ...split,
+      normalizedPercent: total > 0 ? split.percent / total : 0,
+    }))
+  }
+
+
+  function parseFlowXCsvForMapping(csvText: string) {
+    const rows: string[][] = []
+    let current = ''
+    let row: string[] = []
+    let inQuotes = false
+
+    for (let i = 0; i < csvText.length; i += 1) {
+      const char = csvText[i]
+      const next = csvText[i + 1]
+
+      if (char === '"' && inQuotes && next === '"') {
+        current += '"'
+        i += 1
+      } else if (char === '"') {
+        inQuotes = !inQuotes
+      } else if (char === ',' && !inQuotes) {
+        row.push(current.trim())
+        current = ''
+      } else if ((char === '\n' || char === '\n') && !inQuotes) {
+        if (current || row.length) {
+          row.push(current.trim())
+          rows.push(row)
+          row = []
+          current = ''
+        }
+        if (char === '\n' && next === '\n') i += 1
+      } else {
+        current += char
+      }
+    }
+
+    if (current || row.length) {
+      row.push(current.trim())
+      rows.push(row)
+    }
+
+    if (rows.length === 0) return { headers: [], data: [] }
+
+    const normalize = (value: any) => String(value || '').trim().toLowerCase()
+
+    // Flow-X daily ticket files often have report title / total rows / blank lines first.
+    // Find the real header row by looking for known fields.
+    let headerIndex = rows.findIndex((candidate) => {
+      const joined = candidate.map(normalize).join('|')
+      return (
+        joined.includes('start time') &&
+        joined.includes('stop time') &&
+        (joined.includes('ticket nr') || joined.includes('ticket no') || joined.includes('ticket number')) &&
+        (joined.includes('batch nr') || joined.includes('batch no') || joined.includes('batch number'))
+      )
+    })
+
+    if (headerIndex < 0) {
+      headerIndex = rows.findIndex((candidate) => {
+        const joined = candidate.map(normalize).join('|')
+        return joined.includes('ticket') && joined.includes('truck') && (joined.includes('gsv') || joined.includes('nsv') || joined.includes('gross'))
+      })
+    }
+
+    if (headerIndex < 0) headerIndex = 0
+
+    const headers = rows[headerIndex].map((header) => String(header || '').trim())
+    const data = rows
+      .slice(headerIndex + 1)
+      .filter((values) => values.some((value) => String(value || '').trim()))
+      .filter((values) => {
+        // Skip separator/blank rows directly below header.
+        const joined = values.map(normalize).join('|')
+        if (!joined.replace(/\|/g, '').trim()) return false
+        if (joined.includes('start time') && joined.includes('stop time')) return false
+        return true
+      })
+      .map((values) => {
+        const output: any = {}
+        headers.forEach((header, index) => {
+          output[header] = values[index] || ''
+        })
+        return output
+      })
+
+    return { headers, data }
+  }
+
+  function guessFlowXColumn(headers: string[], options: string[]) {
+    const normalized = headers.map((header) => ({
+      raw: header,
+      key: String(header || '').toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+    }))
+
+    for (const option of options) {
+      const optionKey = option.toLowerCase().replace(/[^a-z0-9]+/g, '_')
+      const match = normalized.find((header) => header.key === optionKey || header.key.includes(optionKey))
+      if (match) return match.raw
+    }
+
+    return ''
+  }
+
+  async function previewFlowXCsv(file?: File | null) {
+    const selectedFile = file || flowxCsvFile
+
+    if (!selectedFile) {
+      alert('Choose a Flow-X CSV first.')
+      return
+    }
+
+    const csvText = await selectedFile.text()
+    const parsed = parseFlowXCsvForMapping(csvText)
+    setFlowxMappingHeaders(parsed.headers)
+    setFlowxMappingRows(parsed.data.slice(0, 10))
+    setTimeout(() => refreshFlowXAutoSplits(parsed.data), 0)
+
+    setFlowxColumnMap({
+      ticket_number: guessFlowXColumn(parsed.headers, ['ticket nr', 'ticket_number', 'ticket no', 'ticket']),
+      batch_number: guessFlowXColumn(parsed.headers, ['batch nr', 'batch_number', 'batch no', 'batch', 'load_number']),
+      truck_number: guessFlowXColumn(parsed.headers, ['truck nr', 'truck_number', 'truck no', 'truck']),
+      driver_name: guessFlowXColumn(parsed.headers, ['driver name', 'driver_name', 'driver']),
+      customer_name: guessFlowXColumn(parsed.headers, ['customer', 'customer_name']),
+      producer_name: guessFlowXColumn(parsed.headers, ['producer_name', 'producer']),
+      transporter_name: guessFlowXColumn(parsed.headers, ['transporter', 'transporter_name']),
+      lease_name: guessFlowXColumn(parsed.headers, ['lease_name', 'lease']),
+      meter_number: guessFlowXColumn(parsed.headers, ['rack nr', 'meter_number', 'meter']),
+      segment_name: guessFlowXColumn(parsed.headers, ['site', 'segment_name', 'segment']),
+      gross_volume_bbl: guessFlowXColumn(parsed.headers, ['gsv batch', 'iv batch', 'driver obs gross bbls', 'gross_volume_bbl', 'gross volume', 'gross', 'gov', 'gsv']),
+      net_volume_bbl: guessFlowXColumn(parsed.headers, ['nsv batch', 'net_volume_bbl', 'net volume', 'net', 'nsv']),
+      api_gravity: guessFlowXColumn(parsed.headers, ['api 60f', 'driver obs api', 'api_gravity', 'api', 'gravity']),
+      observed_temperature: guessFlowXColumn(parsed.headers, ['temperature', 'driver obs temp', 'observed_temperature', 'observed temp', 'obs_temp']),
+      bsw_percent: guessFlowXColumn(parsed.headers, ['bs&w', 'driver obs bs&w', 'bsw_percent', 'bsw', 's&w', 'sw']),
+      open_datetime: guessFlowXColumn(parsed.headers, ['start time', 'open_datetime', 'open time', 'start_time']),
+      close_datetime: guessFlowXColumn(parsed.headers, ['stop time', 'close_datetime', 'close time', 'end_time']),
+    })
+  }
+
+  function getMappedFlowXValue(row: any, field: string) {
+    const header = flowxColumnMap[field]
+
+    if (header && row[header] !== undefined) return row[header]
+
+    const aliases: Record<string, string[]> = {
+      ticket_number: ['Ticket Nr.', 'Ticket Nr', 'Ticket No', 'Ticket Number', 'Ticket'],
+      batch_number: ['Batch Nr.', 'Batch Nr', 'Batch No', 'Batch Number', 'Batch'],
+      truck_number: ['Truck Nr.', 'Truck Nr', 'Truck No', 'Truck Number', 'Truck'],
+      driver_name: ['Driver Name', 'Driver'],
+      producer_name: ['Producer'],
+      transporter_name: ['Transporter', 'Transporter Name', 'Carrier', 'Shipper'],
+      customer_name: ['Customer', 'Customer Name'],
+      lease_name: ['Lease', 'Lease Name'],
+      meter_number: ['Rack Nr.', 'Rack Nr', 'Meter Number', 'Meter'],
+      segment_name: ['Site', 'Segment', 'Segment Name'],
+      gross_volume_bbl: ['GSV Batch', 'IV Batch', 'Driver Obs Gross Bbls.', 'Driver Obs Gross Bbls', 'Gross Volume', 'GSV'],
+      net_volume_bbl: ['NSV Batch', 'Net Volume', 'NSV'],
+      api_gravity: ['API 60F', 'Driver Obs API', 'API Gravity', 'API'],
+      observed_temperature: ['Temperature', 'Driver Obs Temp', 'Observed Temp'],
+      bsw_percent: ['BS&W', 'Driver Obs BS&W', 'BSW', 'S&W'],
+      open_datetime: ['Start Time', 'Open Time'],
+      close_datetime: ['Stop Time', 'Close Time'],
+    }
+
+    const possibleHeaders = aliases[field] || []
+
+    for (const possibleHeader of possibleHeaders) {
+      if (row[possibleHeader] !== undefined && row[possibleHeader] !== '') return row[possibleHeader]
+    }
+
+    const normalizedFieldHeaders = Object.keys(row).reduce((acc: Record<string, string>, key) => {
+      acc[String(key).toLowerCase().replace(/[^a-z0-9]+/g, '_')] = key
+      return acc
+    }, {})
+
+    for (const possibleHeader of possibleHeaders) {
+      const normalized = possibleHeader.toLowerCase().replace(/[^a-z0-9]+/g, '_')
+      const realHeader = normalizedFieldHeaders[normalized]
+      if (realHeader && row[realHeader] !== undefined && row[realHeader] !== '') return row[realHeader]
+    }
+
+    return ''
+  }
+
+  function getMappedFlowXNumber(row: any, field: string) {
+    const raw = getMappedFlowXValue(row, field)
+    const value = Number(String(raw || '').replace(/,/g, ''))
+    return Number.isFinite(value) ? value : 0
+  }
+
+  function getMappedFlowXDate(row: any, field: string) {
+    const raw = getMappedFlowXValue(row, field)
+    if (!raw) return null
+    const date = new Date(raw)
+    return Number.isNaN(date.getTime()) ? null : date.toISOString()
+  }
+
+  function updateFlowXColumnMap(field: string, value: string) {
+    setFlowxColumnMap((prev: any) => ({ ...prev, [field]: value }))
+  }
+
+  function getFlowXSplitsFromForm() {
+    const splits = [
+      { customer: flowxTransporter1, percent: Number(flowxPercent1 || 0) },
+      { customer: flowxTransporter2, percent: Number(flowxPercent2 || 0) },
+      { customer: flowxTransporter3, percent: Number(flowxPercent3 || 0) },
+      { customer: flowxTransporter4, percent: Number(flowxPercent4 || 0) },
+    ].filter((split) => split.customer && split.percent > 0)
+
+    const total = splits.reduce((sum, split) => sum + split.percent, 0)
+
+    return splits.map((split) => ({
+      ...split,
+      normalizedPercent: total ? split.percent / total : 0,
+    }))
+  }
+
+
+
+  function calculateFlowXTransporterSplitsFromRows(rows: any[]) {
+    const totals: Record<string, number> = {}
+    let grandTotal = 0
+
+    rows.forEach((row) => {
+      const transporter = String(
+        getMappedFlowXValue(row, 'transporter_name') ||
+        getMappedFlowXValue(row, 'producer_name') ||
+        getMappedFlowXValue(row, 'customer_name') ||
+        'Unknown Transporter'
+      ).trim()
+
+      const nsv = getMappedFlowXNumber(row, 'net_volume_bbl') || getMappedFlowXNumber(row, 'gross_volume_bbl') || Number(row['NSV Batch'] || row['GSV Batch'] || row['IV Batch'] || 0)
+
+      if (!transporter || !Number.isFinite(nsv) || nsv <= 0) return
+
+      totals[transporter] = (totals[transporter] || 0) + nsv
+      grandTotal += nsv
+    })
+
+    return Object.entries(totals)
+      .map(([transporter, total]) => ({
+        customer: transporter,
+        transporter,
+        percent: grandTotal ? (total / grandTotal) * 100 : 0,
+        normalizedPercent: grandTotal ? total / grandTotal : 0,
+        totalNsv: total,
+      }))
+      .sort((a, b) => b.totalNsv - a.totalNsv)
+  }
+
+  function refreshFlowXAutoSplits(rows?: any[]) {
+    const sourceRows = rows || flowxMappingRows || []
+    const splits = calculateFlowXTransporterSplitsFromRows(sourceRows)
+    setFlowxAutoSplits(splits)
+    return splits
+  }
+
+  function getFlowXAutoTransporterSplits(rows: any[]) {
+    const totals: Record<string, number> = {}
+    let grandTotal = 0
+
+    rows.forEach((row) => {
+      const transporter = String(getMappedFlowXValue(row, 'transporter_name') || getMappedFlowXValue(row, 'producer_name') || 'Unknown Transporter').trim()
+      const nsv = getMappedFlowXNumber(row, 'net_volume_bbl') || getMappedFlowXNumber(row, 'gross_volume_bbl') || Number(row['NSV Batch'] || row['GSV Batch'] || row['IV Batch'] || 0)
+
+      if (!transporter || !nsv) return
+
+      totals[transporter] = (totals[transporter] || 0) + nsv
+      grandTotal += nsv
+    })
+
+    return Object.entries(totals).map(([transporter, total]) => ({
+      customer: transporter,
+      transporter,
+      percent: grandTotal ? (total / grandTotal) * 100 : 0,
+      normalizedPercent: grandTotal ? total / grandTotal : 0,
+      totalNsv: total,
+    }))
+  }
+
+  function getFlowXSplitsForImport(rows: any[]) {
+    if (flowxManualSplitOverride) {
+      const manualSplits = getFlowXSplitsFromForm()
+
+      if (manualSplits.length > 0) {
+        return manualSplits.map((split: any) => ({
+          ...split,
+          transporter: split.customer,
+        }))
+      }
+    }
+
+    return calculateFlowXTransporterSplitsFromRows(rows)
+  }
+
+  function getLatestPotForTransporter(transporterName: string) {
+    if (!transporterName) return null
+
+    return potQuality
+      .filter((pot: any) => {
+        const potTransporter = String(
+          pot.transporter ||
+          pot.transporter_name ||
+          pot.customer ||
+          pot.customer_name ||
+          pot.producer_name ||
+          ''
+        ).toLowerCase()
+
+        return potTransporter === transporterName.toLowerCase()
+      })
+      .sort((a: any, b: any) =>
+        new Date(b.created_at || b.sample_date || 0).getTime() -
+        new Date(a.created_at || a.sample_date || 0).getTime()
+      )[0] || null
+  }
+
+  async function importMappedFlowXTruckTickets() {
+    if (!flowxCsvFile) {
+      alert('Choose a Flow-X CSV file first.')
+      return
+    }
+
+    const csvText = await flowxCsvFile.text()
+    const parsed = parseFlowXCsvForMapping(csvText)
+    const splits = getFlowXSplitsForImport(parsed.data)
+
+    if (splits.length === 0) {
+      alert('No transporter volumes found in the CSV. Check Transporter and NSV/GSV column mapping, or enable manual override.')
+      return
+    }
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    if (!activeCompanyID) {
+      alert('No company selected.')
+      return
+    }
+
+    const { data: batch, error: batchError } = await supabase
+      .from('flowx_import_batches')
+      .insert({
+        company_id: activeCompanyID,
+        lact_name: flowxLactName || null,
+        source_file_name: flowxCsvFile.name,
+        imported_count: parsed.data.length,
+      })
+      .select()
+      .single()
+
+    if (batchError || !batch) {
+      alert('Could not create import batch: ' + (batchError?.message || 'unknown error'))
+      return
+    }
+
+    let createdTickets = 0
+
+    for (const row of parsed.data) {
+      const sourceTicketNumber = getMappedFlowXValue(row, 'ticket_number')
+      const batchNumber = getMappedFlowXValue(row, 'batch_number')
+      const truckNumber = getMappedFlowXValue(row, 'truck_number')
+      const driverName = getMappedFlowXValue(row, 'driver_name')
+      const fileTransporterName = getMappedFlowXValue(row, 'customer_name')
+      const producerName = getMappedFlowXValue(row, 'producer_name')
+      const transporterName = getMappedFlowXValue(row, 'transporter_name') || producerName
+      const leaseName = getMappedFlowXValue(row, 'lease_name')
+      const meterNumber = getMappedFlowXValue(row, 'meter_number')
+      const segmentName = getMappedFlowXValue(row, 'segment_name')
+      const grossVolume = getMappedFlowXNumber(row, 'gross_volume_bbl')
+      const netVolume = getMappedFlowXNumber(row, 'net_volume_bbl') || grossVolume
+      const apiGravity = getMappedFlowXNumber(row, 'api_gravity')
+      const observedTemp = getMappedFlowXNumber(row, 'observed_temperature')
+      const bswPercent = getMappedFlowXNumber(row, 'bsw_percent')
+
+      const { data: flowxRow } = await supabase
+        .from('flowx_truck_import_rows')
+        .insert({
+          company_id: activeCompanyID,
+          import_batch_id: batch.id,
+          lact_name: flowxLactName || null,
+          batch_number: batchNumber || null,
+          ticket_number: sourceTicketNumber || null,
+          truck_number: truckNumber || null,
+          driver_name: driverName || null,
+          producer_name: producerName || null,
+          transporter_name: transporterName || null,
+          lease_name: leaseName || null,
+          meter_number: meterNumber || null,
+          segment_name: segmentName || null,
+          open_datetime: getMappedFlowXDate(row, 'open_datetime'),
+          close_datetime: getMappedFlowXDate(row, 'close_datetime'),
+          gross_volume_bbl: grossVolume || null,
+          net_volume_bbl: netVolume || null,
+          observed_temperature: observedTemp || null,
+          raw_row: row,
+        })
+        .select()
+        .single()
+
+      for (const split of splits) {
+        const { data: generatedNumber } = await supabase.rpc('generate_ticket_number', {
+          p_company_id: activeCompanyID,
+        })
+
+        const splitTransporter = split.transporter || split.customer || transporterName
+        const assignedPot = getLatestPotForTransporter(splitTransporter)
+        const splitGross = grossVolume * split.normalizedPercent
+        const splitNet = netVolume * split.normalizedPercent
+
+        const ticketPayload: any = {
+          company_id: activeCompanyID,
+          ticket_number: generatedNumber || `${sourceTicketNumber || batchNumber}-${splitTransporter}`,
+          ticket_type: 'truck',
+          status: 'draft',
+          segment_id: flowxDefaultSegmentId || null,
+          import_batch_id: batch.id,
+          flowx_row_id: flowxRow?.id || null,
+          truck_number: truckNumber || null,
+          driver_name: driverName || null,
+          customer_name: split.customer || fileTransporterName,
+          split_parent_ticket: sourceTicketNumber || batchNumber || null,
+          split_percent: split.percent,
+          lact_name: flowxLactName || null,
+          observed_inputs: {
+            source: 'flowx_csv_mapped',
+            lact_name: flowxLactName || null,
+            source_ticket_number: sourceTicketNumber || null,
+            batch_number: batchNumber || null,
+            truck_number: truckNumber || null,
+            driver_name: driverName || null,
+            producer_name: producerName || null,
+            lease_name: leaseName || null,
+            meter_number: meterNumber || null,
+            customer_name: splitTransporter,
+            transporter_name: splitTransporter,
+            assigned_pot_id: assignedPot?.id || null,
+            assigned_pot_sample_date: assignedPot?.sample_date || (assignedPot as any)?.created_at || null,
+            split_percent: split.percent,
+            gross_volume_bbl: splitGross,
+            net_volume_bbl: splitNet,
+            observed_temperature: observedTemp || null,
+          },
+          calculation_results: {
+            gov: splitGross,
+            gsv: splitGross,
+            nsv: splitNet,
+            split_percent: split.percent,
+            assigned_pot_id: assignedPot?.id || null,
+          },
+        }
+
+        const { error } = await supabase.from('tickets').insert(ticketPayload)
+
+        if (!error) createdTickets += 1
+        else console.error('Flow-X mapped ticket insert failed:', error)
+      }
+    }
+
+    alert(`Flow-X import complete. Created ${createdTickets} draft truck tickets.`)
+    setFlowxCsvFile(null)
+    setFlowxMappingRows([])
+    setFlowxMappingHeaders([])
+    await loadAll()
+    setPage('tickets')
+  }
+
+
+  function getFlowXRowValue(row: any, field: string, headers: string[] = []) {
+    const mapped = typeof getMappedFlowXValue === 'function' ? getMappedFlowXValue(row, field) : ''
+    if (mapped) return mapped
+    for (const h of headers) if (row[h] !== undefined && row[h] !== '') return row[h]
+    return ''
+  }
+
+  function getFlowXRowNumber(row: any, field: string, headers: string[] = []) {
+    const raw = getFlowXRowValue(row, field, headers)
+    const value = Number(String(raw || '').replace(/,/g, ''))
+    return Number.isFinite(value) ? value : 0
+  }
+
+  function buildFlowXTransporterSummaries(rows: any[]) {
+    const map: Record<string, any> = {}
+
+    rows.forEach((row: any) => {
+      const transporter = String(getFlowXRowValue(row, 'transporter_name', ['Transporter', 'Transporter Name', 'Customer']) || 'Unknown Transporter').trim()
+      const gross = getFlowXRowNumber(row, 'gross_volume_bbl', ['GSV Batch', 'IV Batch', 'Driver Obs Gross Bbls.', 'Driver Obs Gross Bbls'])
+      const net = getFlowXRowNumber(row, 'net_volume_bbl', ['NSV Batch']) || gross
+      if (!transporter || (!gross && !net)) return
+
+      if (!map[transporter]) {
+        map[transporter] = { transporter, gross: 0, net: 0, temp: 0, pressure: 0, api: 0, bsw: 0, ctl: 0, cpl: 0, ctpl: 0, weight: 0, rows: 0, tickets: new Set(), batches: new Set(), trucks: new Set(), drivers: new Set(), leases: new Set() }
+      }
+
+      const weight = net || gross || 1
+      const s = map[transporter]
+      s.gross += gross
+      s.net += net
+      s.weight += weight
+      s.rows += 1
+      s.temp += getFlowXRowNumber(row, 'observed_temperature', ['Temperature', 'Driver Obs Temp']) * weight
+      s.pressure += getFlowXRowNumber(row, 'pressure', ['Pressure']) * weight
+      s.api += getFlowXRowNumber(row, 'api_gravity', ['API 60F', 'Driver Obs API']) * weight
+      s.bsw += getFlowXRowNumber(row, 'bsw_percent', ['BS&W', 'Driver Obs BS&W']) * weight
+      s.ctl += getFlowXRowNumber(row, 'ctl', ['CTL']) * weight
+      s.cpl += getFlowXRowNumber(row, 'cpl', ['CPL']) * weight
+      s.ctpl += getFlowXRowNumber(row, 'ctpl', ['CTPL']) * weight
+
+      const ticket = getFlowXRowValue(row, 'ticket_number', ['Ticket Nr.', 'Ticket Nr', 'Ticket Number'])
+      const batch = getFlowXRowValue(row, 'batch_number', ['Batch Nr.', 'Batch Nr', 'Batch Number'])
+      const truck = getFlowXRowValue(row, 'truck_number', ['Truck Nr.', 'Truck Nr', 'Truck Number'])
+      const driver = getFlowXRowValue(row, 'driver_name', ['Driver Name'])
+      const lease = getFlowXRowValue(row, 'lease_name', ['Lease'])
+      if (ticket) s.tickets.add(ticket)
+      if (batch) s.batches.add(batch)
+      if (truck) s.trucks.add(truck)
+      if (driver) s.drivers.add(driver)
+      if (lease) s.leases.add(lease)
+    })
+
+    return Object.values(map).map((s: any) => ({
+      ...s,
+      avgTemp: s.weight ? s.temp / s.weight : 0,
+      avgPressure: s.weight ? s.pressure / s.weight : 0,
+      avgApi: s.weight ? s.api / s.weight : 0,
+      avgBsw: s.weight ? s.bsw / s.weight : 0,
+      avgCtl: s.weight ? s.ctl / s.weight : 0,
+      avgCpl: s.weight ? s.cpl / s.weight : 0,
+      avgCtpl: s.weight ? s.ctpl / s.weight : 0,
+      ticketList: Array.from(s.tickets).join(', '),
+      batchList: Array.from(s.batches).join(', '),
+      truckList: Array.from(s.trucks).join(', '),
+      driverList: Array.from(s.drivers).join(', '),
+      leaseList: Array.from(s.leases).join(', '),
+    }))
+  }
+
+
+  function normalizeTransporterName(value: any) {
+    return String(value || '').trim().toLowerCase()
+  }
+
+  function getAssignedPotForTransporter(transporterName: string) {
+    const normalized = normalizeTransporterName(transporterName)
+
+    const rule = transporterPotRules.find((item: any) =>
+      normalizeTransporterName(item.transporter_name) === normalized
+    )
+
+    if (rule?.pot_quality_id) {
+      const pot = potQuality.find((p: any) => p.id === rule.pot_quality_id)
+      if (pot) return pot
+    }
+
+    const directPot = potQuality
+      .filter((pot: any) => {
+        const potTransporter = normalizeTransporterName(
+          pot.transporter_name ||
+          pot.transporter ||
+          pot.customer_name ||
+          pot.customer ||
+          pot.producer_name ||
+          ''
+        )
+        return potTransporter === normalized
+      })
+      .sort((a: any, b: any) =>
+        new Date((b as any).created_at || b.sample_date || 0).getTime() -
+        new Date((a as any).created_at || a.sample_date || 0).getTime()
+      )[0]
+
+    return directPot || null
+  }
+
+  async function loadTransporterPotRules() {
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!activeCompanyID) return
+
+    const { data, error } = await supabase
+      .from('transporter_pot_rules')
+      .select('*')
+      .eq('company_id', activeCompanyID)
+      .order('transporter_name')
+
+    if (!error) setTransporterPotRules(data || [])
+  }
+
+  async function saveTransporterPotRule() {
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    if (!activeCompanyID) {
+      alert('No company selected.')
+      return
+    }
+
+    if (!newTransporterPotName || !newTransporterPotId) {
+      alert('Enter transporter and select POT.')
+      return
+    }
+
+    const { error } = await supabase
+      .from('transporter_pot_rules')
+      .upsert({
+        company_id: activeCompanyID,
+        transporter_name: newTransporterPotName.trim(),
+        pot_quality_id: newTransporterPotId,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'company_id,transporter_name' })
+
+    if (error) {
+      alert('Could not save transporter POT rule: ' + error.message)
+      return
+    }
+
+    setNewTransporterPotName('')
+    setNewTransporterPotId('')
+    await loadTransporterPotRules()
+    alert('Transporter POT rule saved.')
+  }
+
+  async function deleteTransporterPotRule(ruleId: string) {
+    const { error } = await supabase.from('transporter_pot_rules').delete().eq('id', ruleId)
+    if (error) {
+      alert('Could not delete rule: ' + error.message)
+      return
+    }
+    await loadTransporterPotRules()
+  }
+
+
+  function getPotNumberLabel(pot: any) {
+    if (!pot) return ''
+    return (
+      (pot as any).pot_number ||
+      (pot as any).sample_id ||
+      (pot as any).sample_number ||
+      (pot as any).id ||
+      ''
+    )
+  }
+
+
+  function getPotObservedApiGravity(pot: any, fallback = 0) {
+    return Number(
+      (pot as any)?.observed_api_gravity ||
+      (pot as any)?.api_observed ||
+      (pot as any)?.api_gravity_observed ||
+      fallback ||
+      0
+    )
+  }
+
+  function getPotApiGravityAt60(pot: any, fallback = 0) {
+    return Number(
+      (pot as any)?.api_gravity_60 ||
+      (pot as any)?.corrected_api_gravity ||
+      (pot as any)?.api_gravity ||
+      (pot as any)?.observed_api_gravity ||
+      fallback ||
+      0
+    )
+  }
+
+  function getPotApiGravity(pot: any, fallback = 0) {
+    return Number(
+      (pot as any)?.api_gravity_60 ||
+      (pot as any)?.api_gravity ||
+      (pot as any)?.observed_api_gravity ||
+      fallback ||
+      0
+    )
+  }
+
+  function getPotBswPercent(pot: any, fallback = 0) {
+    return Number(
+      (pot as any)?.bsw_percent ||
+      (pot as any)?.bsw ||
+      (pot as any)?.sw_percent ||
+      fallback ||
+      0
+    )
+  }
+
+
+  async function checkFlowXDuplicateImport(activeCompanyID: string, fileName: string, lactName: string) {
+    const { data, error } = await supabase
+      .from('flowx_import_batches')
+      .select('id, source_file_name, lact_name, imported_count, created_at')
+      .eq('company_id', activeCompanyID)
+      .eq('source_file_name', fileName)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (error) {
+      console.warn('Duplicate Flow-X import check failed:', error)
+      return 'none'
+    }
+
+    const existing = (data || [])[0]
+    if (!existing) return 'none'
+
+    const existingLact = String(existing.lact_name || '').trim().toLowerCase()
+    const currentLact = String(lactName || '').trim().toLowerCase()
+
+    if (existingLact && currentLact && existingLact !== currentLact) {
+      return 'none'
+    }
+
+    const importedAt = existing.created_at ? new Date(existing.created_at).toLocaleString() : 'previous import'
+
+    return window.confirm(
+      `This Flow-X file was already imported on ${importedAt}.\n\n` +
+      `File: ${fileName}\n` +
+      `LACT: ${existing.lact_name || lactName || 'N/A'}\n` +
+      `Rows: ${existing.imported_count || 'N/A'}\n\n` +
+      `Importing again can create duplicate draft tickets.\n\n` +
+      `Click OK to import anyway, or Cancel to stop.`
+    ) ? 'continue' : 'stop'
+  }
+
+  async function deleteExistingFlowXDraftsForBatch(importBatchId: string) {
+    if (!importBatchId) return
+
+    const { error } = await supabase
+      .from('tickets')
+      .delete()
+      .eq('import_batch_id', importBatchId)
+      .eq('status', 'draft')
+
+    if (error) {
+      console.warn('Could not remove existing draft tickets for duplicate batch:', error)
+    }
+  }
+
+
+
+
+  function getApiTesterResult() {
+    const factors = calculateApi111CorrectionFactors({
+      api_version: apiTesterVersion,
+      observed_temperature: Number(apiTesterTemp || 60),
+      observed_pressure: Number(apiTesterPressure || 0),
+      base_temperature: 60,
+    })
+
+    const volume = calculateChapter122021({
+      iv: Number(apiTesterIv || 0),
+      ctl: factors.ctl,
+      cpl: factors.cpl,
+      mf: Number(apiTesterMf || 1),
+      api_version: apiTesterVersion,
+      ccf: factors.ctpl,
+    })
+
+    return {
+      ...factors,
+      ...volume,
+      ctpl: factors.ctpl,
+    }
+  }
+
+
+  function roundToDecimals(value: any, decimals: number) {
+    const num = Number(value || 0)
+    if (!Number.isFinite(num)) return 0
+    const factor = 10 ** decimals
+    return Math.round((num + Number.EPSILON) * factor) / factor
+  }
+
+  function getApiVersionRoundingProfile(version: string) {
+    // These are configurable app rounding profiles by API 11.1 generation.
+    // Exact contractual rounding should be verified against the contract/API implementation you are matching.
+    if (version === 'api_11_1_2004') {
+      return {
+        ctlDecimals: 4,
+        cplDecimals: 4,
+        ctplDecimals: 4,
+        gsvDecimals: 1,
+        nsvDecimals: 1,
+        label: 'Legacy 2004 rounding profile',
+      }
+    }
+
+    if (version === 'api_11_1_2007') {
+      return {
+        ctlDecimals: 5,
+        cplDecimals: 5,
+        ctplDecimals: 5,
+        gsvDecimals: 1,
+        nsvDecimals: 1,
+        label: '2007 rounding profile',
+      }
+    }
+
+    if (version === 'api_11_1_2019') {
+      return {
+        ctlDecimals: 5,
+        cplDecimals: 5,
+        ctplDecimals: 5,
+        gsvDecimals: 1,
+        nsvDecimals: 1,
+        label: '2019 rounding profile',
+      }
+    }
+
+    return {
+      ctlDecimals: 6,
+      cplDecimals: 6,
+      ctplDecimals: 6,
+      gsvDecimals: 1,
+      nsvDecimals: 1,
+      label: '2021 rounding profile',
+    }
+  }
+
+  function applyApiVersionRounding(result: any, version: string) {
+    const profile = getApiVersionRoundingProfile(version)
+
+    return {
+      ...result,
+      iv: result.iv !== undefined ? roundToDecimals(result.iv, 1) : result.iv,
+      ctl: roundToDecimals(result.ctl, profile.ctlDecimals),
+      cpl: roundToDecimals(result.cpl, profile.cplDecimals),
+      ctpl: roundToDecimals(result.ctpl, profile.ctplDecimals),
+      gsv: result.gsv !== undefined ? roundToDecimals(result.gsv, profile.gsvDecimals) : result.gsv,
+      nsv: result.nsv !== undefined ? roundToDecimals(result.nsv, profile.nsvDecimals) : result.nsv,
+      rounding_profile: profile,
+    }
+  }
+
+  function getApiVersionLabel(version: string) {
+    if (version === 'api_11_1_2004') return 'API MPMS 11.1 (2004)'
+    if (version === 'api_11_1_2007') return 'API MPMS 11.1 (2007)'
+    if (version === 'api_11_1_2019') return 'API MPMS 11.1 (2019)'
+    if (version === 'api_11_1_2021') return 'API MPMS 11.1 (2021)'
+    return version || 'API MPMS 11.1'
+  }
+
+  function calculateApi111CorrectionFactors(input: any) {
+    const apiVersion = input.api_version || 'api_11_1_2021'
+    const observedTemp = Number(input.observed_temperature || input.temperature || 60)
+    const observedPressure = Number(input.observed_pressure || input.pressure || 0)
+    const apiGravity = Number(input.api_gravity || 40)
+    const baseTemp = Number(input.base_temperature || 60)
+
+    const tempDelta = observedTemp - baseTemp
+    const gravityAdjustment = Math.max(0.00025, Math.min(0.00065, 0.00045 - ((apiGravity - 40) * 0.000002)))
+    const pressureCompressibility = Math.max(0.000002, Math.min(0.000008, 0.0000045 + ((apiGravity - 40) * 0.00000003)))
+
+    const ctl = 1 / (1 + (gravityAdjustment * tempDelta))
+    const cpl = 1 / (1 - (pressureCompressibility * observedPressure))
+    const ctpl = ctl * cpl
+
+    const roundingProfile = getApiVersionRoundingProfile(apiVersion)
+    const roundedCtl = roundToDecimals(ctl, roundingProfile.ctlDecimals)
+    const roundedCpl = roundToDecimals(cpl, roundingProfile.cplDecimals)
+    const roundedCtpl = roundToDecimals(ctpl, roundingProfile.ctplDecimals)
+
+    return {
+      api_version: apiVersion,
+      api_version_label: getApiVersionLabel(apiVersion),
+      ctl: roundedCtl,
+      cpl: roundedCpl,
+      ctpl: roundedCtpl,
+      correction_source: 'app_calculated_placeholder',
+      rounding_profile: roundingProfile,
+      warning: 'API 11.1 framework active. Replace placeholder approximation with licensed/verified API MPMS 11.1 implementation before custody-transfer reliance.',
+      audit: {
+        api_version: apiVersion,
+        api_version_label: getApiVersionLabel(apiVersion),
+        observed_temperature: observedTemp,
+        observed_pressure: observedPressure,
+        base_temperature: baseTemp,
+        raw_ctl: ctl,
+        raw_cpl: cpl,
+        raw_ctpl: ctpl,
+        rounded_ctl: roundedCtl,
+        rounded_cpl: roundedCpl,
+        rounded_ctpl: roundedCtpl,
+        rounding_profile: roundingProfile,
+      },
+    }
+  }
+
+  function calculateChapter122021(input: any) {
+    const ivRaw = Number(input.iv ?? input.gross_volume_bbl ?? 0)
+    const ctl = Number(input.ctl || 1)
+    const cpl = Number(input.cpl || 1)
+    const mf = Number(input.mf || 1)
+    const bswPercent = Number(input.bsw_percent || 0)
+    const apiVersion = input.api_version || 'api_11_1_2021'
+
+    const csw = 1 - (bswPercent / 100)
+    const ccf = Number(input.ccf || input.ctpl || (ctl * cpl * mf))
+
+    const usesCombinedCorrectionFactor = ['api_11_1_2004', 'api_11_1_2007', 'api_11_1_2019'].includes(apiVersion)
+
+    const gsvRaw = usesCombinedCorrectionFactor
+      ? ivRaw * ccf
+      : ivRaw * ctl * cpl * mf
+
+    const nsvRaw = gsvRaw * csw
+
+    const rounded = applyApiVersionRounding({
+      iv: ivRaw,
+      ctl,
+      cpl,
+      mf,
+      ccf,
+      csw,
+      gsv: gsvRaw,
+      nsv: nsvRaw,
+      raw_iv: ivRaw,
+      raw_gsv: gsvRaw,
+      raw_nsv: nsvRaw,
+      method: usesCombinedCorrectionFactor ? `${apiVersion}_ccf` : 'api_11_1_2021_separate_factors',
+      formula: usesCombinedCorrectionFactor
+        ? 'GSV = IV × CCF; NSV = GSV × CSW'
+        : 'GSV = IV × CTL × CPL × MF; NSV = GSV × CSW',
+      uses_combined_correction_factor: usesCombinedCorrectionFactor,
+    }, apiVersion)
+
+    return {
+      ...rounded,
+      iv: roundToDecimals(ivRaw, 1),
+      gsv: roundToDecimals(rounded.gsv, 1),
+      nsv: roundToDecimals(rounded.nsv, 1),
+    }
+  }
+
+  function getContractProfileForTransporter(transporterName: string) {
+    const name = String(transporterName || '').trim().toLowerCase()
+    return contractProfiles.find((profile: any) =>
+      String((profile as any).transporter_name || '').trim().toLowerCase() === name ||
+      String((profile as any).contract_name || '').trim().toLowerCase() === name
+    ) || null
+  }
+
+  function applyContractProfileCalculation(summary: any, assignedPot: any, profile: any) {
+    const method = profile?.calculation_method || 'chapter12_2021'
+    const apiVersion = profile?.api_version || 'api_11_1_2021'
+    const correctionSource = profile?.correction_source || 'app_calculated'
+    const mf = Number(profile?.meter_factor || profile?.default_mf || 1)
+    const bswPercent = Number((assignedPot as any)?.bsw_percent || (assignedPot as any)?.bsw || summary.avgBsw || 0)
+
+    const factors = correctionSource === 'app_calculated'
+      ? calculateApi111CorrectionFactors({
+          api_version: apiVersion,
+          observed_temperature: summary.avgTemp,
+          observed_pressure: summary.avgPressure,
+        })
+      : {
+          api_version: apiVersion,
+          api_version_label: getApiVersionLabel(apiVersion),
+          ctl: Number((assignedPot as any)?.ctl || summary.avgCtl || 1),
+          cpl: Number((assignedPot as any)?.cpl || summary.avgCpl || 1),
+          ctpl: Number((assignedPot as any)?.ctpl || 1),
+          correction_source: 'imported_or_pot',
+          audit: {},
+        }
+
+    if (method === 'chapter12_2021') {
+      return {
+        ...calculateChapter122021({ iv: summary.gross, ctl: factors.ctl, cpl: factors.cpl, mf, ccf: factors.ctpl, bsw_percent: bswPercent, api_version: apiVersion }),
+        api_version: apiVersion,
+        api_version_label: factors.api_version_label,
+        ctpl: factors.ctpl,
+        correction_source: factors.correction_source,
+        calculation_audit: factors.audit,
+      }
+    }
+
+    return {
+      iv: summary.gross,
+      ctl: factors.ctl,
+      cpl: factors.cpl,
+      ctpl: factors.ctpl,
+      mf,
+      gsv: summary.gross,
+      nsv: summary.net,
+      method,
+      formula: 'Flow-X summary volumes',
+      api_version: apiVersion,
+      api_version_label: factors.api_version_label,
+      correction_source: factors.correction_source,
+      calculation_audit: factors.audit,
+    }
+  }
+
+  async function loadContractProfiles() {
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!activeCompanyID) return
+    const { data, error } = await supabase.from('contract_profiles').select('*').eq('company_id', activeCompanyID).order('contract_name')
+    if (!error) setContractProfiles(data || [])
+  }
+
+  async function saveContractProfile() {
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!activeCompanyID) return alert('No company selected.')
+    if (!newContractName) return alert('Enter a contract name.')
+    const { error } = await supabase.from('contract_profiles').upsert({
+      company_id: activeCompanyID,
+      contract_name: newContractName.trim(),
+      transporter_name: newContractTransporter.trim() || newContractName.trim(),
+      calculation_method: newContractMethod,
+      meter_factor: Number(newContractMf || 1),
+      api_version: newContractApiVersion,
+      correction_source: newContractCorrectionSource,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'company_id,contract_name' })
+    if (error) return alert('Could not save contract profile: ' + error.message)
+    setNewContractName(''); setNewContractTransporter(''); setNewContractMf('1'); setNewContractMethod('chapter12_2021')
+    await loadContractProfiles()
+    alert('Contract profile saved.')
+  }
+
+  async function deleteContractProfile(profileId: string) {
+    const { error } = await supabase.from('contract_profiles').delete().eq('id', profileId)
+    if (error) return alert('Could not delete contract profile: ' + error.message)
+    await loadContractProfiles()
+  }
+
+  async function importFlowXTransporterSummaryTickets() {
+    if (!flowxCsvFile) {
+      alert('Choose a Flow-X CSV file first.')
+      return
+    }
+
+    const csvText = await flowxCsvFile.text()
+    const parsed = parseFlowXCsvForMapping(csvText)
+    const summaries = buildFlowXTransporterSummaries(parsed.data || [])
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    if (!activeCompanyID) {
+      alert('No company selected.')
+      return
+    }
+
+    const duplicateDecision = await checkFlowXDuplicateImport(activeCompanyID, flowxCsvFile.name, flowxLactName || '')
+    if (duplicateDecision === 'stop') {
+      alert('Import cancelled. No duplicate tickets were created.')
+      return
+    }
+
+    if (summaries.length === 0) {
+      alert('No transporter totals found. Check Transporter and NSV/GSV columns.')
+      return
+    }
+
+    const { data: batch, error: batchError } = await supabase
+      .from('flowx_import_batches')
+      .insert({
+        company_id: activeCompanyID,
+        lact_name: flowxLactName || null,
+        source_file_name: flowxCsvFile.name,
+        imported_count: parsed.data.length,
+        imported_by: session?.user?.email || null,
+      })
+      .select()
+      .single()
+
+    if (batchError || !batch) {
+      alert('Could not create Flow-X import batch: ' + (batchError?.message || 'unknown error'))
+      return
+    }
+
+    const ticketPayloads = summaries.map((s: any, i: number) => {
+      const assignedPot = getAssignedPotForTransporter(s.transporter)
+      const contractProfile = getContractProfileForTransporter(s.transporter)
+      const contractCalc = applyContractProfileCalculation(s, assignedPot, contractProfile)
+      const potObservedApiGravity = getPotObservedApiGravity(assignedPot, s.avgApi)
+      const potApiGravity60 = getPotApiGravityAt60(assignedPot, potObservedApiGravity)
+      const potBswPercent = getPotBswPercent(assignedPot, s.avgBsw)
+      const potLabel = getPotNumberLabel(assignedPot)
+
+      return ({
+      company_id: activeCompanyID,
+      ticket_number: `FLOWX-${flowxLactName || 'LACT'}-${s.transporter}-${Date.now()}-${i + 1}`,
+      ticket_type: 'truck',
+      status: 'draft',
+      segment_id: flowxDefaultSegmentId || null,
+      import_batch_id: batch.id,
+      truck_number: s.truckList || null,
+      driver_name: s.driverList || null,
+      customer_name: s.transporter,
+      transporter_name: s.transporter,
+      split_parent_ticket: s.ticketList || s.batchList || null,
+      split_percent: 100,
+      lact_name: flowxLactName || null,
+      observed_inputs: {
+        source: 'flowx_transporter_summary',
+        contract_profile_id: contractProfile?.id || null,
+        contract_name: contractProfile?.contract_name || null,
+        calculation_method: contractCalc.method,
+        calculation_formula: contractCalc.formula,
+        api_version: contractCalc.api_version,
+        api_version_label: contractCalc.api_version_label,
+        correction_source: contractCalc.correction_source,
+        calculation_audit: contractCalc.calculation_audit,
+        assigned_pot_id: assignedPot?.id || null,
+        assigned_pot_label: potLabel || null,
+        lact_name: flowxLactName || null,
+        transporter_name: s.transporter,
+        ticket_numbers: s.ticketList,
+        batch_numbers: s.batchList,
+        truck_numbers: s.truckList,
+        driver_names: s.driverList,
+        leases: s.leaseList,
+        source_rows: s.rows,
+        gross_volume_bbl: contractCalc.iv,
+        net_volume_bbl: contractCalc.nsv,
+        average_temperature: s.avgTemp,
+        average_pressure: s.avgPressure,
+        observed_api_gravity: potObservedApiGravity,
+        api_gravity_60: potApiGravity60,
+        ctl: Number((assignedPot as any)?.ctl || s.avgCtl || 0),
+        cpl: Number((assignedPot as any)?.cpl || s.avgCpl || 0),
+        ctpl: Number((assignedPot as any)?.ctpl || s.avgCtpl || 0),
+      },
+      calculation_results: {
+        gov: contractCalc.iv,
+        gsv: contractCalc.gsv,
+        nsv: contractCalc.nsv,
+        average_temperature: s.avgTemp,
+        average_pressure: s.avgPressure,
+        api_gravity_60: potApiGravity60,
+        ctl: Number((assignedPot as any)?.ctl || s.avgCtl || 0),
+        cpl: Number((assignedPot as any)?.cpl || s.avgCpl || 0),
+        ctpl: Number((assignedPot as any)?.ctpl || s.avgCtpl || 0),
+      },
+    })
+    })
+
+    const { error } = await supabase.from('tickets').insert(ticketPayloads)
+    if (error) {
+      alert('Could not create transporter tickets: ' + error.message)
+      return
+    }
+
+    alert(`Flow-X summary import complete. Created ${ticketPayloads.length} transporter ticket(s). POT rules applied where matched.`)
+    setFlowxCsvFile(null)
+    setFlowxMappingRows([])
+    setFlowxMappingHeaders([])
+    await loadAll()
+    setPage('tickets')
+  }
+
+  async function importFlowXTruckTickets() {
+    if (!flowxCsvFile) {
+      alert('Choose a Flow-X CSV file first.')
+      return
+    }
+
+    const csvText = await flowxCsvFile.text()
+    const parsed = parseFlowXCsvForMapping(csvText)
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    if (!activeCompanyID) {
+      alert('No company selected.')
+      return
+    }
+
+    const rows = parsed.data || []
+
+    const transporterTotals: Record<string, { gross: number; net: number; rows: any[] }> = {}
+
+    rows.forEach((row: any) => {
+      const transporter = String(
+        row['Transporter'] ||
+        row['Transporter Name'] ||
+        getMappedFlowXValue(row, 'transporter_name') ||
+        row['Customer'] ||
+        'Unknown Transporter'
+      ).trim()
+
+      const gross = Number(String(
+        row['GSV Batch'] ||
+        row['IV Batch'] ||
+        row['Driver Obs Gross Bbls.'] ||
+        getMappedFlowXValue(row, 'gross_volume_bbl') ||
+        0
+      ).replace(/,/g, ''))
+
+      const net = Number(String(
+        row['NSV Batch'] ||
+        getMappedFlowXValue(row, 'net_volume_bbl') ||
+        gross ||
+        0
+      ).replace(/,/g, ''))
+
+      if (!transporter || (!net && !gross)) return
+
+      if (!transporterTotals[transporter]) transporterTotals[transporter] = { gross: 0, net: 0, rows: [] }
+      transporterTotals[transporter].gross += gross || 0
+      transporterTotals[transporter].net += net || gross || 0
+      transporterTotals[transporter].rows.push(row)
+    })
+
+    const splits = Object.entries(transporterTotals).map(([transporter, totals]) => ({
+      transporter,
+      customer: transporter,
+      gross: totals.gross,
+      net: totals.net,
+      percent: 100,
+      normalizedPercent: 1,
+      rows: totals.rows,
+    }))
+
+    if (splits.length === 0) {
+      alert('No transporter allocations were detected from the CSV. The file must have Transporter and NSV Batch/GSV Batch columns.')
+      return
+    }
+
+    const { data: batch, error: batchError } = await supabase
+      .from('flowx_import_batches')
+      .insert({
+        company_id: activeCompanyID,
+        lact_name: flowxLactName || null,
+        source_file_name: flowxCsvFile.name,
+        imported_count: rows.length,
+        imported_by: session?.user?.email || null,
+      })
+      .select()
+      .single()
+
+    if (batchError || !batch) {
+      alert('Could not create Flow-X import batch: ' + (batchError?.message || 'unknown error'))
+      return
+    }
+
+    let createdTickets = 0
+
+    for (const split of splits) {
+      const firstRow = split.rows[0] || {}
+      const sourceTicketNumber = firstRow['Ticket Nr.'] || firstRow['Ticket Nr'] || firstRow['Ticket Number'] || ''
+      const batchNumber = firstRow['Batch Nr.'] || firstRow['Batch Nr'] || firstRow['Batch Number'] || ''
+      const truckNumber = firstRow['Truck Nr.'] || firstRow['Truck Nr'] || firstRow['Truck Number'] || ''
+      const driverName = firstRow['Driver Name'] || ''
+      const leaseName = firstRow['Lease'] || ''
+      const apiGravity = Number(firstRow['API 60F'] || firstRow['Driver Obs API'] || 0)
+      const observedTemp = Number(firstRow['Temperature'] || firstRow['Driver Obs Temp'] || 0)
+      const bswPercent = Number(firstRow['BS&W'] || firstRow['Driver Obs BS&W'] || 0)
+
+      const { data: generatedNumber } = await supabase.rpc('generate_ticket_number', {
+        p_company_id: activeCompanyID,
+      })
+
+      const ticketPayload: any = {
+        company_id: activeCompanyID,
+        ticket_number: generatedNumber || `FLOWX-${split.transporter}-${Date.now()}`,
+        ticket_type: 'truck',
+        status: 'draft',
+        segment_id: flowxDefaultSegmentId || null,
+        import_batch_id: batch.id,
+        truck_number: truckNumber || null,
+        driver_name: driverName || null,
+        customer_name: split.transporter,
+        transporter_name: split.transporter,
+        split_parent_ticket: sourceTicketNumber || batchNumber || null,
+        split_percent: split.percent,
+        lact_name: flowxLactName || null,
+        observed_inputs: {
+          source: 'flowx_csv_transporter_auto',
+          lact_name: flowxLactName || null,
+          transporter_name: split.transporter,
+          source_ticket_number: sourceTicketNumber || null,
+          batch_number: batchNumber || null,
+          truck_number: truckNumber || null,
+          driver_name: driverName || null,
+          lease_name: leaseName || null,
+          gross_volume_bbl: split.gross,
+          net_volume_bbl: split.net,
+          observed_temperature: observedTemp || null,
+          source_rows: split.rows.length,
+        },
+        calculation_results: {
+          gov: split.gross,
+          gsv: split.gross,
+          nsv: split.net,
+          split_percent: split.percent,
+        },
+      }
+
+      const { error } = await supabase.from('tickets').insert(ticketPayload)
+      if (!error) createdTickets += 1
+      else console.error('Flow-X transporter ticket insert failed:', error)
+    }
+
+    alert(`Flow-X import complete. Created ${createdTickets} transporter draft truck ticket(s).`)
+    setFlowxCsvFile(null)
+    await loadAll()
+    setPage('tickets')
+  }
+
+
+  function getTicketDateForBalance(ticket: any) {
+    return ticket.approved_at || ticket.ticket_date || ticket.created_at || ticket.updated_at || ''
+  }
+
+  function isTicketInOverShortRange(ticket: any) {
+    const ticketDateRaw = getTicketDateForBalance(ticket)
+    if (!ticketDateRaw) return true
+
+    const ticketDate = new Date(ticketDateRaw)
+
+    if (overShortStartDate && ticketDate < new Date(`${overShortStartDate}T00:00:00`)) return false
+    if (overShortEndDate && ticketDate > new Date(`${overShortEndDate}T23:59:59`)) return false
+
+    return true
+  }
+
+  function getTicketVolumeForBalance(ticket: any) {
+    return Number(
+      ticket.calculation_results?.nsv ??
+      ticket.calculation_results?.tank_nsv ??
+      ticket.calculation_results?.gsv ??
+      ticket.calculation_results?.tank_gsv ??
+      ticket.calculation_results?.gov ??
+      ticket.calculation_results?.tank_gov ??
+      0
+    )
+  }
+
+  function normalizeMeterRole(value: any) {
+    const role = String(value || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_')
+    if (['receipt', 'inbound', 'receive', 'receipts'].includes(role)) return 'receipt'
+    if (['delivery', 'outbound', 'deliveries', 'sale', 'sales'].includes(role)) return 'delivery'
+    if (['check', 'check_meter', 'master', 'master_meter'].includes(role)) return 'check_meter'
+    if (['butane', 'butane_injection', 'blend', 'blend_meter'].includes(role)) return 'butane'
+    if (['refined', 'refined_product', 'diesel', 'gasoline', 'gas', 'jet'].includes(role)) return 'refined'
+    if (['excluded', 'exclude', 'ignore'].includes(role)) return 'excluded'
+    return role || ''
+  }
+
+  function getMeterById(meterId: string) {
+    return meters.find((m: any) => String(m.id) === String(meterId))
+  }
+
+  function getMeterConfiguredRole(meter: any) {
+    return normalizeMeterRole(meter?.meter_role || meter?.balance_role || meter?.meter_direction || meter?.direction)
+  }
+
+  function getMeterProductType(meter: any) {
+    return String(meter?.product_type || meter?.product || meter?.commodity || '').trim().toLowerCase()
+  }
+
+  function meterIncludedInOS(meter: any) {
+    if (!meter) return true
+    if (meter.include_in_os === false || meter.include_in_over_short === false) return false
+    return getMeterConfiguredRole(meter) !== 'excluded'
+  }
+
+  function getMeterBalanceRole(ticket: any) {
+    const meter = meters.find((m: any) => String(m.id) === String(ticket.meter_id || ticket.observed_inputs?.meter_id || ''))
+    return normalizeMeterRole(
+      (meter as any)?.meter_role ||
+      (meter as any)?.balance_role ||
+      (meter as any)?.meter_direction ||
+      (meter as any)?.direction ||
+      ticket.meter_direction ||
+      ticket.observed_inputs?.meter_direction ||
+      ''
+    )
+  }
+
+  function getSelectedReadingMeterRole() {
+    return getMeterConfiguredRole(getMeterById(selectedReadingMeter))
+  }
+
+  function getSelectedReadingMovementType() {
+    const role = getSelectedReadingMeterRole()
+    if (role === 'delivery') return 'delivery'
+    return 'receipt'
+  }
+
+  function getTankSignedMovement(ticket: any) {
+    const direction = String(ticket.movement_direction || ticket.observed_inputs?.tank_movement_direction || '').toLowerCase()
+    const volume = Number(
+      ticket.calculation_results?.tank_nsv ??
+      ticket.calculation_results?.tank_movement_bbl ??
+      ticket.calculation_results?.nsv ??
+      0
+    )
+
+    if (direction === 'receipt') return volume
+    if (direction === 'delivery') return -volume
+
+    return volume
+  }
+
+  function getActualTankInventoryForSegment(segmentId: string) {
+    const segmentTanks = tanks.filter((tank: any) => tank.segment_id === segmentId)
+
+    return segmentTanks.reduce((sum: number, tank: any) => {
+      const latestTankTicket = tickets
+        .filter((ticket: any) =>
+          ticket.status === 'approved' &&
+          ticket.ticket_type === 'tank' &&
+          (ticket.tank_id === tank.id || ticket.observed_inputs?.tank_id === tank.id) &&
+          isTicketInOverShortRange(ticket)
+        )
+        .sort((a: any, b: any) =>
+          new Date(getTicketDateForBalance(b) || 0).getTime() -
+          new Date(getTicketDateForBalance(a) || 0).getTime()
+        )[0]
+
+      return sum + Number(
+        latestTankTicket?.calculation_results?.tank_closing_bbl ??
+        latestTankTicket?.observed_inputs?.tank_closing_bbl ??
+        latestTankTicket?.calculation_results?.tank_gsv ??
+        0
+      )
+    }, 0)
+  }
+
+  function isBalanceEntryInRange(entry: any) {
+    const raw = entry.period_start || entry.effective_date || entry.created_at || ''
+    if (!raw) return true
+    const date = new Date(raw)
+    if (Number.isNaN(date.getTime())) return true
+    if (overShortStartDate && date < new Date(`${overShortStartDate}T00:00:00`)) return false
+    if (overShortEndDate && date > new Date(`${overShortEndDate}T23:59:59`)) return false
+    return true
+  }
+
+  function getBalanceInventoryEntryForSegment(segmentId: string) {
+    return balanceInventoryEntries
+      .filter((entry: any) => entry.segment_id === segmentId && isBalanceEntryInRange(entry))
+      .sort((a: any, b: any) => new Date(b.period_start || b.created_at || 0).getTime() - new Date(a.period_start || a.created_at || 0).getTime())[0]
+  }
+
+  function getSegmentBalanceSetting(segmentId: string) {
+    return segmentBalanceSettings.find((setting: any) => setting.segment_id === segmentId) || null
+  }
+
+  function segmentHasButaneBlendEnabled(segmentId: string) {
+    const setting = getSegmentBalanceSetting(segmentId)
+    if (setting) return setting.enable_butane_blend === true
+    // Backward compatibility: if a butane adjustment already exists for this segment, show the butane KPI instead of hiding existing work.
+    return balanceButaneAdjustments.some((adjustment: any) => adjustment.segment_id === segmentId && adjustment.active !== false)
+  }
+
+  async function toggleSegmentButaneBlend(segmentId: string, enabled: boolean) {
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!activeCompanyID) {
+      alert('Select a company first.')
+      return
+    }
+
+    const existing = getSegmentBalanceSetting(segmentId)
+    const payload: any = {
+      company_id: activeCompanyID,
+      segment_id: segmentId,
+      enable_butane_blend: enabled,
+      shrinkage_method: 'API MPMS 12.3',
+      include_shrinkage_in_os: enabled,
+      active: true,
+      updated_at: new Date().toISOString(),
+    }
+
+    const result = existing?.id
+      ? await supabase.from('segment_balance_settings').update(payload).eq('id', existing.id)
+      : await supabase.from('segment_balance_settings').insert(payload)
+
+    if (result.error) {
+      alert(`Could not save segment balance setting: ${result.error.message}`)
+      return
+    }
+
+    await loadAll()
+  }
+
+  function getButaneAdjustmentForSegment(segmentId: string) {
+    const entry = balanceButaneAdjustments
+      .filter((adjustment: any) => adjustment.segment_id === segmentId && isBalanceEntryInRange(adjustment) && adjustment.active !== false)
+      .sort((a: any, b: any) => new Date(b.period_start || b.created_at || 0).getTime() - new Date(a.period_start || a.created_at || 0).getTime())[0]
+
+    const butaneGsv = Number(entry?.butane_gsv_bbl ?? entry?.butane_gsv ?? 0)
+    const totalBlendVolume = Number(entry?.total_blend_volume_bbl ?? entry?.total_initial_volume_bbl ?? 0)
+    const shrinkageAdjustmentBbl = Number(entry?.shrinkage_adjustment_bbl ?? entry?.shrinkage_bbl ?? 0)
+    const blendPercent = totalBlendVolume ? (butaneGsv / totalBlendVolume) * 100 : 0
+
+    return {
+      entry,
+      butaneGsv,
+      totalBlendVolume,
+      blendPercent,
+      shrinkageAdjustmentBbl,
+    }
+  }
+
+  function getApprovedMeterVolume(meterId: string) {
+    return getScopedTickets()
+      .filter((ticket: any) =>
+        ticket.status === 'approved' &&
+        ticket.meter_id === meterId &&
+        isTicketInOverShortRange(ticket)
+      )
+      .reduce((sum: number, ticket: any) => sum + getTicketVolumeForBalance(ticket), 0)
+  }
+
+  function getCheckMeterRowsForSegment(segmentId: string) {
+    return balanceCheckGroups
+      .filter((group: any) => group.segment_id === segmentId && group.active !== false)
+      .map((group: any) => {
+        const members = balanceCheckGroupMeters.filter((member: any) => member.check_group_id === group.id || member.group_id === group.id)
+        const inputMeterIds = members
+          .filter((member: any) => String(member.role || member.meter_role || 'input').toLowerCase() !== 'check')
+          .map((member: any) => member.meter_id)
+          .filter(Boolean)
+        const checkMeterId = group.check_meter_id || members.find((member: any) => String(member.role || member.meter_role || '').toLowerCase() === 'check')?.meter_id
+        const inputTotal = inputMeterIds.reduce((sum: number, meterId: string) => sum + getApprovedMeterVolume(meterId), 0)
+        const checkTotal = checkMeterId ? getApprovedMeterVolume(checkMeterId) : 0
+        const difference = inputTotal - checkTotal
+        const differencePercent = checkTotal ? (difference / Math.abs(checkTotal)) * 100 : 0
+        return { group, inputMeterIds, checkMeterId, inputTotal, checkTotal, difference, differencePercent }
+      })
+  }
+
+  function getOverShortRows() {
+    return segments
+      .filter((segment: any) => !overShortSegmentId || segment.id === overShortSegmentId)
+      .map((segment: any) => {
+        const segmentTickets = getScopedTickets().filter((ticket: any) =>
+          ticket.status === 'approved' &&
+          ticket.segment_id === segment.id &&
+          isTicketInOverShortRange(ticket)
+        )
+
+        const receipts = segmentTickets
+          .filter((ticket: any) => {
+            const meter = getMeterById(ticket.meter_id || ticket.observed_inputs?.meter_id || '')
+            return ticket.ticket_type !== 'tank' && meterIncludedInOS(meter) && getMeterBalanceRole(ticket) === 'receipt'
+          })
+          .reduce((sum: number, ticket: any) => sum + getTicketVolumeForBalance(ticket), 0)
+
+        const deliveries = segmentTickets
+          .filter((ticket: any) => {
+            const meter = getMeterById(ticket.meter_id || ticket.observed_inputs?.meter_id || '')
+            return ticket.ticket_type !== 'tank' && meterIncludedInOS(meter) && getMeterBalanceRole(ticket) === 'delivery'
+          })
+          .reduce((sum: number, ticket: any) => sum + getTicketVolumeForBalance(ticket), 0)
+
+        const truckTickets = segmentTickets
+          .filter((ticket: any) => ticket.ticket_type === 'truck')
+          .reduce((sum: number, ticket: any) => sum + getTicketVolumeForBalance(ticket), 0)
+
+        const inventoryEntry = getBalanceInventoryEntryForSegment(segment.id)
+        const ticketTankChange = segmentTickets
+          .filter((ticket: any) => ticket.ticket_type === 'tank')
+          .reduce((sum: number, ticket: any) => sum + getTankSignedMovement(ticket), 0)
+
+        const ticketLineFillChange = segmentTickets
+          .filter((ticket: any) => ticket.ticket_type === 'line_fill')
+          .reduce((sum: number, ticket: any) => sum + getTicketVolumeForBalance(ticket), 0)
+
+        const tankBegin = Number(inventoryEntry?.tank_inventory_begin_bbl ?? inventoryEntry?.tank_begin_bbl ?? 0)
+        const tankEnd = Number(inventoryEntry?.tank_inventory_end_bbl ?? inventoryEntry?.tank_end_bbl ?? 0)
+        const lineFillBegin = Number(inventoryEntry?.line_fill_begin_bbl ?? 0)
+        const lineFillEnd = Number(inventoryEntry?.line_fill_end_bbl ?? 0)
+        const tankChange = inventoryEntry ? (tankBegin - tankEnd) : ticketTankChange
+        const lineFillChange = inventoryEntry ? (lineFillBegin - lineFillEnd) : ticketLineFillChange
+        const butaneEnabled = segmentHasButaneBlendEnabled(segment.id)
+        const butaneAdjustment = getButaneAdjustmentForSegment(segment.id)
+        const checkMeterRows = getCheckMeterRowsForSegment(segment.id)
+        const checkMeterOverShort = checkMeterRows.reduce((sum: number, row: any) => sum + row.difference, 0)
+
+        const bookInventory = receipts - deliveries - truckTickets + tankChange + lineFillChange + (butaneEnabled ? butaneAdjustment.shrinkageAdjustmentBbl : 0)
+        const actualInventory = inventoryEntry
+          ? Number(inventoryEntry?.actual_inventory_bbl ?? inventoryEntry?.actual_inventory ?? getActualTankInventoryForSegment(segment.id))
+          : getActualTankInventoryForSegment(segment.id)
+        const overShort = actualInventory - bookInventory
+        const overShortPercent = bookInventory !== 0 ? (overShort / Math.abs(bookInventory)) * 100 : 0
+
+        return {
+          segment,
+          receipts,
+          deliveries,
+          truckTickets,
+          tankChange,
+          lineFillChange,
+          tankBegin,
+          tankEnd,
+          lineFillBegin,
+          lineFillEnd,
+          butaneEnabled,
+          butaneAdjustment,
+          checkMeterRows,
+          checkMeterOverShort,
+          bookInventory,
+          actualInventory,
+          overShort,
+          overShortPercent,
+        }
+      })
+  }
+
+
+  function xmlEscape(value: any) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+  }
+
+  function excelCell(value: any, type: 'String' | 'Number' = 'String') {
+    const numeric = type === 'Number' && value !== '' && value !== null && value !== undefined && Number.isFinite(Number(value))
+
+    return `<Cell><Data ss:Type="${numeric ? 'Number' : 'String'}">${xmlEscape(numeric ? Number(value) : value)}</Data></Cell>`
+  }
+
+  function excelRow(values: any[], numericIndexes: number[] = []) {
+    return `<Row>${values.map((value, index) => excelCell(value, numericIndexes.includes(index) ? 'Number' : 'String')).join('')}</Row>`
+  }
+
+  function downloadExcelXml(filename: string, sheets: { name: string; rows: any[][]; numericIndexes?: number[] }[]) {
+    const workbook = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="header">
+   <Font ss:Bold="1"/>
+   <Interior ss:Color="#D9EAF7" ss:Pattern="Solid"/>
+  </Style>
+ </Styles>
+ ${sheets.map((sheet) => `
+ <Worksheet ss:Name="${xmlEscape(sheet.name.slice(0, 31))}">
+  <Table>
+   ${sheet.rows.map((row, rowIndex) => {
+     const xmlRow = excelRow(row, rowIndex === 0 ? [] : (sheet.numericIndexes || []))
+     return rowIndex === 0 ? xmlRow.replace(/<Cell>/g, '<Cell ss:StyleID="header">') : xmlRow
+   }).join('\n')}
+  </Table>
+ </Worksheet>`).join('\n')}
+</Workbook>`
+
+    const blob = new Blob([workbook], { type: 'application/vnd.ms-excel;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+
+  function isDateInReportRange(value?: string | null) {
+    if (!value) return true
+
+    const date = new Date(value)
+
+    if (Number.isNaN(date.getTime())) return true
+
+    if (reportStartDate && date < new Date(`${reportStartDate}T00:00:00`)) return false
+    if (reportEndDate && date > new Date(`${reportEndDate}T23:59:59`)) return false
+
+    return true
+  }
+
+  function getTicketReportDate(ticket: any) {
+    return ticket.approved_at || ticket.ticket_date || ticket.created_at || ticket.updated_at || ''
+  }
+
+  function getReportFilteredTickets(type?: string) {
+    return getScopedTickets().filter((ticket: any) => {
+      const typeOk = type ? ticket.ticket_type === type : true
+      const producerOk = reportProducerId ? ticket.producer_id === reportProducerId : true
+      const segmentOk = reportSegmentId ? ticket.segment_id === reportSegmentId : true
+      const dateOk = isDateInReportRange(getTicketReportDate(ticket))
+
+      return typeOk && producerOk && segmentOk && dateOk
+    })
+  }
+
+  function exportReportTicketsCsv(type?: string) {
+    const rows = getReportFilteredTickets(type)
+    const header = [
+      'Ticket #',
+      'Type',
+      'Status',
+      'Producer',
+      'Segment',
+      'Meter',
+      'GSV',
+      'NSV',
+      'Date',
+    ]
+
+    const csvRows = rows.map((ticket: any) => {
+      const producer = producers.find((p: any) => p.id === ticket.producer_id)
+      const segment = segments.find((s: any) => s.id === ticket.segment_id)
+      const meter = meters.find((m: any) => m.id === ticket.meter_id)
+
+      return [
+        ticket.ticket_number || ticket.id,
+        ticket.ticket_type || '',
+        ticket.status || '',
+        producer?.name || '',
+        segment?.name || '',
+        meter?.meter_number || '',
+        ticket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? '',
+        ticket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? '',
+        getTicketReportDate(ticket),
+      ]
+    })
+
+    downloadCsv(`${type || 'all'}-tickets-${reportStartDate || 'all'}-to-${reportEndDate || 'all'}.csv`, [header, ...csvRows])
+  }
+
+  function exportReportTicketsExcel(type?: string) {
+    const rows = getReportFilteredTickets(type)
+    const sheetRows = [
+      ['Ticket #', 'Type', 'Status', 'Producer', 'Segment', 'Meter', 'GSV', 'NSV', 'Date'],
+      ...rows.map((ticket: any) => {
+        const producer = producers.find((p: any) => p.id === ticket.producer_id)
+        const segment = segments.find((s: any) => s.id === ticket.segment_id)
+        const meter = meters.find((m: any) => m.id === ticket.meter_id)
+
+        return [
+          ticket.ticket_number || ticket.id,
+          ticket.ticket_type || '',
+          ticket.status || '',
+          producer?.name || '',
+          segment?.name || '',
+          meter?.meter_number || '',
+          Number(ticket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? 0).toFixed(2),
+          Number(ticket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? 0).toFixed(2),
+          getTicketReportDate(ticket),
+        ]
+      }),
+    ]
+
+    downloadExcelXml(`${type || 'all'}-tickets-${reportStartDate || 'all'}-to-${reportEndDate || 'all'}.xls`, [
+      { name: `${type || 'All'} Tickets`, rows: sheetRows, numericIndexes: [6, 7] },
+    ])
+  }
+
+  function getFlowXImportedTickets() {
+    return getReportFilteredTickets('truck').filter((ticket: any) =>
+      ticket.import_batch_id || ticket.flowx_row_id || ticket.observed_inputs?.source === 'flowx_csv'
+    )
+  }
+
+  function exportFlowXImportedTicketsExcel() {
+    const rows = getFlowXImportedTickets()
+    const sheetRows = [
+      ['Ticket #', 'Truck #', 'Driver', 'Transporter', 'Split %', 'GSV', 'NSV', 'LACT', 'Date'],
+      ...rows.map((ticket: any) => [
+        ticket.ticket_number || ticket.id,
+        ticket.truck_number || ticket.observed_inputs?.truck_number || '',
+        ticket.driver_name || ticket.observed_inputs?.driver_name || '',
+        (ticket as any).customer_name || ticket.observed_inputs?.customer_name || '',
+        ticket.split_percent || ticket.observed_inputs?.split_percent || '',
+        Number(ticket.calculation_results?.gsv ?? 0).toFixed(2),
+        Number(ticket.calculation_results?.nsv ?? 0).toFixed(2),
+        ticket.lact_name || ticket.observed_inputs?.lact_name || '',
+        getTicketReportDate(ticket),
+      ]),
+    ]
+
+    downloadExcelXml(`flowx-truck-tickets-${reportStartDate || 'all'}-to-${reportEndDate || 'all'}.xls`, [
+      { name: 'FlowX Truck Tickets', rows: sheetRows, numericIndexes: [4, 5, 6] },
+    ])
+  }
+
+  function exportOverShortExcel() {
+    const rows = getOverShortRows()
+
+    const summaryRows = [
+      [
+        'Segment',
+        'Receipts',
+        'Deliveries',
+        'Truck Tickets',
+        'Tank Change',
+        'Line Fill Change',
+        'Butane GSV',
+        'Blend %',
+        'Shrinkage Adj',
+        'Check Meter O/S',
+        'Book Inventory',
+        'Actual Inventory',
+        'Over / Short',
+        'Over / Short %',
+      ],
+      ...rows.map((row: any) => [
+        row.segment.name,
+        row.receipts.toFixed(2),
+        row.deliveries.toFixed(2),
+        row.truckTickets.toFixed(2),
+        row.tankChange.toFixed(2),
+        row.lineFillChange.toFixed(2),
+        row.butaneEnabled ? row.butaneAdjustment.butaneGsv.toFixed(2) : '',
+        row.butaneEnabled ? row.butaneAdjustment.blendPercent.toFixed(4) : '',
+        row.butaneEnabled ? row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2) : '',
+        row.checkMeterOverShort.toFixed(2),
+        row.bookInventory.toFixed(2),
+        row.actualInventory.toFixed(2),
+        row.overShort.toFixed(2),
+        row.overShortPercent.toFixed(4),
+      ]),
+    ]
+
+    const segmentSheets = rows.map((row: any) => {
+      const segmentTickets = tickets
+        .filter((ticket: any) =>
+          ticket.status === 'approved' &&
+          ticket.segment_id === row.segment.id &&
+          isTicketInOverShortRange(ticket)
+        )
+
+      return {
+        name: row.segment.name || 'Segment',
+        numericIndexes: [4, 5, 6, 7],
+        rows: [
+          ['Ticket #', 'Type', 'Status', 'Meter Role', 'Volume', 'Tank Change', 'Date', 'Transporter'],
+          ...segmentTickets.map((ticket: any) => [
+            ticket.ticket_number || ticket.id,
+            ticket.ticket_type || '',
+            ticket.status || '',
+            getMeterBalanceRole(ticket) || ticket.observed_inputs?.tank_movement_direction || '',
+            getTicketVolumeForBalance(ticket).toFixed(2),
+            ticket.ticket_type === 'tank' ? getTankSignedMovement(ticket).toFixed(2) : '',
+            getTicketDateForBalance(ticket),
+            (ticket as any).customer_name || ticket.observed_inputs?.customer_name || '',
+          ]),
+        ],
+      }
+    })
+
+    downloadExcelXml(`segment-over-short-${overShortStartDate || 'all'}-to-${overShortEndDate || 'all'}.xls`, [
+      { name: 'Segment Summary', rows: summaryRows, numericIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9] },
+      ...segmentSheets,
+    ])
+  }
+
+  function exportOverShortCsv() {
+    const rows = getOverShortRows()
+    const header = [
+      'Segment',
+      'Receipts',
+      'Deliveries',
+      'Truck Tickets',
+      'Tank Change',
+      'Line Fill Change',
+      'Butane GSV',
+      'Blend %',
+      'Shrinkage Adjustment',
+      'Check Meter O/S',
+      'Book Inventory',
+      'Actual Inventory',
+      'Over Short',
+      'Over Short Percent',
+    ]
+
+    const csvRows = rows.map((row: any) => [
+      row.segment.name,
+      row.receipts.toFixed(2),
+      row.deliveries.toFixed(2),
+      row.truckTickets.toFixed(2),
+      row.tankChange.toFixed(2),
+      row.lineFillChange.toFixed(2),
+      row.butaneEnabled ? row.butaneAdjustment.butaneGsv.toFixed(2) : '',
+      row.butaneEnabled ? row.butaneAdjustment.blendPercent.toFixed(4) : '',
+      row.butaneEnabled ? row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2) : '',
+      row.checkMeterOverShort.toFixed(2),
+      row.bookInventory.toFixed(2),
+      row.actualInventory.toFixed(2),
+      row.overShort.toFixed(2),
+      row.overShortPercent.toFixed(4),
+    ])
+
+    downloadCsv(`over-short-${overShortStartDate || 'all'}-to-${overShortEndDate || 'all'}.csv`, [header, ...csvRows])
+  }
+
+  function getSegmentInventoryRows() {
+    return segments.map((segment: any) => {
+      const segmentTickets = getScopedTickets().filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
+      const receiptVolume = segmentTickets
+        .filter((ticket: any) => {
+          const meter = meters.find((m: any) => m.id === ticket.meter_id)
+          return ((meter as any)?.meter_role || (meter as any)?.meter_direction || (meter as any)?.direction) === 'receipt'
+        })
+        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+
+      const deliveryVolume = segmentTickets
+        .filter((ticket: any) => {
+          const meter = meters.find((m: any) => m.id === ticket.meter_id)
+          return ((meter as any)?.meter_role || (meter as any)?.meter_direction || (meter as any)?.direction) === 'delivery'
+        })
+        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+
+      const tankMovement = segmentTickets
+        .filter((ticket: any) => ticket.ticket_type === 'tank')
+        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.tank_nsv || ticket.calculation_results?.tank_movement_bbl || 0), 0)
+
+      const truckVolume = segmentTickets
+        .filter((ticket: any) => ticket.ticket_type === 'truck')
+        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || 0), 0)
+
+      const overShort = receiptVolume - deliveryVolume + tankMovement - truckVolume
+
+      return {
+        segment,
+        receiptVolume,
+        deliveryVolume,
+        tankMovement,
+        truckVolume,
+        overShort,
+      }
+    })
+  }
+
+
+  async function saveCheckMeterGroup() {
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!activeCompanyID) {
+      alert('Select a company first.')
+      return
+    }
+    if (!newCheckGroupName || !newCheckGroupSegmentId || !newCheckGroupCheckMeterId) {
+      alert('Enter group name, segment, and check meter.')
+      return
+    }
+
+    const { data: groupRow, error: groupError } = await supabase
+      .from('balance_check_groups')
+      .insert({
+        company_id: activeCompanyID,
+        name: newCheckGroupName,
+        segment_id: newCheckGroupSegmentId,
+        check_meter_id: newCheckGroupCheckMeterId,
+        active: true,
+      })
+      .select('*')
+      .single()
+
+    if (groupError) {
+      alert(`Could not create check meter group: ${groupError.message}`)
+      return
+    }
+
+    const memberRows = [
+      { company_id: activeCompanyID, check_group_id: groupRow.id, meter_id: newCheckGroupCheckMeterId, role: 'check', active: true },
+      ...newCheckGroupInputMeterIds.map((meterId) => ({ company_id: activeCompanyID, check_group_id: groupRow.id, meter_id: meterId, role: 'input', active: true })),
+    ]
+
+    const { error: memberError } = await supabase.from('balance_check_group_meters').insert(memberRows)
+    if (memberError) {
+      alert(`Check group created, but meter assignment failed: ${memberError.message}`)
+      return
+    }
+
+    setNewCheckGroupName('')
+    setNewCheckGroupSegmentId('')
+    setNewCheckGroupCheckMeterId('')
+    setNewCheckGroupInputMeterIds([])
+    await loadAll()
+  }
+
+  async function updateMeterMasterField(meterId: string, patch: any) {
+    const { error } = await supabase.from('meters').update(patch).eq('id', meterId)
+    if (error) {
+      alert(`Could not update meter: ${error.message}`)
+      return
+    }
+    setMeters((current: any[]) => current.map((meter: any) => String(meter.id) === String(meterId) ? { ...meter, ...patch } : meter))
+  }
+
+  async function importMetersCsv() {
+    if (!meterCsvFile) {
+      alert('Choose a CSV file first.')
+      return
+    }
+
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    if (!activeCompanyID) {
+      alert('Select or load a company before importing.')
+      return
+    }
+
+    setMeterCsvImporting(true)
+
+    try {
+      const csvText = await meterCsvFile.text()
+      const rows = parseMeterCsv(csvText)
+
+      if (rows.length === 0) {
+        alert('CSV has no rows.')
+        return
+      }
+
+      let imported = 0
+
+      for (const row of rows) {
+        const areaName = row.area || row.area_name || ''
+        const segmentName = row.segment || row.segment_name || ''
+        const producerName = row.producer || row.producer_name || ''
+        const leaseName = row.lease || row.lease_name || ''
+        const meterNumber = row.meter_number || row.meter || row.meter_name || ''
+        const meterDirection = row.meter_direction || row.direction || row.meter_role || row.meter_type || ''
+        const meterRole = normalizeMeterRole(row.meter_role || row.meter_type || row.balance_role || meterDirection)
+        const productType = row.product_type || row.product || row.commodity || ''
+        const includeInOsRaw = String(row.include_in_os || row.include_in_over_short || 'true').trim().toLowerCase()
+        const includeInOs = !['false', 'no', 'n', '0', 'exclude', 'excluded'].includes(includeInOsRaw)
+        const checkGroupName = row.check_meter_group || row.check_group || ''
+        const reportsToCheckMeter = row.reports_to_check_meter || row.check_meter || ''
+        const defaultTicketType = row.default_ticket_type || row.ticket_type || ''
+        const sourceTankNumber = row.source_tank || row.source_tank_number || ''
+        const destinationTankNumber = row.destination_tank || row.destination_tank_number || ''
+        const lineFillName = row.line_fill || row.line_fill_name || ''
+
+        if (!meterNumber) continue
+
+        const area = await findOrCreateByName('areas', 'name', areaName)
+        const segment = await findOrCreateByName('segments', 'name', segmentName, {
+          area_id: area?.id || null,
+        })
+        const producer = await findOrCreateByName('producers', 'name', producerName)
+        const lease = await findOrCreateByName('leases', 'lease_name', leaseName, {
+          area_id: area?.id || null,
+          segment_id: segment?.id || null,
+          producer_id: producer?.id || null,
+        })
+
+
+
+        const sourceTank = sourceTankNumber
+          ? tanks.find((tank: any) => tank.tank_number === sourceTankNumber) || await findOrCreateByName('tanks', 'tank_number', sourceTankNumber, { segment_id: segment?.id || null })
+          : null
+
+        const destinationTank = destinationTankNumber
+          ? tanks.find((tank: any) => tank.tank_number === destinationTankNumber) || await findOrCreateByName('tanks', 'tank_number', destinationTankNumber, { segment_id: segment?.id || null })
+          : null
+
+        const lineFill = lineFillName
+          ? lineFills.find((line: any) => line.line_name === lineFillName) || await findOrCreateByName('line_fills', 'line_name', lineFillName, { segment_id: segment?.id || null })
+          : null
+
+        const { data: existingMeter } = await supabase
+          .from('meters')
+          .select('*')
+          .eq('meter_number', meterNumber)
+          .maybeSingle()
+
+        if (existingMeter) {
+          await supabase
+            .from('meters')
+            .update({
+              company_id: activeCompanyID,
+              area_id: area?.id || existingMeter.area_id || null,
+              segment_id: segment?.id || existingMeter.segment_id || null,
+              producer_id: producer?.id || existingMeter.producer_id || null,
+              lease_id: lease?.id || existingMeter.lease_id || null,
+              active: true,
+              direction: meterRole || meterDirection || existingMeter.direction || null,
+              meter_role: meterRole || existingMeter.meter_role || null,
+              product_type: productType || existingMeter.product_type || null,
+              include_in_os: includeInOs,
+              check_meter_group_name: checkGroupName || existingMeter.check_meter_group_name || null,
+              reports_to_check_meter: reportsToCheckMeter || existingMeter.reports_to_check_meter || null,
+              default_ticket_type: defaultTicketType || existingMeter.default_ticket_type || null,
+              source_tank_id: sourceTank?.id || existingMeter.source_tank_id || null,
+              destination_tank_id: destinationTank?.id || existingMeter.destination_tank_id || null,
+              line_fill_id: lineFill?.id || existingMeter.line_fill_id || null,
+            })
+            .eq('id', existingMeter.id)
+        } else {
+          const { error } = await supabase.from('meters').insert({
+            company_id: activeCompanyID,
+            meter_number: meterNumber,
+            area_id: area?.id || null,
+            segment_id: segment?.id || null,
+            producer_id: producer?.id || null,
+            lease_id: lease?.id || null,
+            active: true,
+            direction: meterRole || meterDirection || null,
+            meter_role: meterRole || null,
+            product_type: productType || null,
+            include_in_os: includeInOs,
+            check_meter_group_name: checkGroupName || null,
+            reports_to_check_meter: reportsToCheckMeter || null,
+            default_ticket_type: defaultTicketType || null,
+            source_tank_id: sourceTank?.id || null,
+            destination_tank_id: destinationTank?.id || null,
+            line_fill_id: lineFill?.id || null,
+          })
+
+          if (error) throw error
+        }
+
+        imported += 1
+      }
+
+      setMeterCsvFile(null)
+      alert(`Imported ${imported} meters.`)
+      await loadAll()
+    } catch (error: any) {
+      console.error('Meter CSV import failed:', error)
+      alert(error?.message || 'Meter CSV import failed.')
+    } finally {
+      setMeterCsvImporting(false)
+    }
+  }
+
   async function createCompanyAdminUser() {
-    if (!isSuperAdmin && userRoles.length > 0) {
+    if (!userIsSuperAdmin) {
+      alert('Only super admins can create company admins.')
+      return
+    }
+
+
+    if (!userIsSuperAdmin && userRoles.length > 0) {
       alert('Only a Super Admin can create company admins.')
       return
     }
@@ -1649,6 +5911,17 @@ async function createCompany() {
   }
 
 async function createAppUser() {
+    if (userIsCompanyAdmin && (newAdminRole === 'admin' || newAdminRole === 'super_admin')) {
+      alert('Company admins cannot create admin or super admin users.')
+      return
+    }
+
+    if (userIsCompanyAdmin && !companyId) {
+      alert('Your company is not loaded yet.')
+      return
+    }
+
+
     if (!newAdminEmail || !newAdminPassword) {
       alert('Enter email and temporary password.')
       return
@@ -1724,59 +5997,6 @@ async function saveUserRole() {
     loadAll()
   }
 
-  async function saveContractProfile() {
-    if (!canEditAdmin) {
-      alert('You do not have permission to manage contract profiles.')
-      return
-    }
-
-    if (!companyId || !newContractName) {
-      alert('Enter a contract profile name.')
-      return
-    }
-
-    const { error } = await supabase.from('contract_profiles').insert({
-      company_id: companyId,
-      producer_id: newContractProducer || null,
-      name: newContractName,
-      standard: newContractStandard,
-      calculation_method: newContractMethod,
-      factor_type: newContractFactorType,
-      product_group: newContractProductGroup,
-      api_rounding: Number(newContractApiRounding || 1),
-      ctl_rounding: Number(newContractCtlRounding || 5),
-      cpl_rounding: Number(newContractCplRounding || 5),
-      ctlp_rounding: Number(newContractCtlpRounding || 5),
-      volume_rounding: Number(newContractVolumeRounding || 2),
-      use_pressure: newContractUsePressure,
-      use_shrink: newContractUseShrink,
-      shrink_factor: Number(newContractShrinkFactor || 1),
-      active: true,
-    })
-
-    if (error) {
-      alert('Could not save contract profile: ' + error.message)
-      return
-    }
-
-    setNewContractName('')
-    setNewContractProducer('')
-    setNewContractStandard('API 11.1 2021')
-    setNewContractMethod('CTPL')
-    setNewContractFactorType('MF')
-    setNewContractProductGroup('crude')
-    setNewContractApiRounding('1')
-    setNewContractCtlRounding('5')
-    setNewContractCplRounding('5')
-    setNewContractCtlpRounding('5')
-    setNewContractVolumeRounding('2')
-    setNewContractUsePressure(true)
-    setNewContractUseShrink(false)
-    setNewContractShrinkFactor('1')
-
-    alert('Contract profile saved.')
-    loadAll()
-  }
 
   async function deactivateContractProfile(profileId: string) {
     if (!canEditAdmin) {
@@ -1841,6 +6061,107 @@ async function saveUserRole() {
     marginTop: 5,
   }
 
+
+  const gqLiquidImportHeaders = ["Number", "Column Type", "EffectiveDate", "", "Sample Date", "Sample Type", "BTU Base", "Heating Value (measured)", "Relative Density (specific gravity)", "Viscosity", "Specific Heat Ratio", "Heating Value Pressure Base", "Carbon Dioxide (co2)", "Nitrogen (n2)", "Methane (c1)", "Ethane (c2)", "Propane (c3)", "Iso Butane (iso_c4)", "N Butane (n_c4)", "Iso Pentane (iso_c5)", "N Pentane (n_c5)", "Neo Pentane (neo_c5)", "Hexane (c6)", "Heptane (c7)", "Octane (c8)", "Nonane (c9)", "Decane (c10)", "Argon (ar)", "Carbon Monoxide (co)", "Hydrogen (h2)", "Oxygen (o2)", "Water Vapor (h2o)", "Hydrogen Sulfide (h2s)", "Helium (he)", "Hydrogen Sulfide (H2S)", "Carbon Sulfoxide (COS)", "Methyl Mercaptan (MeSH)", "Methyl Ethyl Sulfide (MES)", "Ethyl Mercaptan (EtSH)", "Dimethyl Sulfide (DMS)", "Total Sulfur", "H2O Per Volume", "Measured GPM Content", "Sample Count", "Heating Value Dry", "Condensate GPM", "Hexane Plus Heating Value (c6_plus_hv)", "Field Remarks", "Office Remarks", "Sample Technician", "Analysis Technician", "Instrument Number", "Sample Pressure", "Temp", "User defined number 1", "User defined number 2", "User defined number 3", "User defined number 4", "User defined number 5", "User defined string 1", "User defined string 2", "User defined string 3", "User defined string 4", "User defined string 5", "Full Well Stream Factor", "Ethane GPM (c2_gpm)", "Propane GPM (c3_gpm)", "Iso Butane GPM (iso_c4_gpm)", "N Butane GPM(n_c4_gpm)", "Iso Pentane GPM (iso_c5_gpm)", "N Pentane GPM(n_c5_gpm)", "Hexane GPM (c6_gpm)", "Heptane GPM (c7_gpm)", "Heating Value Wet", "Heating Value As Delivered", "Analysis Date", "Cylinder Number", "", "", "", "Octane GPM (c8_gpm)", "Nonane GPM (c9_gpm)", "Decane GPM (c10_gpm)", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "BSW", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "Grav"]
+
+  function csvEscape(value: any) {
+    if (value === null || value === undefined) return ''
+
+    const textValue = String(value)
+
+    if (/[",\n\r]/.test(textValue)) {
+      return `"${textValue.replace(/"/g, '""')}"`
+    }
+
+    return textValue
+  }
+
+  function formatCsvDate(value: any) {
+    if (!value) return ''
+
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return String(value)
+
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const year = date.getFullYear()
+
+    return `${month}/${day}/${year}`
+  }
+
+  function downloadCsv(filename: string, rows: any[][]) {
+    const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  function getPotExportNumber(pot: any, index: number) {
+    return (
+      pot.number ||
+      pot.import_number ||
+      pot.grindout_number ||
+      pot.sample_number ||
+      pot.ticket_number ||
+      pot.id ||
+      index + 1
+    )
+  }
+
+  async function exportPotWorkingsCsv() {
+    if (!potCsvStartDate || !potCsvEndDate) {
+      alert('Select a POT export start date and end date.')
+      return
+    }
+
+    const start = new Date(`${potCsvStartDate}T00:00:00`)
+    const end = new Date(`${potCsvEndDate}T23:59:59`)
+
+    const rowsToExport = potQuality.filter((pot: any) => {
+      const sampleDate = pot.sample_date || pot.sampleDate || pot.effective_date || (pot as any).created_at || ''
+      const dateOk = sampleDate ? new Date(sampleDate) >= start && new Date(sampleDate) <= end : false
+      const producerOk = potCsvProducerId ? pot.producer_id === potCsvProducerId || pot.producerId === potCsvProducerId : true
+      return dateOk && producerOk
+    })
+
+    if (rowsToExport.length === 0) {
+      alert('No POT workings found for that date range.')
+      return
+    }
+
+    const dataRows = rowsToExport.map((pot: any, index: number) => {
+      const row = Array(gqLiquidImportHeaders.length).fill('')
+      const sampleDate = pot.sample_date || pot.sampleDate || pot.effective_date || (pot as any).created_at || ''
+      const bsw = (pot as any).bsw ?? (pot as any).bsw_percent ?? pot.bs_w ?? ''
+      const grav = (pot as any).observed_api_gravity ?? (pot as any).api_gravity ?? pot.gravity ?? ''
+      const temp = pot.observed_temperature ?? pot.sample_temperature ?? pot.temp ?? ''
+
+      // Match uploaded GQ liquid import header structure exactly by column position.
+      row[0] = getPotExportNumber(pot, index)           // Number
+      row[1] = pot.column_type || 'A'                   // Column Type
+      row[2] = formatCsvDate(sampleDate)                // EffectiveDate
+      row[4] = formatCsvDate(sampleDate)                // Sample Date
+      row[53] = temp                                    // Temp
+      row[59] = pot.user_defined_string_1 || 'L'        // User defined string 1, template sample uses L
+      row[181] = bsw                                    // BSW - FZ column
+      row[201] = grav                                   // Grav
+
+      return row
+    })
+
+    const producer = producers.find((p) => p.id === potCsvProducerId)
+    const producerName = producer?.name || 'all-producers'
+    const filename = `pot-workings-${producerName.replace(/[^a-zA-Z0-9-_]/g, '_')}-${potCsvStartDate}-to-${potCsvEndDate}.csv`
+
+    downloadCsv(filename, [gqLiquidImportHeaders, ...dataRows])
+  }
+
   async function exportProducerPdfBundle() {
     if (!pdfBundleStartDate || !pdfBundleEndDate) {
       alert('Select a start date and end date.')
@@ -1850,57 +6171,194 @@ async function saveUserRole() {
     const start = new Date(`${pdfBundleStartDate}T00:00:00`)
     const end = new Date(`${pdfBundleEndDate}T23:59:59`)
 
-    const approvedTickets = tickets.filter((ticket: any) => {
+    const getTicketDate = (ticket: any) =>
+      ticket.ticket_date ||
+      ticket.ticketDate ||
+      ticket.created_at ||
+      ticket.createdAt ||
+      ticket.updated_at ||
+      ticket.updatedAt ||
+      ticket.approved_at ||
+      ticket.approvedAt ||
+      ''
+
+    const getTicketProducerId = (ticket: any) =>
+      ticket.producer_id ||
+      ticket.producerId ||
+      ticket.observed_inputs?.producer_id ||
+      ticket.calculation_profile_snapshot?.producer_id ||
+      ''
+
+    const ticketsToExport = getScopedTickets().filter((ticket: any) => {
       const statusOk = ticket.status === 'approved'
-      const pdfUrl = ticket.pdf_url || ticket.pdfUrl
-      const ticketDateValue =
-        ticket.ticket_date ||
-        ticket.created_at ||
-        ticket.createdAt ||
-        ticket.updated_at ||
-        ticket.updatedAt
+      const ticketDateValue = getTicketDate(ticket)
 
       const dateOk = ticketDateValue
         ? new Date(ticketDateValue) >= start && new Date(ticketDateValue) <= end
         : true
 
       const producerOk = pdfBundleProducerId
-        ? ticket.producer_id === pdfBundleProducerId || ticket.producerId === pdfBundleProducerId
+        ? getTicketProducerId(ticket) === pdfBundleProducerId
         : true
 
-      return statusOk && pdfUrl && dateOk && producerOk
+      return statusOk && dateOk && producerOk
     })
 
-    if (approvedTickets.length === 0) {
-      alert('No approved ticket PDFs found for that range.')
+    if (ticketsToExport.length === 0) {
+      alert('No approved tickets found for that producer/date range.')
       return
     }
 
     const zip = new JSZip()
+    let addedCount = 0
 
-    for (const ticket of approvedTickets as any[]) {
+    const makeTicketHtml = async (ticket: any) => {
+      const companyName = getCompanyDisplayName()
+      const companyLogoUrl = getCompanyLogoUrl()
+      const companyAccent = getCompanyAccentColor()
+      const companyLogoDataUrl = companyLogoUrl ? await getImageDataUrl(companyLogoUrl) : ''
+      const producer = producers.find((p) => p.id === ticket.producer_id)
+      const meter = meters.find((m) => m.id === ticket.meter_id)
+      const segment = segments.find((s) => s.id === ticket.segment_id)
+      const value = (v: any) => v === null || v === undefined || v === '' ? '—' : v
+
+      return `
+        <html>
+          <head>
+            <title>${ticket.ticket_number || 'Ticket'}</title>
+            <style>
+              @page { size: letter portrait; margin: 0.35in; }
+              * { box-sizing: border-box; }
+              body { margin: 0; padding: 0; background: #fff; color: #111; font-family: Arial, Helvetica, sans-serif; font-size: 10.5px; line-height: 1.15; }
+              .page { width: 100%; max-width: 7.8in; margin: 0 auto; }
+              .brand-header { border-bottom: 3px solid ${companyAccent}; padding-bottom: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+              .brand-name { font-size: 24px; font-weight: 900; color: ${companyAccent}; }
+              .brand-subtitle { font-size: 10.5px; color: #111; margin-top: 2px; }
+              .brand-logo { max-height: 42px; max-width: 140px; object-fit: contain; }
+              .ticket-title { text-align: center; font-size: 24px; font-weight: 900; margin: 8px 0 10px; letter-spacing: 0.4px; }
+              .section { border: 1.4px solid #111; margin-bottom: 10px; page-break-inside: avoid; }
+              .section-title { text-align: center; font-size: 14px; font-weight: 900; border-bottom: 1.2px solid #111; padding: 5px 8px; background: #fafafa; }
+              .grid-two { display: grid; grid-template-columns: 1fr 1fr; }
+              .row { display: grid; grid-template-columns: 48% 52%; min-height: 21px; border-bottom: 1px solid #d6d6d6; }
+              .grid-two > .row:nth-child(odd) { border-right: 1px solid #111; }
+              .label { font-weight: 900; padding: 5px 7px; }
+              .val { text-align: right; padding: 5px 7px; }
+              .footer { border-top: 1.4px solid #111; margin-top: 10px; padding-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+            </style>
+          </head>
+          <body>
+            <div class="page">
+              <div class="brand-header">
+                <div>
+                  <div class="brand-name">${getCompanyDisplayName()}</div>
+                  <div class="brand-subtitle">Custody Transfer Ticket</div>
+                </div>
+                ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}
+              </div>
+
+              <div class="ticket-title">${ticket.ticket_number || 'Ticket'}</div>
+
+              <div class="section">
+                <div class="grid-two">
+                  <div class="row"><div class="label">Status:</div><div class="val">${value(ticket.status)}</div></div>
+                  <div class="row"><div class="label">Contract Profile:</div><div class="val">${value(ticket.observed_inputs?.contract_profile_name || ticket.calculation_profile_snapshot?.contract_profile?.name || 'Default')}</div></div>
+                  <div class="row"><div class="label">Type:</div><div class="val">${value(ticket.ticket_type)}</div></div>
+                  <div class="row"><div class="label">Calculation Method:</div><div class="val">${value(ticket.observed_inputs?.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL')}</div></div>
+                  <div class="row"><div class="label">Producer:</div><div class="val">${value(producer?.name)}</div></div>
+                  <div class="row"><div class="label">Ticket Created:</div><div class="val">${value(getTicketDate(ticket) ? new Date(getTicketDate(ticket)).toLocaleString() : '')}</div></div>
+                  <div class="row"><div class="label">Meter:</div><div class="val">${value(meter?.meter_number)}</div></div>
+                  <div class="row"><div class="label">Segment:</div><div class="val">${value(segment?.name)}</div></div>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-title">Observed Inputs</div>
+                <div class="grid-two">
+                  <div class="row"><div class="label">IV:</div><div class="val">${value(ticket.observed_inputs?.iv)}</div></div>
+                  <div class="row"><div class="label">Density @60 kg/m³:</div><div class="val">${value(ticket.observed_inputs?.density_60)}</div></div>
+                  <div class="row"><div class="label">CTL:</div><div class="val">${value(ticket.observed_inputs?.ctl)}</div></div>
+                  <div class="row"><div class="label">Avg Temp (°F):</div><div class="val">${value(ticket.observed_inputs?.average_temperature)}</div></div>
+                  <div class="row"><div class="label">CPL:</div><div class="val">${value(ticket.observed_inputs?.cpl)}</div></div>
+                  <div class="row"><div class="label">Avg Pressure (psi):</div><div class="val">${value(ticket.observed_inputs?.average_pressure)}</div></div>
+                  <div class="row"><div class="label">CTLP:</div><div class="val">${value(ticket.observed_inputs?.ctlp)}</div></div>
+                  <div class="row"><div class="label">BS&W %:</div><div class="val">${value(ticket.observed_inputs?.bsw_percent)}</div></div>
+                  <div class="row"><div class="label">CMF:</div><div class="val">${value(ticket.observed_inputs?.cmf)}</div></div>
+                  <div class="row"><div class="label">CSW:</div><div class="val">${value(ticket.observed_inputs?.csw)}</div></div>
+                  <div class="row"><div class="label">Observed API Gravity:</div><div class="val">${value(ticket.observed_inputs?.observed_api_gravity)}</div></div>
+                  <div class="row"><div class="label">API Gravity @60°F:</div><div class="val">${value(ticket.observed_inputs?.api_gravity_60 || ticket.observed_inputs?.corrected_api)}</div></div>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-title">Calculated Results</div>
+                <div class="grid-two">
+                  <div class="row"><div class="label">CCF:</div><div class="val">${value(ticket.calculation_results?.ccf)}</div></div>
+                  <div class="row"><div class="label">Flowing Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.flowing_volume || ticket.calculation_results?.gross_volume)}</div></div>
+                  <div class="row"><div class="label">GSV:</div><div class="val">${value(selectedTicket!.calculation_results?.gsv)}</div></div>
+                  <div class="row"><div class="label">Net Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.net_volume || selectedTicket!.calculation_results?.nsv)}</div></div>
+                  <div class="row"><div class="label">NSV:</div><div class="val">${value(selectedTicket!.calculation_results?.nsv)}</div></div>
+                  <div class="row"><div class="label">Water Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.water_volume)}</div></div>
+                </div>
+              </div>
+
+              <div class="footer">
+                <div><strong>Notes:</strong><br />${value(ticket.notes)}</div>
+                <div>
+                  <div><strong>Approved By:</strong> ${value(ticket.approved_by_name || ticket.approved_by_email)}</div>
+                  <div style="margin-top: 10px;"><strong>Approved Date:</strong> ${value(ticket.approved_at ? new Date(ticket.approved_at).toLocaleString() : '')}</div>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `
+    }
+
+    for (const ticket of ticketsToExport as any[]) {
       const pdfUrl = ticket.pdf_url || ticket.pdfUrl
       const ticketLabel =
         ticket.ticket_number ||
         ticket.ticket_no ||
         ticket.id ||
-        `ticket-${approvedTickets.indexOf(ticket) + 1}`
+        `ticket-${ticketsToExport.indexOf(ticket) + 1}`
 
-      try {
-        const response = await fetch(pdfUrl)
-        if (!response.ok) throw new Error(`Failed to fetch PDF for ${ticketLabel}`)
+      const safeLabel = String(ticketLabel).replace(/[^a-zA-Z0-9-_]/g, '_')
 
-        const blob = await response.blob()
-        zip.file(`${String(ticketLabel).replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`, blob)
-      } catch (error: any) {
-        console.error('PDF bundle fetch error:', error)
+      if (pdfUrl) {
+        try {
+          const response = await fetch(pdfUrl)
+          if (response.ok) {
+            const blob = await response.blob()
+            if (blob.size > 0) {
+              zip.file(`${safeLabel}.pdf`, blob)
+              addedCount += 1
+              continue
+            }
+          }
+        } catch (error) {
+          console.error('PDF fetch failed, falling back to HTML:', error)
+        }
       }
+
+      const html = await makeTicketHtml(ticket)
+      zip.file(`${safeLabel}.html`, html)
+      addedCount += 1
     }
+
+    if (addedCount === 0) {
+      alert('No files could be added to the ZIP.')
+      return
+    }
+
+    zip.file(
+      'README.txt',
+      `Producer PDF Bundle\nTickets exported: ${addedCount}\nIf PDF files were not stored yet, the app included printable HTML custody transfer tickets instead. Open the HTML files in your browser and save/print as PDF.\n`
+    )
 
     const blob = await zip.generateAsync({ type: 'blob' })
     const producer = producers.find((p) => p.id === pdfBundleProducerId)
     const producerName = producer?.name || 'all-producers'
-    const fileName = `producer-pdfs-${producerName.replace(/[^a-zA-Z0-9-_]/g, '_')}-${pdfBundleStartDate}-to-${pdfBundleEndDate}.zip`
+    const fileName = `producer-tickets-${producerName.replace(/[^a-zA-Z0-9-_]/g, '_')}-${pdfBundleStartDate}-to-${pdfBundleEndDate}.zip`
 
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -1912,13 +6370,13 @@ async function saveUserRole() {
     URL.revokeObjectURL(url)
   }
 
-async function logout() {
+  async function logout() {
     await supabase.auth.signOut()
   }
 
   const box: CSSProperties = {
     background: 'linear-gradient(145deg, rgba(28,32,35,0.98), rgba(10,15,18,0.98))',
-    border: '1px solid rgba(196,106,43,0.28)',
+    border: `1px solid ${accentRgba(0.28)}`,
     padding: 20,
     borderRadius: 18,
     marginBottom: 20,
@@ -1950,19 +6408,20 @@ async function logout() {
     width: '100%',
     padding: 12,
     marginTop: 10,
-    background: 'linear-gradient(135deg, #c46a2b, #7a3b18)',
+    background: accentGradient(),
     color: 'white',
-    border: '1px solid #e08745',
+    border: `1px solid ${accentRgba(0.9)}`,
     borderRadius: 12,
     cursor: 'pointer',
+    opacity: isActionRunning ? 0.65 : 1,
     fontWeight: 700,
-    boxShadow: '0 0 18px rgba(196,106,43,0.24)',
+    boxShadow: `0 0 18px ${accentRgba(0.24)}`,
     minHeight: 44,
   }
 
   const sidebarBrandCard: CSSProperties = {
     background: 'linear-gradient(145deg, rgba(20,25,28,1), rgba(9,13,16,1))',
-    border: '1px solid rgba(196,106,43,0.28)',
+    border: `1px solid ${accentRgba(0.28)}`,
     borderRadius: 16,
     padding: 14,
     marginBottom: 16,
@@ -1989,12 +6448,12 @@ async function logout() {
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'space-between',
-    border: '1px solid rgba(196,106,43,0.22)',
+    border: `1px solid ${accentRgba(0.22)}`,
   }
 
   const reportPanel: CSSProperties = {
     ...box,
-    border: '1px solid rgba(196,106,43,0.30)',
+    border: `1px solid ${accentRgba(0.30)}`,
   }
 
   const reportGrid: CSSProperties = {
@@ -2105,8 +6564,8 @@ async function logout() {
   const meterIntelligence = meters.map((meter: any) => {
     const latestProving = getLatestProvingForMeter(meter.id)
     const latestReading = getLatestReadingForMeter(meter.id)
-    const provingDate = latestProving?.proving_date || latestProving?.created_at || null
-    const readingDate = latestReading?.reading_date || latestReading?.created_at || null
+    const provingDate = latestProving?.proving_date || (latestProving as any)?.created_at || null
+    const readingDate = latestReading?.reading_date || (latestReading as any)?.created_at || null
     const provingAgeDays = daysSince(provingDate)
     const readingAgeDays = daysSince(readingDate)
     const provingFrequencyDays = Number(meter.proving_frequency_days || meter.provingFrequencyDays || 30)
@@ -2129,12 +6588,367 @@ async function logout() {
     }
   })
 
-  const overdueMeters = meterIntelligence.filter((item) => item.isOverdue)
-  const dueSoonMeters = meterIntelligence.filter((item) => item.isDueSoon)
+  const opsOverdueMeters = meterIntelligence.filter((item) => item.isOverdue)
+  const opsDueSoonMeters = meterIntelligence.filter((item) => item.isDueSoon)
   const staleReadingMeters = meterIntelligence.filter((item) => item.readingStale)
-  const compliantMeters = meterIntelligence.filter((item) => !item.isOverdue)
-  const provingCompliancePercent =
-    meters.length > 0 ? Math.round((compliantMeters.length / meters.length) * 100) : 100
+  const opsCompliantMeters = meterIntelligence.filter((item) => !item.isOverdue)
+  const opsProvingCompliancePercent =
+    meters.length > 0 ? Math.round((opsCompliantMeters.length / meters.length) * 100) : 100
+
+
+  const ticketDraftStorageKey = `measurement-ticket-draft-${companyId || 'global'}`
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(ticketDraftStorageKey)
+      setHasLocalTicketDraft(Boolean(saved))
+    } catch {
+      setHasLocalTicketDraft(false)
+    }
+  }, [ticketDraftStorageKey])
+
+  useEffect(() => {
+    try {
+      const draftPayload = {
+        selectedSegment,
+        selectedProducer,
+        selectedLease,
+        selectedMeter,
+        ticketType,
+        savedAt: new Date().toISOString(),
+      }
+
+      const hasDraftWork =
+        selectedSegment ||
+        selectedProducer ||
+        selectedLease ||
+        selectedMeter ||
+        ticketType !== 'meter'
+
+      if (hasDraftWork) {
+        localStorage.setItem(ticketDraftStorageKey, JSON.stringify(draftPayload))
+        setHasLocalTicketDraft(true)
+      }
+    } catch (error) {
+      console.error('Autosave failed:', error)
+    }
+  }, [
+    ticketDraftStorageKey,
+    selectedSegment,
+    selectedProducer,
+    selectedLease,
+    selectedMeter,
+    ticketType,
+  ])
+
+  function restoreLocalTicketDraft() {
+    try {
+      const saved = localStorage.getItem(ticketDraftStorageKey)
+      if (!saved) return
+
+      const draft = JSON.parse(saved)
+      setSelectedSegment(draft.selectedSegment || '')
+      setSelectedProducer(draft.selectedProducer || '')
+      setSelectedLease(draft.selectedLease || '')
+      setSelectedMeter(draft.selectedMeter || '')
+      setTicketType(draft.ticketType || 'meter')
+      setDraftRestoredMessage(`Restored draft saved ${draft.savedAt ? new Date(draft.savedAt).toLocaleString() : 'earlier'}.`)
+      setPage('tickets')
+    } catch (error) {
+      console.error('Restore draft failed:', error)
+      alert('Could not restore local draft.')
+    }
+  }
+
+  function clearLocalTicketDraft() {
+    try {
+      localStorage.removeItem(ticketDraftStorageKey)
+      setHasLocalTicketDraft(false)
+      setDraftRestoredMessage('')
+    } catch (error) {
+      console.error('Clear draft failed:', error)
+    }
+  }
+
+
+  const workflowTickets = tickets
+    .filter((ticket: any) => {
+      const status = String(ticket.status || 'draft').toLowerCase()
+      return !['approved', 'voided'].includes(status) && !ticket.is_superseded
+    })
+    .sort((a: any, b: any) =>
+      new Date(b.created_at || b.updated_at || 0).getTime() -
+      new Date(a.created_at || a.updated_at || 0).getTime()
+    )
+
+
+
+  const mobileHomeModules = [
+    { key: 'dashboard', label: 'Dashboard', description: 'Totals and quick status' },
+    { key: 'tickets', label: 'Tickets', description: 'Create, open, approve tickets' },
+    { key: 'readings', label: 'Readings', description: 'Operator readings' },
+    { key: 'pot', label: 'POT', description: 'Quality and S&W' },
+    { key: 'provings', label: 'Provings', description: 'Meter proving records' },
+    { key: 'reports', label: 'Reports', description: 'Reports Center' },
+    { key: 'system_health', label: 'System Health', description: 'Setup checks' },
+    ...(canViewAdmin ? [{ key: 'admin', label: 'Admin', description: 'Company setup and imports' }] : []),
+    { key: 'operations', label: 'Operations', description: 'Over / short and alerts' },
+  ]
+
+  function openMobileModule(moduleKey: string) {
+    setPage(moduleKey)
+    setMobileMenuOpen(false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+
+  async function runSystemHealthCheck() {
+    setSystemHealthRunning(true)
+
+    const checks: any[] = []
+    const addCheck = (name: string, ok: boolean, detail: string, severity: 'ok' | 'warning' | 'error' = ok ? 'ok' : 'error') => {
+      checks.push({ name, ok, detail, severity })
+    }
+
+    const activeCompanyID =
+      userIsSuperAdmin && selectedAdminCompanyId
+        ? selectedAdminCompanyId
+        : companyId
+
+    try {
+      addCheck('Company selected', !!activeCompanyID, activeCompanyID ? `Company ID: ${activeCompanyID}` : 'No company is selected.')
+
+      const requiredTables = [
+        'companies',
+        'company_settings',
+        'areas',
+        'segments',
+        'producers',
+        'leases',
+        'meters',
+        'readings',
+        'tickets',
+        'pot_quality',
+        'provings',
+        'tanks',
+        'tank_calibration_versions',
+        'tank_strapping_rows',
+        'tank_deadwood_rules',
+        'line_fills',
+      ]
+
+      for (const tableName of requiredTables) {
+        const { error } = await supabase.from(tableName).select('*').limit(1)
+        addCheck(`Table: ${tableName}`, !error, error ? error.message : 'Available')
+      }
+
+      const { data: buckets, error: bucketError } = await supabase.storage.listBuckets()
+      const hasLogoBucket = !!buckets?.some((bucket: any) => bucket.name === 'company-logos')
+      addCheck('Storage bucket: company-logos', !bucketError && hasLogoBucket, bucketError ? bucketError.message : hasLogoBucket ? 'Available' : 'Bucket missing')
+
+      const companySettingsOk = !!companySettings?.company_name || !!companySettings?.accent_color || !!companySettings?.logo_url
+      addCheck('Company branding configured', companySettingsOk, companySettingsOk ? 'Branding row is loaded.' : 'No company branding loaded.', companySettingsOk ? 'ok' : 'warning')
+
+      const missingMeterDirections = meters.filter((meter: any) => !meter.direction && !meter.meter_direction && !meter.meter_role)
+      addCheck(
+        'Meter receipt/delivery roles',
+        missingMeterDirections.length === 0,
+        missingMeterDirections.length === 0 ? 'All meters have role/direction fields.' : `${missingMeterDirections.length} meter(s) missing receipt/delivery role.`,
+        missingMeterDirections.length === 0 ? 'ok' : 'warning'
+      )
+
+      const tanksMissingCharts = tanks.filter((tank: any) =>
+        !tankCalibrationVersions.some((version: any) => version.tank_id === tank.id)
+      )
+      addCheck(
+        'Tank strapping charts',
+        tanksMissingCharts.length === 0,
+        tanks.length === 0 ? 'No tanks configured yet.' : tanksMissingCharts.length === 0 ? 'All tanks have calibration versions.' : `${tanksMissingCharts.length} tank(s) missing strapping chart calibration.`,
+        tanksMissingCharts.length === 0 ? 'ok' : 'warning'
+      )
+
+      const pendingTickets = getScopedTickets().filter((ticket: any) => !['approved', 'voided'].includes(String(ticket.status || 'draft').toLowerCase()))
+      addCheck(
+        'Pending ticket workflow',
+        true,
+        `${pendingTickets.length} draft/submitted ticket(s) pending.`,
+        pendingTickets.length > 0 ? 'warning' : 'ok'
+      )
+
+      const approvedUnposted = getScopedTickets().filter((ticket: any) =>
+        ticket.status === 'approved' && ticket.observed_inputs?.inventory_posted !== true
+      )
+      addCheck(
+        'Inventory posting status',
+        approvedUnposted.length === 0,
+        approvedUnposted.length === 0 ? 'Approved tickets appear posted or inventory posting not required.' : `${approvedUnposted.length} approved ticket(s) not marked inventory_posted.`,
+        approvedUnposted.length === 0 ? 'ok' : 'warning'
+      )
+
+      const flowxReady = !!flowxTransporter1 || !!flowxTransporter2 || !!flowxTransporter3 || !!flowxTransporter4
+      addCheck(
+        'Flow-X split setup',
+        flowxReady,
+        flowxReady ? 'At least one Flow-X transporter split is configured in the current form.' : 'No Flow-X transporter split is currently configured.',
+        flowxReady ? 'ok' : 'warning'
+      )
+
+      setSystemHealthChecks(checks)
+    } catch (error: any) {
+      addCheck('System health check failed', false, error?.message || 'Unknown error')
+      setSystemHealthChecks(checks)
+    } finally {
+      setSystemHealthRunning(false)
+    }
+  }
+
+
+  function getTicketDateValue(ticket: any) {
+    return ticket.approved_at || ticket.updated_at || ticket.created_at || new Date().toISOString()
+  }
+
+  function getTicketMonthKey(ticket: any) {
+    const date = new Date(getTicketDateValue(ticket))
+    if (Number.isNaN(date.getTime())) return 'Unknown'
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+  }
+
+  function getTicketMonthLabel(monthKey: string) {
+    if (monthKey === 'Unknown') return 'Unknown Date'
+    const [year, month] = monthKey.split('-').map(Number)
+    return new Date(year, month - 1, 1).toLocaleDateString(undefined, {
+      month: 'long',
+      year: 'numeric',
+    })
+  }
+
+
+  function getDraftWorkflowTickets() {
+    return tickets
+      .filter((ticket: any) => !['approved', 'voided'].includes(String(ticket.status || 'draft').toLowerCase()))
+      .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
+  }
+
+  function getApprovedTickets() {
+    return tickets
+      .filter((ticket: any) => String(ticket.status || '').toLowerCase() === 'approved')
+      .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
+  }
+
+  function toggleApprovedTicketMonth(monthKey: string) {
+    setOpenApprovedTicketMonths((prev) => ({
+      ...prev,
+      [monthKey]: !(prev[monthKey] ?? true),
+    }))
+  }
+
+
+  function getWorkflowGroupKey(ticket: any) {
+    const status = String(ticket.status || 'draft').toLowerCase()
+    if (status === 'submitted') return 'submitted'
+    if (status === 'draft') return 'draft'
+    return 'needs_review'
+  }
+
+  function getWorkflowGroupLabel(groupKey: string) {
+    if (groupKey === 'submitted') return 'Submitted Tickets'
+    if (groupKey === 'draft') return 'Draft Tickets'
+    return 'Needs Review'
+  }
+
+  function groupWorkflowTickets(ticketList: any[]) {
+    const order = ['submitted', 'draft', 'needs_review']
+    const grouped = ticketList.reduce((acc: Record<string, any[]>, ticket: any) => {
+      const key = getWorkflowGroupKey(ticket)
+      if (!acc[key]) acc[key] = []
+      acc[key].push(ticket)
+      return acc
+    }, {} as Record<string, any[]>)
+
+    return (Object.entries(grouped) as [string, any[]][])
+      .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
+      .map(([groupKey, groupTickets]) => ({
+        groupKey,
+        label: getWorkflowGroupLabel(groupKey),
+        tickets: groupTickets.sort((a: any, b: any) =>
+          new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime()
+        ),
+      }))
+  }
+
+  function toggleWorkflowTicketGroup(groupKey: string) {
+    setOpenWorkflowTicketGroups((prev) => ({
+      ...prev,
+      [groupKey]: !(prev[groupKey] ?? true),
+    }))
+  }
+
+  function groupTicketsByMonth(ticketList: any[]) {
+    const grouped = ticketList.reduce((acc: Record<string, any[]>, ticket: any) => {
+      const key = getTicketMonthKey(ticket)
+      if (!acc[key]) acc[key] = []
+      acc[key].push(ticket)
+      return acc
+    }, {} as Record<string, any[]>)
+
+    return (Object.entries(grouped) as [string, any[]][])
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([monthKey, monthTickets]) => ({
+        monthKey,
+        label: getTicketMonthLabel(monthKey),
+        tickets: monthTickets.sort((a: any, b: any) =>
+          new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime()
+        ),
+      }))
+  }
+
+
+  function formatTicketDetailNumber(value: any, digits = 1) {
+    const num = Number(value)
+    if (!Number.isFinite(num)) return '—'
+    return num.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })
+  }
+
+  function formatFactorDetail(value: any, digits = 6) {
+    const num = Number(value)
+    if (!Number.isFinite(num)) return '—'
+    return num.toFixed(digits)
+  }
+
+  function getTicketAssignedPotLabel(ticket: any) {
+    return ticket?.observed_inputs?.assigned_pot_label || ticket?.assigned_pot_id || '—'
+  }
+
+  function getTicketContractName(ticket: any) {
+    return ticket?.observed_inputs?.contract_name || ticket?.calculation_profile_snapshot?.contract_name || '—'
+  }
+
+  function getTicketApiVersionLabel(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    return observed.api_version_label || getApiVersionLabel(observed.api_version || ticket?.api_version || '') || '—'
+  }
+
+  function compactTicketTitle(ticket: any) {
+    return ticket.ticket_number || ticket.id || 'Ticket'
+  }
+
+  function compactTicketSubtitle(ticket: any) {
+    const observed = ticket.observed_inputs || {}
+    const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name
+    const type = ticket.ticket_type || 'ticket'
+    const status = ticket.status || 'draft'
+    return `${type} • ${status}${transporter ? ` • ${transporter}` : ''}`
+  }
+
+  function compactTicketVolume(ticket: any) {
+    const calc = ticket.calculation_results || {}
+    const observed = ticket.observed_inputs || {}
+    const nsv = calc.nsv ?? observed.net_volume_bbl
+    const gsv = calc.gsv ?? observed.gross_volume_bbl
+    if (nsv !== undefined && nsv !== null) return `NSV: ${Number(nsv || 0).toFixed(2)}`
+    if (gsv !== undefined && gsv !== null) return `GSV: ${Number(gsv || 0).toFixed(2)}`
+    return ''
+  }
 
   if (loading) return <div style={{ padding: 40, color: 'white' }}>Loading...</div>
   if (!session) return <Login />
@@ -2142,6 +6956,106 @@ async function logout() {
   return (
     <>
       <style>{`
+        @media (max-width: 768px) {
+          body {
+            overflow-x: hidden;
+          }
+
+          .desktop-sidebar {
+            display: none !important;
+          }
+
+          .mobile-home {
+            display: block !important;
+            padding: 14px;
+          }
+
+          .mobile-page-header {
+            display: flex !important;
+          }
+
+          .app-content {
+            margin-left: 0 !important;
+            width: 100% !important;
+            padding: 12px !important;
+          }
+
+          .responsive-grid {
+            grid-template-columns: 1fr !important;
+          }
+
+          input,
+          select,
+          button {
+            min-height: 44px;
+            font-size: 16px !important;
+          }
+
+          h1 {
+            font-size: 22px !important;
+          }
+
+          h2 {
+            font-size: 18px !important;
+          }
+        }
+
+        @media (min-width: 769px) {
+          .mobile-home {
+            display: none !important;
+          }
+
+          .mobile-page-header {
+            display: none !important;
+          }
+        }
+      
+        @media (max-width: 768px) {
+          .desktop-sidebar,
+          aside,
+          nav[aria-label="sidebar"],
+          [data-sidebar="true"] {
+            display: none !important;
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 0 !important;
+            overflow: hidden !important;
+            position: absolute !important;
+            left: -9999px !important;
+          }
+
+          .mobile-home {
+            display: block !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: 14px !important;
+            margin: 0 !important;
+          }
+
+          .mobile-home button {
+            width: 100% !important;
+          }
+
+          .app-content,
+          main,
+          .main-content {
+            margin-left: 0 !important;
+            padding-left: 12px !important;
+            padding-right: 12px !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            transform: none !important;
+          }
+
+          body,
+          #root {
+            overflow-x: hidden !important;
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+        }
+`}</style>
+<style>{`
         input::placeholder { color: rgba(248,250,252,0.48); }
         select option { background: #0b1117; color: #f8fafc; }
         button:hover { filter: brightness(1.08); }
@@ -2183,7 +7097,7 @@ async function logout() {
         width: 250,
         background: 'linear-gradient(180deg, #111820 0%, #070a0d 100%)',
         padding: 20,
-        borderRight: '1px solid rgba(196,106,43,0.28)',
+        borderRight: `1px solid ${accentRgba(0.28)}`,
         boxShadow: '10px 0 30px rgba(0,0,0,0.35)',
       }}>
         <div style={sidebarBrandCard}>
@@ -2213,17 +7127,17 @@ async function logout() {
             )}
           </div>
 
-          <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 0.3 }}>
-            {getCompanyDisplayName()}
+         <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 0.3 }}>
+  {getCompanyDisplayName()}
           </div>
           <div style={{ fontSize: 12, color: '#a8b3bd', marginTop: 4 }}>
             Measurement Platform
           </div>
         </div>
 
-        {['dashboard', 'admin', 'reports', 'readings', 'pot', 'provings', 'tickets'].map((p) => (
+        {['dashboard', 'admin', 'operations', 'reports', 'readings', 'pot', 'pot_map', 'contracts', 'api_engine', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
           <button key={p} onClick={() => { setPage(p); setMobileNavOpen(false) }} style={button}>
-            {p.toUpperCase()}
+            {p === 'pot_map' ? 'POT MAP' : p === 'contracts' ? 'CONTRACTS' : p === 'api_engine' ? 'API ENGINE' : p.toUpperCase()}
           </button>
         ))}
 
@@ -2237,6 +7151,65 @@ async function logout() {
         padding: 30,
         background: 'linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)), #070a0d',
       }}>
+        {/* Offline Warning */}
+        {typeof navigator !== 'undefined' && !navigator.onLine && (
+          <div style={{ ...card, border: '1px solid rgba(220,38,38,0.45)', marginBottom: 14 }}>
+            <strong>Offline</strong>
+            <div style={{ color: '#fecaca', fontSize: 12, marginTop: 4 }}>
+              You appear to be offline. Saves may fail until connection is restored.
+            </div>
+          </div>
+        )}
+
+        {/* Production Hardening Saving Banner */}
+        {isActionRunning && (
+          <div
+            style={{
+              ...card,
+              position: 'sticky',
+              top: 10,
+              zIndex: 60,
+              border: `1px solid ${accentRgba(0.45)}`,
+              marginBottom: 14,
+            }}
+          >
+            <strong>{actionMessage || 'Working...'}</strong>
+            <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 4 }}>
+              Please wait. This prevents duplicate saves or duplicate submissions.
+            </div>
+          </div>
+        )}
+
+        {/* Autosave Draft Restore Banner */}
+        {hasLocalTicketDraft && page !== 'tickets' && (
+          <div
+            style={{
+              ...card,
+              border: `1px solid ${accentRgba(0.45)}`,
+              marginBottom: 14,
+            }}
+          >
+            <strong>Unsaved ticket draft found</strong>
+            <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 4 }}>
+              A ticket draft was saved on this device.
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+              <button style={{ ...button, width: 'auto' }} onClick={restoreLocalTicketDraft}>
+                Restore Draft
+              </button>
+              <button style={{ ...button, width: 'auto', background: '#374151', borderColor: '#4b5563' }} onClick={clearLocalTicketDraft}>
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
+        {draftRestoredMessage && (
+          <div style={{ ...card, border: '1px solid rgba(22,163,74,0.45)', marginBottom: 14 }}>
+            {draftRestoredMessage}
+          </div>
+        )}
+
         {/* Company Accent Header */}
         <div
           style={{
@@ -2247,25 +7220,98 @@ async function logout() {
           }}
         />
 
+        {/* Mobile Module Home */}
+        {(mobileMenuOpen || !page) && (
+          <div className="mobile-home">
+            <div style={{ ...box, marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {getCompanyLogoUrl() ? (
+                  <img src={getCompanyLogoUrl()} style={{ width: 54, height: 54, objectFit: 'contain', borderRadius: 12, background: '#fff' }} />
+                ) : (
+                  <div style={{ width: 54, height: 54, borderRadius: 14, background: accentGradient(), display: 'grid', placeItems: 'center', fontWeight: 900, fontSize: 22 }}>
+                    $
+                  </div>
+                )}
+                <div>
+                  <h1 style={{ margin: 0 }}>{getCompanyDisplayName()}</h1>
+                  <div style={{ color: '#a8b3bd' }}>Measurement Platform</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {mobileHomeModules.map((module) => (
+                <button
+                  key={module.key}
+                  style={{
+                    ...card,
+                    textAlign: 'left',
+                    minHeight: 104,
+                    border: `1px solid ${accentRgba(0.45)}`,
+                    background: 'rgba(15, 23, 42, 0.92)',
+                    color: '#fff',
+                  }}
+                  onClick={() => openMobileModule(module.key)}
+                >
+                  <div style={{ fontSize: 18, fontWeight: 900 }}>{module.label}</div>
+                  <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 6 }}>{module.description}</div>
+                </button>
+              ))}
+            </div>
+
+            <button style={{ ...button, background: '#dc2626', borderColor: '#ef4444', marginTop: 16 }} onClick={logout}>
+              Logout
+            </button>
+          </div>
+        )}
+
+        {/* Mobile Page Header */}
+        {!mobileMenuOpen && page && (
+          <div className="mobile-page-header" style={{ display: 'none', gap: 10, alignItems: 'center', marginBottom: 12, position: 'sticky', top: 0, zIndex: 80, background: '#050b12', padding: '10px 0' }}>
+            <button style={{ ...button, width: 'auto', padding: '10px 14px' }} onClick={() => setMobileMenuOpen(true)}>
+              Home
+            </button>
+            <div style={{ fontWeight: 900, textTransform: 'uppercase' }}>{page}</div>
+          </div>
+        )}
+
+        {!mobileMenuOpen && (
+          <>
         {page === 'dashboard' && (
           <>
             <h1>Dashboard</h1>
+            <div style={{ color: '#a8b3bd', fontSize: 13, marginBottom: 8 }}>{getAreaAccessDebugText()} • Detected role: {String(Role || 'none')} • Loaded roles: {asArray(userRoles).map((r: any) => r.role).join(', ') || 'none'}</div>
+            <div style={box}>
+              <h2>Over / Short Summary</h2>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                {getOverShortRows().slice(0, 4).map((row: any) => (
+                  <div key={row.segment.id} style={card}>
+                    <strong>{row.segment.name}</strong>
+                    <div>Book: {row.bookInventory.toFixed(2)}</div>
+                    <div>Actual: {row.actualInventory.toFixed(2)}</div>
+                    <div style={{ color: Math.abs(row.overShort) > 0.01 ? '#fca5a5' : '#86efac' }}>
+                      O/S: {row.overShort.toFixed(2)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
             {/* Phase 3 Dashboard KPIs */}
             <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
-              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Total Tickets</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.length}</div></div>
+              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Total Tickets</div><div style={{ fontSize: 30, fontWeight: 900 }}>{getScopedTickets().length}</div></div>
               <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Approved</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.filter((t) => t.status === 'approved').length}</div></div>
               <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Draft / Working</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.filter((t) => !t.status || t.status === 'draft').length}</div></div>
-              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Meters</div><div style={{ fontSize: 30, fontWeight: 900 }}>{meters.length}</div></div>
+              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Meters</div><div style={{ fontSize: 30, fontWeight: 900 }}>{getScopedMeters().length}</div></div>
             </div>
             <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 20 }}>
-              <div style={box}>Areas<h2>{areas.length}</h2></div>
-              <div style={box}>Segments<h2>{segments.length}</h2></div>
-              <div style={box}>Leases<h2>{leases.length}</h2></div>
+              <div style={box}>Areas<h2>{getScopedAreas().length}</h2></div>
+              <div style={box}>Segments<h2>{getScopedSegments().length}</h2></div>
+              <div style={box}>Leases<h2>{getScopedLeases().length}</h2></div>
               <div style={box}>Producers<h2>{producers.length}</h2></div>
-              <div style={box}>Meters<h2>{meters.length}</h2></div>
-              <div style={box}>Readings<h2>{readings.length}</h2></div>
-              <div style={box}>Provings<h2>{provings.length}</h2></div>
-              <div style={box}>Tickets<h2>{tickets.length}</h2></div>
+              <div style={box}>Meters<h2>{getScopedMeters().length}</h2></div>
+              <div style={box}>Readings<h2>{getScopedReadings().length}</h2></div>
+              <div style={box}>Provings<h2>{getScopedProvings().length}</h2></div>
+              <div style={box}>Tickets<h2>{getScopedTickets().length}</h2></div>
             </div>
 
             <div style={box}>
@@ -2281,12 +7327,77 @@ async function logout() {
         )}
 
 
-        {page === 'admin' && (
+        {page === 'admin' && !canViewAdmin && (
+          <div style={box}>
+            <h1>Admin</h1>
+
+            <div style={box}>
+              <h2>Transporter → POT Assignment</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Set which POT quality should be used for each Flow-X transporter summary ticket.
+              </p>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12 }}>
+                <input
+                  style={input}
+                  placeholder="Transporter Name exactly as Flow-X shows it"
+                  value={newTransporterPotName}
+                  onChange={(e) => setNewTransporterPotName(e.target.value)}
+                />
+
+                <select style={input} value={newTransporterPotId} onChange={(e) => setNewTransporterPotId(e.target.value)}>
+                  <option value="">Select POT Quality</option>
+                  {getScopedPotQuality().map((pot: any) => (
+                    <option key={pot.id} value={pot.id}>
+                      {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
+                    </option>
+                  ))}
+                </select>
+
+                <button style={button} onClick={() => runSafeAction('Saving transporter POT rule', saveTransporterPotRule)}>
+                  Save Rule
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                {transporterPotRules.length === 0 && (
+                  <div style={card}>No transporter POT rules saved yet.</div>
+                )}
+
+                {transporterPotRules.map((rule: any) => {
+                  const pot = potQuality.find((item: any) => item.id === rule.pot_quality_id)
+
+                  return (
+                    <div key={rule.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                      <div>
+                        <strong>{rule.transporter_name}</strong>
+                        <div style={{ color: '#a8b3bd' }}>
+                          POT: {pot ? ((pot as any).pot_number || (pot as any).sample_id || pot.id) : rule.pot_quality_id}
+                        </div>
+                      </div>
+                      <button style={{ ...button, background: '#dc2626', width: 110 }} onClick={() => deleteTransporterPotRule(rule.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+
+            <p>You do not have permission to view Admin.</p>
+            <button style={button} onClick={() => setPage('dashboard')}>
+              Back to Dashboard
+            </button>
+          </div>
+        )}
+
+        {page === 'admin' && canViewAdmin && (
           <>
             <div style={adminHeaderCard}>
               <div>
                 <h1 style={{ margin: 0 }}>
-                  Admin <span style={{ color: '#c46a2b' }}>/</span> Settings
+                  Admin <span style={{ color: getCompanyAccentColor() }}>/</span> Settings
                 </h1>
                 <div style={{ color: '#a8b3bd', marginTop: 6 }}>
                   Company setup, users, roles, branding, and contract configuration.
@@ -2294,14 +7405,14 @@ async function logout() {
               </div>
 
               <div style={{ textAlign: 'right' }}>
-                <div style={rolePill}>{currentUserRole}</div>
+                <div style={rolePill}>{Role}</div>
                 <div style={{ fontSize: 12, color: '#a8b3bd', marginTop: 6 }}>
                   Company: {companyId || 'none'}
                 </div>
               </div>
             </div>
 
-            {currentUserRole === 'super_admin' && (
+            {userIsSuperAdmin && (
               <div style={box}>
                 <h2>Super Admin: Companies</h2>
                 <p style={{ color: '#a8b3bd' }}>
@@ -2318,7 +7429,7 @@ async function logout() {
                       value={newCompanyName}
                       onChange={(e) => setNewCompanyName(e.target.value)}
                     />
-                    <button style={button} onClick={createCompany}>
+                    <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating company', createCompany)}>
                       Create Company
                     </button>
                   </div>
@@ -2354,7 +7465,7 @@ async function logout() {
                       onChange={(e) => setNewCompanyAdminPassword(e.target.value)}
                     />
 
-                    <button style={button} onClick={createCompanyAdminUser}>
+                    <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating company admin', createCompanyAdminUser)}>
                       Create Company Admin
                     </button>
                   </div>
@@ -2440,7 +7551,7 @@ async function logout() {
                       />
                     </div>
 
-                    <button style={button} onClick={saveCompanySettings}>
+                    <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Saving company branding', saveCompanySettings)}>
                       Save Company Branding
                     </button>
                   </div>
@@ -2485,9 +7596,11 @@ async function logout() {
                 <>
                   <p style={{ color: '#a8b3bd' }}>
                     Create users by email/password. UUIDs are handled automatically in the background.
+                    {userIsCompanyAdmin && ' Company admins can create operators and measurement techs for their own company only.'}
+                    {userIsSuperAdmin && ' Super admins can create companies, company admins, and global super admins.'}
                   </p>
 
-                  {currentUserRole === 'super_admin' && (
+                  {userIsSuperAdmin && (
                     <select
                       style={input}
                       value={selectedAdminCompanyId}
@@ -2525,13 +7638,15 @@ async function logout() {
                     >
                       <option value="operator">Operator</option>
                       <option value="measurement_tech">Measurement Tech</option>
-                      <option value="admin">Admin</option>
-                      {currentUserRole === 'super_admin' && (
-                        <option value="super_admin">Super Admin</option>
+                      {userIsSuperAdmin && (
+                        <>
+                          <option value="admin">Company Admin</option>
+                          <option value="super_admin">Super Admin</option>
+                        </>
                       )}
                     </select>
 
-                    <button style={button} onClick={createAppUser}>
+                    <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating user', createAppUser)}>
                       Create User
                     </button>
                   </div>
@@ -2540,13 +7655,13 @@ async function logout() {
                     style={{ ...sectionToggle, marginTop: 14 }}
                     onClick={() => setShowActiveUsers(!showActiveUsers)}
                   >
-                    <span>{showActiveUsers ? '▼' : '▶'} Active Users ({userRoles.length})</span>
+                    <span>{showActiveUsers ? '▼' : '▶'} Active Users ({(allUserRoles.length ? allUserRoles : userRoles).length})</span>
                     <span>Manage</span>
                   </button>
 
                   {showActiveUsers && (
                     <div style={{ display: 'grid', gap: 10 }}>
-                      {userRoles.map((role) => (
+                      {(allUserRoles.length ? allUserRoles : userRoles).filter((role: any) => userIsSuperAdmin || !role.company_id || role.company_id === companyId).map((role) => (
                         <div
                           key={role.id}
                           style={{
@@ -2629,7 +7744,7 @@ async function logout() {
                       <div key={profile.id} style={card}>
                         <strong>{profile.name}</strong>
                         <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                          {profile.standard} / {profile.calculation_method}
+                          {profile.standard} / {(profile as any).calculation_method}
                         </div>
                       </div>
                     ))}
@@ -2638,7 +7753,127 @@ async function logout() {
               )}
             </div>
 
-            <div style={box}>
+            
+            {(userIsSuperAdmin || userIsCompanyAdmin) && (
+              <div style={box}>
+                <h2>Area Access Control</h2>
+                <p style={{ color: '#a8b3bd' }}>
+                  Choose which areas each field user can see. This filters Readings, POT, Provings, Tickets, Meters, and Reports by area.
+                </p>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 12, alignItems: 'start' }}>
+                  <select style={input} value={selectedAccessUserId} onChange={(e) => beginEditAreaAccess(e.target.value)}>
+                    <option value="">Select User</option>
+                    {getAreaAccessUsers().map((u: any) => {
+                      const accessUserId = u.user_id || u.id || u.profile_id
+                      const accessLabel = u.email || u.full_name || u.name || `${u.role || 'user'} — ${accessUserId}`
+                      return (
+                        <option key={accessUserId} value={accessUserId}>
+                          {accessLabel}
+                        </option>
+                      )
+                    })}
+                  </select>
+
+                  <div style={{ ...card, display: 'grid', gap: 8 }}>
+                    {areas.length === 0 && <div>No areas created yet.</div>}
+
+                    {areas.map((area: any) => (
+                      <label key={area.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedAccessAreaIds.includes(String(area.id))}
+                          onChange={() => toggleAccessArea(String(area.id))}
+                        />
+                        <span>{area.area_name || area.name}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  <button style={button} onClick={() => runSafeAction('Saving area access', saveUserAreaAccess)}>
+                    Save Access
+                  </button>
+                </div>
+              </div>
+            )}
+
+
+            {(userIsSuperAdmin || userIsCompanyAdmin) && (
+              <div style={box}>
+                <h2>Hierarchy Cleanup</h2>
+                <p style={{ color: '#a8b3bd' }}>
+                  This controls strict dropdown filtering. Fix these links so Area only shows its own Segments, Segment only shows its own Leases, and Lease only shows its own Meters.
+                </p>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, alignItems: 'center' }}>
+                  <select style={input} value={hierarchySegmentId} onChange={(e) => setHierarchySegmentId(e.target.value)}>
+                    <option value="">Select Segment to assign area</option>
+                    {segments.map((segment: any) => (
+                      <option key={segment.id} value={segment.id}>
+                        {segment.segment_name || segment.name} {(segment as any).area_id ? '' : '(missing area)'}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select style={input} value={hierarchyAreaId} onChange={(e) => setHierarchyAreaId(e.target.value)}>
+                    <option value="">Assign to Area</option>
+                    {areas.map((area: any) => (
+                      <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                    ))}
+                  </select>
+
+                  <button style={button} onClick={() => runSafeAction('Saving segment area', saveSegmentAreaLink)}>
+                    Save Segment → Area
+                  </button>
+
+                  <select style={input} value={hierarchyLeaseId} onChange={(e) => setHierarchyLeaseId(e.target.value)}>
+                    <option value="">Select Lease to assign segment</option>
+                    {leases.map((lease: any) => (
+                      <option key={lease.id} value={lease.id}>
+                        {lease.lease_name || lease.name || lease.lease_number} {(lease as any).segment_id ? '' : '(missing segment)'}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select style={input} value={hierarchyLeaseSegmentId} onChange={(e) => setHierarchyLeaseSegmentId(e.target.value)}>
+                    <option value="">Assign to Segment</option>
+                    {segments.map((segment: any) => (
+                      <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
+                    ))}
+                  </select>
+
+                  <button style={button} onClick={() => runSafeAction('Saving lease segment', saveLeaseSegmentLink)}>
+                    Save Lease → Segment
+                  </button>
+
+                  <select style={input} value={hierarchyMeterId} onChange={(e) => setHierarchyMeterId(e.target.value)}>
+                    <option value="">Select Meter to assign lease</option>
+                    {meters.map((meter: any) => (
+                      <option key={meter.id} value={meter.id}>
+                        {meter.meter_number || meter.meter_name} {(meter as any).lease_id ? '' : '(missing lease)'}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select style={input} value={hierarchyMeterLeaseId} onChange={(e) => setHierarchyMeterLeaseId(e.target.value)}>
+                    <option value="">Assign to Lease</option>
+                    {leases.map((lease: any) => (
+                      <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                    ))}
+                  </select>
+
+                  <button style={button} onClick={() => runSafeAction('Saving meter lease', saveMeterLeaseLink)}>
+                    Save Meter → Lease
+                  </button>
+                </div>
+
+                <div style={{ color: '#a8b3bd', marginTop: 12, fontSize: 13 }}>
+                  Missing links: {segments.filter((s: any) => !s.area_id).length} segments without area • {leases.filter((l: any) => !l.segment_id).length} leases without segment • {meters.filter((m: any) => !m.lease_id).length} meters without lease
+                </div>
+              </div>
+            )}
+
+<div style={box}>
               <button
                 style={sectionToggle}
                 onClick={() => setShowCompanySetupHub(!showCompanySetupHub)}
@@ -2659,6 +7894,410 @@ async function logout() {
                     <button style={button} onClick={() => setPage('leases')}>Manage Leases</button>
                     <button style={button} onClick={() => setPage('producers')}>Manage Producers</button>
                     <button style={button} onClick={() => setPage('meters')}>Manage Meters</button>
+                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                      <h3>Import Meters CSV</h3>
+                      <p style={{ color: '#a8b3bd' }}>
+                        CSV headers supported: area, segment, producer, lease, meter_number.
+                      </p>
+                      <input
+                        style={input}
+                        type="file"
+                        accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        onChange={(e) => setMeterCsvFile(e.target.files?.[0] || null)}
+                      />
+                      <button
+                        disabled={isActionRunning || meterCsvImporting}
+                        style={button}
+                        onClick={() => runSafeAction('Importing meters CSV', importMetersCsv)}
+                      >
+                        {meterCsvImporting ? 'Importing...' : 'Import Meters CSV'}
+                      </button>
+                      <p style={{ color: '#a8b3bd', fontSize: 12 }}>
+                        V3 headers also supported: meter_role, product_type, include_in_os, check_meter_group, reports_to_check_meter.
+                      </p>
+                    </div>
+
+                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                      <h3>Balance Center V3 - Meter Master Roles</h3>
+                      <p style={{ color: '#a8b3bd' }}>
+                        Pick one meter, set its role/product, and save. This keeps the admin screen clean while readings and O/S still use Meter Master automatically.
+                      </p>
+
+                      {(() => {
+                        const scopedMeters = getScopedMeters()
+                        const filteredMeters = scopedMeters.filter((meter: any) => !meterMasterSegmentFilterId || String(meter.segment_id || '') === String(meterMasterSegmentFilterId))
+                        const selectedMeter = scopedMeters.find((meter: any) => String(meter.id) === String(selectedMeterMasterId)) || filteredMeters[0]
+                        const selectedSegment = selectedMeter ? segments.find((segment: any) => String(segment.id) === String(selectedMeter.segment_id)) : null
+                        const selectedLease = selectedMeter ? leases.find((lease: any) => String(lease.id) === String(selectedMeter.lease_id)) : null
+
+                        return (
+                          <div style={{ display: 'grid', gap: 12 }}>
+                            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                              <select
+                                style={input}
+                                value={meterMasterSegmentFilterId}
+                                onChange={(e) => {
+                                  setMeterMasterSegmentFilterId(e.target.value)
+                                  setSelectedMeterMasterId('')
+                                }}
+                              >
+                                <option value="">All Segments</option>
+                                {segments.map((segment: any) => (
+                                  <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name || 'Segment'}</option>
+                                ))}
+                              </select>
+
+                              <select
+                                style={input}
+                                value={selectedMeter?.id || ''}
+                                onChange={(e) => setSelectedMeterMasterId(e.target.value)}
+                              >
+                                <option value="">Select Meter</option>
+                                {filteredMeters.map((meter: any) => (
+                                  <option key={meter.id} value={meter.id}>{meter.meter_number || meter.meter_name || 'Meter'}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {selectedMeter ? (
+                              <div style={{ ...box, display: 'grid', gap: 12 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                                  <div>
+                                    <div style={{ fontWeight: 800 }}>{selectedMeter.meter_number || selectedMeter.meter_name}</div>
+                                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                                      {selectedSegment?.name || selectedSegment?.segment_name || 'No segment'}{selectedLease ? ` • ${selectedLease.lease_name || selectedLease.name || 'Lease'}` : ''}
+                                    </div>
+                                  </div>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#dce3ea' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={meterIncludedInOS(selectedMeter)}
+                                      onChange={(e) => updateMeterMasterField(selectedMeter.id, { include_in_os: e.target.checked })}
+                                    />
+                                    Include in O/S
+                                  </label>
+                                </div>
+
+                                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                                  <label style={{ display: 'grid', gap: 6 }}>
+                                    <span style={{ color: '#a8b3bd', fontSize: 12 }}>Meter Role</span>
+                                    <select
+                                      style={input}
+                                      value={getMeterConfiguredRole(selectedMeter)}
+                                      onChange={(e) => updateMeterMasterField(selectedMeter.id, { meter_role: e.target.value, direction: e.target.value })}
+                                    >
+                                      <option value="">Select role</option>
+                                      <option value="receipt">Receipt</option>
+                                      <option value="delivery">Delivery</option>
+                                      <option value="check_meter">Check Meter</option>
+                                      <option value="butane">Butane Injection</option>
+                                      <option value="refined">Refined Product</option>
+                                      <option value="excluded">Excluded</option>
+                                    </select>
+                                  </label>
+
+                                  <label style={{ display: 'grid', gap: 6 }}>
+                                    <span style={{ color: '#a8b3bd', fontSize: 12 }}>Product Type</span>
+                                    <select
+                                      style={input}
+                                      value={getMeterProductType(selectedMeter)}
+                                      onChange={(e) => updateMeterMasterField(selectedMeter.id, { product_type: e.target.value })}
+                                    >
+                                      <option value="">Select product</option>
+                                      <option value="crude">Crude Oil</option>
+                                      <option value="butane">Butane</option>
+                                      <option value="diesel">Diesel</option>
+                                      <option value="gasoline">Gasoline</option>
+                                      <option value="jet">Jet Fuel</option>
+                                      <option value="manual">Manual Total</option>
+                                    </select>
+                                  </label>
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ color: '#a8b3bd' }}>No meters found for this scope.</div>
+                            )}
+                          </div>
+                        )
+                      })()}
+                    </div>
+
+                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                      <h3>Check Meter Groups</h3>
+                      <p style={{ color: '#a8b3bd' }}>
+                        Group receipt/delivery meters and compare them to a selected check meter inside the same segment.
+                      </p>
+                      <input style={input} placeholder="Group Name" value={newCheckGroupName} onChange={(e) => setNewCheckGroupName(e.target.value)} />
+                      <select style={input} value={newCheckGroupSegmentId} onChange={(e) => { setNewCheckGroupSegmentId(e.target.value); setNewCheckGroupCheckMeterId(''); setNewCheckGroupInputMeterIds([]) }}>
+                        <option value="">Select Segment</option>
+                        {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+                      </select>
+                      <select style={input} value={newCheckGroupCheckMeterId} onChange={(e) => setNewCheckGroupCheckMeterId(e.target.value)} disabled={!newCheckGroupSegmentId}>
+                        <option value="">Select Check Meter</option>
+                        {meters.filter((meter: any) => String(meter.segment_id || '') === String(newCheckGroupSegmentId || '')).map((meter: any) => <option key={meter.id} value={meter.id}>{meter.meter_number || meter.meter_name}</option>)}
+                      </select>
+                      <div style={{ margin: '10px 0', color: '#a8b3bd' }}>Included meters</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                        {meters.filter((meter: any) => String(meter.segment_id || '') === String(newCheckGroupSegmentId || '') && String(meter.id) !== String(newCheckGroupCheckMeterId || '')).map((meter: any) => (
+                          <label key={meter.id} style={{ ...box, display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={newCheckGroupInputMeterIds.includes(meter.id)}
+                              onChange={(e) => setNewCheckGroupInputMeterIds((current) => e.target.checked ? [...current, meter.id] : current.filter((id) => id !== meter.id))}
+                            />
+                            {meter.meter_number || meter.meter_name}
+                          </label>
+                        ))}
+                      </div>
+                      <button style={button} onClick={() => runSafeAction('Saving check meter group', saveCheckMeterGroup)}>Save Check Meter Group</button>
+                      <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
+                        {balanceCheckGroups.map((group: any) => {
+                          const segment = segments.find((s: any) => String(s.id) === String(group.segment_id))
+                          const checkMeter = meters.find((m: any) => String(m.id) === String(group.check_meter_id))
+                          return <div key={group.id} style={{ color: '#a8b3bd' }}>{group.name} • {segment?.name || 'Segment'} • Check: {checkMeter?.meter_number || '—'}</div>
+                        })}
+                      </div>
+                    </div>
+
+                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                      <h3>Flow-X Truck Ticket CSV Import</h3>
+                      <p style={{ color: '#a8b3bd' }}>
+                        Import Flow-X LACT truck CSV rows and split each load into up to 4 customer draft truck tickets.
+                      </p>
+                <div style={{ ...card, marginTop: 14 }}>
+                  <h3>Transporter → POT Assignment</h3>
+                  <p style={{ color: '#a8b3bd' }}>
+                    Assign Flow-X transporter names to POT quality records. These rules apply to generated transporter summary tickets.
+                  </p>
+
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12 }}>
+                    <input
+                      style={input}
+                      placeholder="Transporter Name exactly as Flow-X shows it"
+                      value={newTransporterPotName}
+                      onChange={(e) => setNewTransporterPotName(e.target.value)}
+                    />
+
+                    <select style={input} value={newTransporterPotId} onChange={(e) => setNewTransporterPotId(e.target.value)}>
+                      <option value="">Select POT Quality</option>
+                      {getScopedPotQuality().map((pot: any) => (
+                        <option key={pot.id} value={pot.id}>
+                          {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button style={button} onClick={() => runSafeAction('Saving transporter POT rule', saveTransporterPotRule)}>
+                      Save Rule
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                    {transporterPotRules.length === 0 && (
+                      <div style={{ color: '#a8b3bd' }}>No transporter POT rules saved yet.</div>
+                    )}
+
+                    {transporterPotRules.map((rule: any) => {
+                      const pot = potQuality.find((item: any) => item.id === rule.pot_quality_id)
+
+                      return (
+                        <div key={rule.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                          <div>
+                            <strong>{rule.transporter_name}</strong>
+                            <div style={{ color: '#a8b3bd' }}>
+                              POT: {pot ? ((pot as any).pot_number || (pot as any).sample_id || pot.id) : rule.pot_quality_id}
+                            </div>
+                          </div>
+                          <button style={{ ...button, background: '#dc2626', width: 110 }} onClick={() => deleteTransporterPotRule(rule.id)}>
+                            Delete
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+
+                      <input style={input} placeholder="LACT Name" value={flowxLactName} onChange={(e) => setFlowxLactName(e.target.value)} />
+
+                      <select style={input} value={flowxDefaultSegmentId} onChange={(e) => setFlowxDefaultSegmentId(e.target.value)}>
+                        <option value="">Default Segment</option>
+                        {segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                      </select>
+
+                      <div style={card}>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={flowxManualSplitOverride}
+                      onChange={(e) => setFlowxManualSplitOverride(e.target.checked)}
+                    />
+                    Manual transporter split override
+                  </label>
+
+                  {!flowxManualSplitOverride && (
+                    <div style={{ marginTop: 10 }}>
+                      <h3>Auto Transporter Allocation</h3>
+                      {flowxAutoSplits.length === 0 ? (
+                        <div style={{ color: '#a8b3bd' }}>
+                          Upload and map a CSV with Transporter and NSV/GSV columns to calculate allocations.
+                        </div>
+                      ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                            <thead>
+                              <tr>
+                                <th style={{ textAlign: 'left', borderBottom: '1px solid #374151', padding: 6 }}>Transporter</th>
+                                <th style={{ textAlign: 'right', borderBottom: '1px solid #374151', padding: 6 }}>NSV Total</th>
+                                <th style={{ textAlign: 'right', borderBottom: '1px solid #374151', padding: 6 }}>Split %</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {flowxAutoSplits.map((split: any) => (
+                                <tr key={split.transporter}>
+                                  <td style={{ borderBottom: '1px solid #1f2937', padding: 6 }}>{split.transporter}</td>
+                                  <td style={{ textAlign: 'right', borderBottom: '1px solid #1f2937', padding: 6 }}>{split.totalNsv.toFixed(2)}</td>
+                                  <td style={{ textAlign: 'right', borderBottom: '1px solid #1f2937', padding: 6 }}>{split.percent.toFixed(4)}%</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {flowxManualSplitOverride && (
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 12, marginTop: 12 }}>
+                      <input style={input} placeholder="Transporter 1" value={flowxCustomer1} onChange={(e) => setFlowxCustomer1(e.target.value)} />
+                      <input style={input} placeholder="% 1" value={flowxPercent1} onChange={(e) => setFlowxPercent1(e.target.value)} />
+                      <input style={input} placeholder="Transporter 2" value={flowxCustomer2} onChange={(e) => setFlowxCustomer2(e.target.value)} />
+                      <input style={input} placeholder="% 2" value={flowxPercent2} onChange={(e) => setFlowxPercent2(e.target.value)} />
+                      <input style={input} placeholder="Transporter 3" value={flowxCustomer3} onChange={(e) => setFlowxCustomer3(e.target.value)} />
+                      <input style={input} placeholder="% 3" value={flowxPercent3} onChange={(e) => setFlowxPercent3(e.target.value)} />
+                      <input style={input} placeholder="Transporter 4" value={flowxCustomer4} onChange={(e) => setFlowxCustomer4(e.target.value)} />
+                      <input style={input} placeholder="% 4" value={flowxPercent4} onChange={(e) => setFlowxPercent4(e.target.value)} />
+                    </div>
+                  )}
+                </div>
+
+                      <input style={input} type="file" accept=".csv,text/csv" onChange={(e) => setFlowxCsvFile(e.target.files?.[0] || null)} />
+
+                      <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Importing transporter summary tickets', importFlowXTransporterSummaryTickets)}>
+                        Import Transporter Summary Tickets
+                      </button>
+                    </div>
+
+                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                      <h3>Tank / Line Fill Setup</h3>
+                      <p style={{ color: '#a8b3bd' }}>
+                        Tanks and line fills are company-specific assets. Strapping charts are uploaded per tank as calibration versions.
+                      </p>
+
+                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <div style={card}>
+                          <h4>Create Tank</h4>
+                          <input style={input} placeholder="Tank Number" value={newTankNumber} onChange={(e) => setNewTankNumber(e.target.value)} />
+                          <input style={input} placeholder="Tank Name" value={newTankName} onChange={(e) => setNewTankName(e.target.value)} />
+                          <select style={input} value={newTankSegmentId} onChange={(e) => setNewTankSegmentId(e.target.value)}>
+                            <option value="">Select Segment</option>
+                            {segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                          </select>
+                          <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Creating tank', createTankAsset)}>Create Tank</button>
+                        </div>
+
+                        <div style={card}>
+                          <h4>Create Line Fill</h4>
+                          <input style={input} placeholder="Line Fill Name" value={newLineFillName} onChange={(e) => setNewLineFillName(e.target.value)} />
+                          <input style={input} placeholder="Capacity BBLS" value={newLineFillCapacity} onChange={(e) => setNewLineFillCapacity(e.target.value)} />
+                          <select style={input} value={newLineFillSegmentId} onChange={(e) => setNewLineFillSegmentId(e.target.value)}>
+                            <option value="">Select Segment</option>
+                            {segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                          </select>
+                          <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Creating line fill', createLineFillAsset)}>Create Line Fill</button>
+                        </div>
+                      </div>
+
+                      <div style={card}>
+                        <h4>Upload Tank Strapping Chart CSV/XLSX</h4>
+                        <p style={{ color: '#a8b3bd' }}>
+                          CSV headers supported: gauge_decimal, gauge_feet, gauge_inches, gauge_fraction, barrels, increment_bbl, notes. XLSX refinery strapping tables with FT-IN/Barrels pairs are detected automatically.
+                        </p>
+                        <select style={input} value={selectedStrappingTankId} onChange={(e) => setSelectedStrappingTankId(e.target.value)}>
+                          <option value="">Select Tank</option>
+                          {tanks.map((tank: any) => <option key={tank.id} value={tank.id}>{tank.tank_number} {tank.tank_name ? `- ${tank.tank_name}` : ''}</option>)}
+                        </select>
+                        <input style={input} type="file" accept=".csv,text/csv" onChange={(e) => setStrappingCsvFile(e.target.files?.[0] || null)} />
+                        <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Importing strapping chart', importTankStrappingCsv)}>
+                          Import Strapping Chart
+                        </button>
+                      </div>
+
+                      <div style={card}>
+                        <h4>Deadwood / Tank Adjustment Rules</h4>
+                        <p style={{ color: '#a8b3bd' }}>
+                          Add or subtract barrels by gauge range. These rules are applied automatically on tank tickets.
+                        </p>
+
+                        <select style={input} value={deadwoodTankId} onChange={(e) => setDeadwoodTankId(e.target.value)}>
+                          <option value="">Select Tank</option>
+                          {tanks.map((tank: any) => (
+                            <option key={tank.id} value={tank.id}>
+                              {tank.tank_number} {tank.tank_name ? `- ${tank.tank_name}` : ''}
+                            </option>
+                          ))}
+                        </select>
+
+                        {deadwoodTankId && (
+                          <div style={{ color: '#a8b3bd', fontSize: 12, marginBottom: 8 }}>
+                            Active Calibration: {getActiveTankCalibration(deadwoodTankId)?.name || getActiveTankCalibration(deadwoodTankId)?.version_number || 'None'}
+                          </div>
+                        )}
+
+                        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          <input style={input} placeholder="Start Gauge" value={deadwoodStartGauge} onChange={(e) => setDeadwoodStartGauge(e.target.value)} />
+                          <input style={input} placeholder="End Gauge" value={deadwoodEndGauge} onChange={(e) => setDeadwoodEndGauge(e.target.value)} />
+                        </div>
+
+                        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          <input style={input} placeholder="Adjustment BBLS" value={deadwoodAdjustmentBbl} onChange={(e) => setDeadwoodAdjustmentBbl(e.target.value)} />
+                          <select style={input} value={deadwoodAdjustmentType} onChange={(e) => setDeadwoodAdjustmentType(e.target.value)}>
+                            <option value="add">Add Barrels</option>
+                            <option value="subtract">Subtract Barrels</option>
+                          </select>
+                        </div>
+
+                        <input style={input} placeholder="Description / Rule Note" value={deadwoodDescription} onChange={(e) => setDeadwoodDescription(e.target.value)} />
+
+                        <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Saving deadwood rule', saveDeadwoodRule)}>
+                          Save Deadwood Rule
+                        </button>
+
+                        {deadwoodTankId && (
+                          <div style={{ marginTop: 14 }}>
+                            <h4>Active Rules</h4>
+                            {tankDeadwoodRules
+                              .filter((rule: any) => rule.tank_id === deadwoodTankId)
+                              .map((rule: any) => (
+                                <div key={rule.id} style={card}>
+                                  <strong>{rule.adjustment_type === 'subtract' ? 'Subtract' : 'Add'} {rule.adjustment_bbl} bbl</strong>
+                                  <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                                    Gauge {rule.start_gauge} to {rule.end_gauge}
+                                  </div>
+                                  {rule.description && <div>{rule.description}</div>}
+                                  <button
+                                    disabled={isActionRunning}
+                                    style={{ ...button, background: '#991b1b', borderColor: '#ef4444' }}
+                                    onClick={() => runSafeAction('Disabling deadwood rule', () => deleteDeadwoodRule(rule.id))}
+                                  >
+                                    Disable Rule
+                                  </button>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -2715,7 +8354,7 @@ async function logout() {
               </select>
               <select style={input} value={selectedSegment} onChange={(e) => setSelectedSegment(e.target.value)}>
                 <option value="">Select Segment</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {getScopedSegments().map((s: any) => <option key={s.id} value={s.id}>{s.segment_name || s.name}</option>)}
               </select>
               <select style={input} value={selectedProducer} onChange={(e) => setSelectedProducer(e.target.value)}>
                 <option value="">Select Producer</option>
@@ -2755,24 +8394,226 @@ async function logout() {
           <>
             <h1>Operator Readings</h1>
             <div style={box}>
-              <select style={input} value={selectedReadingMeter} onChange={(e) => setSelectedReadingMeter(e.target.value)}>
-                <option value="">Select Meter</option>
-                {meters.map((m) => <option key={m.id} value={m.id}>{m.meter_number}</option>)}
+              <select style={input} value={selectedReadingArea} onChange={(e) => handleReadingAreaSelect(e.target.value)}>
+                <option value="">Select Area</option>
+                {getVisibleAreas().map((area: any) => (
+                  <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                ))}
               </select>
-              <select style={input} value={selectedReadingSegment} onChange={(e) => setSelectedReadingSegment(e.target.value)}>
-                <option value="">Select Segment</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+
+              <select style={input} value={selectedReadingSegment} onChange={(e) => handleReadingSegmentSelect(e.target.value)} disabled={!selectedReadingArea}>
+                <option value="">{selectedReadingArea ? 'Select Segment' : 'Select area first'}</option>
+                {getVisibleSegments(selectedReadingArea).map((segment: any) => (
+                  <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
+                ))}
               </select>
+
+              <select style={input} value={selectedReadingLease} onChange={(e) => handleReadingLeaseSelect(e.target.value)} disabled={!selectedReadingSegment}>
+                <option value="">{selectedReadingSegment ? 'Select Lease' : 'Select segment first'}</option>
+                {getVisibleLeases(selectedReadingSegment).map((lease: any) => (
+                  <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                ))}
+              </select>
+
+              <select style={input} value={selectedReadingMeter} onChange={(e) => { setSelectedReadingMeter(e.target.value); autofillOpeningReadingForLease(selectedReadingLease, e.target.value) }} disabled={!selectedReadingLease}>
+                <option value="">{selectedReadingLease ? 'Select Meter' : 'Select lease first'}</option>
+                {getVisibleMeters(selectedReadingLease).map((meter: any) => (
+                  <option key={meter.id} value={meter.id}>
+                    {meter.meter_number || meter.meter_name} {meter.meter_name && meter.meter_number ? `- ${meter.meter_name}` : ''}
+                  </option>
+                ))}
+              </select>
+
+              {selectedReadingMeter && (
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>
+                  Auto-selected meter: <strong>{getSelectedReadingMeterNumber()}</strong> • Movement from Meter Master: <strong>{getSelectedReadingMovementType() === 'receipt' ? 'Receipt / Inbound' : 'Delivery / Outbound'}</strong>
+                </div>
+              )}
               <input style={input} placeholder="Opening Reading" value={readingOpen} onChange={(e) => setReadingOpen(e.target.value)} />
               <input style={input} placeholder="Closing Reading" value={readingClose} onChange={(e) => setReadingClose(e.target.value)} />
-              <input style={input} placeholder="API Gravity" value={readingGravity} onChange={(e) => setReadingGravity(e.target.value)} />
-              <input style={input} placeholder="Temperature" value={readingTemp} onChange={(e) => setReadingTemp(e.target.value)} />
               <input style={input} placeholder="Average Temperature" value={readingAvgTemp} onChange={(e) => setReadingAvgTemp(e.target.value)} />
               <input style={input} placeholder="Average Pressure" value={readingAvgPressure} onChange={(e) => setReadingAvgPressure(e.target.value)} />
-              <input style={input} placeholder="BS&W %" value={readingBSW} onChange={(e) => setReadingBSW(e.target.value)} />
               <input style={input} placeholder="Fallback Meter Factor" value={readingMF} onChange={(e) => setReadingMF(e.target.value)} />
               <div style={{ marginTop: 15 }}>IV: {(Number(readingClose || 0) - Number(readingOpen || 0)).toFixed(2)}</div>
               <button style={button} onClick={saveReading}>Save Reading</button>
+            </div>
+          </>
+        )}
+
+        
+        
+        
+        {page === 'api_engine' && (
+          <>
+            <h1>API 11.1 Engine Tester</h1>
+
+            <div style={box}>
+              <h2>Correction Factor Test</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Test API version routing, CTL, CPL, CTPL, GSV, and NSV before applying contract profiles to tickets.
+              </p>
+
+              <div style={{ ...card, border: '1px solid rgba(245,158,11,0.45)', marginBottom: 12 }}>
+                <strong>Important:</strong> This screen currently uses the app-owned API 11.1 framework placeholder.
+                Plug in licensed/verified API MPMS Chapter 11.1 formulas or tables before custody-transfer reliance.
+              </div>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                <select style={input} value={apiTesterVersion} onChange={(e) => setApiTesterVersion(e.target.value)}>
+                  <option value="api_11_1_2004">API 11.1 2004</option>
+                  <option value="api_11_1_2007">API 11.1 2007</option>
+                  <option value="api_11_1_2019">API 11.1 2019</option>
+                  <option value="api_11_1_2021">API 11.1 2021</option>
+                </select>
+
+                <input style={input} placeholder="API Gravity" value={apiTesterGravity} onChange={(e) => setApiTesterGravity(e.target.value)} />
+                <input style={input} placeholder="Observed Temp °F" value={apiTesterTemp} onChange={(e) => setApiTesterTemp(e.target.value)} />
+                <input style={input} placeholder="Pressure" value={apiTesterPressure} onChange={(e) => setApiTesterPressure(e.target.value)} />
+                <input style={input} placeholder="IV / Gross BBL" value={apiTesterIv} onChange={(e) => setApiTesterIv(e.target.value)} />
+                <input style={input} placeholder="Meter Factor" value={apiTesterMf} onChange={(e) => setApiTesterMf(e.target.value)} />
+                <input style={input} placeholder="BS&W %" value={apiTesterBsw} onChange={(e) => setApiTesterBsw(e.target.value)} />
+              </div>
+            </div>
+
+            <div style={box}>
+              <h2>Calculated Output</h2>
+              {(() => {
+                const result = getApiTesterResult()
+
+                return (
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                    <div style={card}><strong>API Version</strong><br />{result.api_version_label}</div>
+                    <div style={card}><strong>CTL</strong><br />{Number(result.ctl || 0).toFixed(result.rounding_profile?.ctlDecimals ?? 6)}</div>
+                    <div style={card}><strong>CPL</strong><br />{Number(result.cpl || 0).toFixed(result.rounding_profile?.cplDecimals ?? 6)}</div>
+                    <div style={card}><strong>CTPL</strong><br />{Number(result.ctpl || 0).toFixed(result.rounding_profile?.ctplDecimals ?? 6)}</div>
+                    <div style={card}><strong>CCF</strong><br />{Number(result.ccf || 0).toFixed(6)}</div>
+                    <div style={card}><strong>CSW</strong><br />{Number(result.csw || 0).toFixed(6)}</div>
+                    <div style={card}><strong>IV</strong><br />{Number(result.iv || 0).toFixed(1)}</div>
+                    <div style={card}><strong>GSV</strong><br />{Number(result.gsv || 0).toFixed(result.rounding_profile?.gsvDecimals ?? 2)}</div>
+                    <div style={card}><strong>NSV</strong><br />{Number(result.nsv || 0).toFixed(result.rounding_profile?.nsvDecimals ?? 2)}</div>
+                    <div style={card}><strong>Formula</strong><br />{result.formula}</div>
+                    <div style={card}><strong>Correction Path</strong><br />{result.uses_combined_correction_factor ? 'Combined CCF' : 'Separate CTL × CPL × MF'}</div>
+                    <div style={card}><strong>Source</strong><br />{result.correction_source}</div>
+                    <div style={card}><strong>Rounding Profile</strong><br />{result.rounding_profile?.label || '—'}</div>
+                  </div>
+                )
+              })()}
+            </div>
+
+            <div style={box}>
+              <h2>Audit Output</h2>
+              <pre style={{ ...card, whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
+                {JSON.stringify(getApiTesterResult().audit, null, 2)}
+              </pre>
+            </div>
+          </>
+        )}
+
+        {page === 'contracts' && (
+          <>
+            <h1>Contract Profiles</h1>
+            <div style={box}>
+              <h2>Create / Update Contract Profile</h2>
+              <p style={{ color: '#a8b3bd' }}>API 11.1 routing: 2004 / 2007 / 2019 use IV × CCF; 2021 uses IV × CTL × CPL × MF. IV/GSV/NSV round to 1 decimal.</p>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                <input style={input} placeholder="Contract Name" value={newContractName} onChange={(e) => setNewContractName(e.target.value)} />
+                <input style={input} placeholder="Transporter Name" value={newContractTransporter} onChange={(e) => setNewContractTransporter(e.target.value)} />
+                <select style={input} value={newContractMethod} onChange={(e) => setNewContractMethod(e.target.value)}>
+                  <option value="chapter12_2021">Chapter 12 / 2021</option>
+                  <option value="flowx_summary">Flow-X Summary Volumes</option>
+                </select>
+                <select style={input} value={newContractApiVersion} onChange={(e) => setNewContractApiVersion(e.target.value)}>
+                  <option value="api_11_1_2004">API 11.1 Version: 2004</option>
+                  <option value="api_11_1_2007">API 11.1 Version: 2007</option>
+                  <option value="api_11_1_2019">API 11.1 Version: 2019</option>
+                  <option value="api_11_1_2021">API 11.1 Version: 2021</option>
+                </select>
+                <select style={input} value={newContractCorrectionSource} onChange={(e) => setNewContractCorrectionSource(e.target.value)}>
+                  <option value="app_calculated">CTL/CPL: App Calculated</option>
+                  <option value="imported_or_pot">CTL/CPL: Imported/POT</option>
+                </select>
+                <input style={input} placeholder="Meter Factor" value={newContractMf} onChange={(e) => setNewContractMf(e.target.value)} />
+                <button style={button} onClick={() => runSafeAction('Saving contract profile', saveContractProfile)}>Save</button>
+              </div>
+            </div>
+            <div style={box}>
+              <h2>Saved Contract Profiles</h2>
+              {contractProfiles.length === 0 && <div style={card}>No contract profiles saved yet.</div>}
+              <div style={{ display: 'grid', gap: 10 }}>
+                {contractProfiles.map((profile: any) => (
+                  <div key={profile.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                    <div>
+                      <strong>{(profile as any).contract_name}</strong>
+                      <div style={{ color: '#a8b3bd', marginTop: 4 }}>
+                        Transporter: {(profile as any).transporter_name || '—'} • Method: {(profile as any).calculation_method || 'chapter12_2021'} • API: {(profile as any).api_version || 'api_11_1_2021'} • CTL/CPL: {(profile as any).correction_source || 'app_calculated'} • MF: {(profile as any).meter_factor || 1}
+                      </div>
+                    </div>
+                    <button style={{ ...button, background: '#dc2626', width: 120 }} onClick={() => deleteContractProfile(profile.id)}>Delete</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {page === 'pot_map' && (
+          <>
+            <h1>Transporter → POT Assignment</h1>
+
+            <div style={box}>
+              <h2>Assign Transporter to POT</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Set which POT quality record should be used when Flow-X transporter summary tickets are generated.
+              </p>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12 }}>
+                <input
+                  style={input}
+                  placeholder="Transporter Name exactly as Flow-X shows it"
+                  value={newTransporterPotName}
+                  onChange={(e) => setNewTransporterPotName(e.target.value)}
+                />
+
+                <select style={input} value={newTransporterPotId} onChange={(e) => setNewTransporterPotId(e.target.value)}>
+                  <option value="">Select POT Quality</option>
+                  {getScopedPotQuality().map((pot: any) => (
+                    <option key={pot.id} value={pot.id}>
+                      {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
+                    </option>
+                  ))}
+                </select>
+
+                <button style={button} onClick={() => runSafeAction('Saving transporter POT rule', saveTransporterPotRule)}>
+                  Save Rule
+                </button>
+              </div>
+            </div>
+
+            <div style={box}>
+              <h2>Saved Rules</h2>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {transporterPotRules.length === 0 && (
+                  <div style={card}>No transporter POT rules saved yet.</div>
+                )}
+
+                {transporterPotRules.map((rule: any) => {
+                  const pot = potQuality.find((item: any) => item.id === rule.pot_quality_id)
+
+                  return (
+                    <div key={rule.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                      <div>
+                        <strong>{rule.transporter_name}</strong>
+                        <div style={{ color: '#a8b3bd' }}>
+                          POT: {pot ? ((pot as any).pot_number || (pot as any).sample_id || pot.id) : rule.pot_quality_id}
+                        </div>
+                      </div>
+                      <button style={{ ...button, background: '#dc2626', width: 110 }} onClick={() => deleteTransporterPotRule(rule.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           </>
         )}
@@ -2781,18 +8622,48 @@ async function logout() {
           <>
             <h1>POT Quality</h1>
             <div style={box}>
-              <h3>New POT Quality</h3>
-              <select style={input} value={potSegment} onChange={(e) => { setPotSegment(e.target.value); setPotProducer(''); setPotLease('') }}>
-                <option value="">Select Segment</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              <h3>POT Workings CSV Export</h3>
+              <p style={{ color: '#a8b3bd' }}>
+                Export POT workings into the GQ liquid import header CSV layout.
+              </p>
+              <select style={input} value={potCsvProducerId} onChange={(e) => setPotCsvProducerId(e.target.value)}>
+                <option value="">All Producers</option>
+                {producers.map((producer) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
               </select>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <input style={input} type="date" value={potCsvStartDate} onChange={(e) => setPotCsvStartDate(e.target.value)} />
+                <input style={input} type="date" value={potCsvEndDate} onChange={(e) => setPotCsvEndDate(e.target.value)} />
+              </div>
+              <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Exporting POT workings CSV', exportPotWorkingsCsv)}>
+                Export POT Workings CSV
+              </button>
+            </div>
+            <div style={box}>
+              <h3>New POT Quality</h3>
+              <select style={input} value={selectedPotArea} onChange={(e) => handlePotAreaSelect(e.target.value)}>
+                <option value="">Select Area</option>
+                {getVisibleAreas().map((area: any) => (
+                  <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                ))}
+              </select>
+
+              <select style={input} value={potSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
+                <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
+                {getVisibleSegments(selectedPotArea).map((segment: any) => (
+                  <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
+                ))}
+              </select>
+
               <select style={input} value={potProducer} onChange={(e) => { setPotProducer(e.target.value); setPotLease('') }}>
                 <option value="">Select Producer</option>
                 {filteredPotProducers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-              <select style={input} value={potLease} onChange={(e) => setPotLease(e.target.value)}>
-                <option value="">Select Lease</option>
-                {filteredPotLeases.map((l) => <option key={l.id} value={l.id}>{l.lease_name}</option>)}
+
+              <select style={input} value={potLease} onChange={(e) => { setSelectedPotLease(e.target.value); setPotLease(e.target.value) }} disabled={!selectedPotSegment}>
+                <option value="">{selectedPotSegment ? 'Select Lease' : 'Select segment first'}</option>
+                {getVisibleLeases(selectedPotSegment).map((lease: any) => (
+                  <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                ))}
               </select>
               <input style={input} type="date" value={potDate} onChange={(e) => setPotDate(e.target.value)} />
               <input style={input} placeholder="Observed API Gravity" value={potGravity} onChange={(e) => setPotGravity(e.target.value)} />
@@ -2853,9 +8724,34 @@ async function logout() {
 
             <div style={box}>
               <h2>New Proving</h2>
-              <select style={input} value={provingMeter} onChange={(e) => setProvingMeter(e.target.value)}>
-                <option value="">Select Meter</option>
-                {meters.map((m) => <option key={m.id} value={m.id}>{m.meter_number}</option>)}
+              <select style={input} value={selectedProvingArea} onChange={(e) => handleProvingAreaSelect(e.target.value)}>
+                <option value="">Select Area</option>
+                {getVisibleAreas().map((area: any) => (
+                  <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                ))}
+              </select>
+
+              <select style={input} value={selectedProvingSegment} onChange={(e) => handleProvingSegmentSelect(e.target.value)} disabled={!selectedProvingArea}>
+                <option value="">{selectedProvingArea ? 'Select Segment' : 'Select area first'}</option>
+                {getVisibleSegments(selectedProvingArea).map((segment: any) => (
+                  <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
+                ))}
+              </select>
+
+              <select style={input} value={selectedProvingLease} onChange={(e) => handleProvingLeaseSelect(e.target.value)} disabled={!selectedProvingSegment}>
+                <option value="">{selectedProvingSegment ? 'Select Lease' : 'Select segment first'}</option>
+                {getVisibleLeases(selectedProvingSegment).map((lease: any) => (
+                  <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                ))}
+              </select>
+
+              <select style={input} value={provingMeter} onChange={(e) => setProvingMeter(e.target.value)} disabled={!selectedProvingLease}>
+                <option value="">{selectedProvingLease ? 'Select Meter' : 'Select lease first'}</option>
+                {getVisibleMeters(selectedProvingLease).map((meter: any) => (
+                  <option key={meter.id} value={meter.id}>
+                    {meter.meter_number || meter.meter_name} {meter.meter_name && meter.meter_number ? `- ${meter.meter_name}` : ''}
+                  </option>
+                ))}
               </select>
               <select style={input} value={provingFactorType} onChange={(e) => setProvingFactorType(e.target.value)}>
                 <option value="MF">MF</option>
@@ -2919,22 +8815,128 @@ async function logout() {
           <>
             <h1>Operations Intelligence</h1>
 
+            {/* Phase 24 Inventory / Over-Short */}
+            <div style={box}>
+              <h2>Segment-Based Over / Short Detail Engine</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Approved tickets only. Uses meter roles, tank/line fill entries, truck tickets, check meter groups, and butane shrinkage adjustments.
+              </p>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <input style={input} type="date" value={overShortStartDate} onChange={(e) => setOverShortStartDate(e.target.value)} />
+                <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
+                <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
+                  <option value="">All Segments</option>
+                  {segments.map((segment: any) => (
+                    <option key={segment.id} value={segment.id}>{segment.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <button style={button} onClick={exportOverShortCsv}>
+                  Export CSV
+                </button>
+                <button style={button} onClick={exportOverShortExcel}>
+                  Export Excel Spreadsheet
+                </button>
+              </div>
+
+              {userCanManageCompanySetup && (
+                <div style={{ ...card, marginTop: 12 }}>
+                  <h3>Segment Balance Modules</h3>
+                  <p style={{ color: '#a8b3bd', marginTop: 0 }}>
+                    Turn optional O/S sections on only for the segments that need them. Butane blend adds API MPMS 12.3 shrinkage KPIs and applies shrinkage to that segment's O/S.
+                  </p>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {segments.map((segment: any) => {
+                      const enabled = segmentHasButaneBlendEnabled(segment.id)
+                      return (
+                        <label key={segment.id} style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#e5e7eb' }}>
+                          <input
+                            type="checkbox"
+                            checked={enabled}
+                            onChange={(e) => toggleSegmentButaneBlend(segment.id, e.target.checked)}
+                          />
+                          <strong>{segment.name}</strong>
+                          <span style={{ color: '#a8b3bd' }}>Butane Blend / API MPMS 12.3 Shrinkage</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+                {getOverShortRows().map((row: any) => (
+                  <div key={row.segment.id} style={card}>
+                    <h3>{row.segment.name}</h3>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+                      <div>Receipts: <strong>{row.receipts.toFixed(2)}</strong></div>
+                      <div>Deliveries: <strong>{row.deliveries.toFixed(2)}</strong></div>
+                      <div>Truck Tickets: <strong>{row.truckTickets.toFixed(2)}</strong></div>
+                      <div>Tank Change: <strong>{row.tankChange.toFixed(2)}</strong></div>
+                      <div>Line Fill: <strong>{row.lineFillChange.toFixed(2)}</strong></div>
+                      {row.butaneEnabled && (
+                        <>
+                          <div>Butane GSV: <strong>{row.butaneAdjustment.butaneGsv.toFixed(2)}</strong></div>
+                          <div>Blend %: <strong>{row.butaneAdjustment.blendPercent.toFixed(4)}%</strong></div>
+                          <div>Shrink Adj: <strong>{row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2)}</strong></div>
+                        </>
+                      )}
+                      <div>Check Meter O/S: <strong>{row.checkMeterOverShort.toFixed(2)}</strong></div>
+                      <div>Book Inv: <strong>{row.bookInventory.toFixed(2)}</strong></div>
+                      <div>Actual Inv: <strong>{row.actualInventory.toFixed(2)}</strong></div>
+                      <div>O/S: <strong style={{ color: Math.abs(row.overShort) > 0.01 ? '#fca5a5' : '#86efac' }}>{row.overShort.toFixed(2)}</strong></div>
+                      <div>O/S %: <strong>{row.overShortPercent.toFixed(4)}%</strong></div>
+                    </div>
+                    {row.checkMeterRows.length > 0 && (
+                      <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+                        <strong>Check Meter Groups</strong>
+                        {row.checkMeterRows.map((check: any) => (
+                          <div key={check.group.id} style={{ color: '#a8b3bd' }}>
+                            {check.group.name}: Inputs {check.inputTotal.toFixed(2)} / Check {check.checkTotal.toFixed(2)} / Diff {check.difference.toFixed(2)} ({check.differencePercent.toFixed(4)}%)
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p style={{ color: '#a8b3bd' }}>
+                Uses approved tickets, meter receipt/delivery roles, tank movements, and truck tickets to calculate segment balance.
+              </p>
+
+              <div style={{ display: 'grid', gap: 10 }}>
+                {getSegmentInventoryRows().map((row: any) => (
+                  <div key={row.segment.id} style={card}>
+                    <strong>{row.segment.name}</strong>
+                    <div>Receipts: {row.receiptVolume.toFixed(2)}</div>
+                    <div>Deliveries: {row.deliveryVolume.toFixed(2)}</div>
+                    <div>Tank Movement: {row.tankMovement.toFixed(2)}</div>
+                    <div>Truck Tickets: {row.truckVolume.toFixed(2)}</div>
+                    <div><strong>Over / Short: {row.overShort.toFixed(2)}</strong></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
               <div style={kpiCard}>
                 <div style={{ color: '#a8b3bd', fontSize: 13 }}>Proving Compliance</div>
-                <div style={{ fontSize: 34, fontWeight: 900 }}>{provingCompliancePercent}%</div>
-                <div style={{ color: '#a8b3bd', fontSize: 12 }}>{compliantMeters.length} of {meters.length} meters</div>
+                <div style={{ fontSize: 34, fontWeight: 900 }}>{opsProvingCompliancePercent}%</div>
+                <div style={{ color: '#a8b3bd', fontSize: 12 }}>{opsCompliantMeters.length} of {getScopedMeters().length} meters</div>
               </div>
 
               <div style={kpiCard}>
                 <div style={{ color: '#a8b3bd', fontSize: 13 }}>Overdue Proving</div>
-                <div style={{ fontSize: 34, fontWeight: 900, color: overdueMeters.length ? '#fecaca' : '#bbf7d0' }}>{overdueMeters.length}</div>
+                <div style={{ fontSize: 34, fontWeight: 900, color: opsOverdueMeters.length ? '#fecaca' : '#bbf7d0' }}>{opsOverdueMeters.length}</div>
                 <div style={{ color: '#a8b3bd', fontSize: 12 }}>Needs attention</div>
               </div>
 
               <div style={kpiCard}>
                 <div style={{ color: '#a8b3bd', fontSize: 13 }}>Due Soon</div>
-                <div style={{ fontSize: 34, fontWeight: 900 }}>{dueSoonMeters.length}</div>
+                <div style={{ fontSize: 34, fontWeight: 900 }}>{opsDueSoonMeters.length}</div>
                 <div style={{ color: '#a8b3bd', fontSize: 12 }}>Within 7 days</div>
               </div>
 
@@ -2951,14 +8953,14 @@ async function logout() {
                 Meters are flagged overdue when no proving exists or the latest proving age exceeds the meter proving frequency.
               </p>
 
-              {overdueMeters.length === 0 && (
+              {opsOverdueMeters.length === 0 && (
                 <div style={card}>No overdue provings found.</div>
               )}
 
               <div style={{ display: 'grid', gap: 10 }}>
-                {overdueMeters.slice(0, 20).map((item) => (
+                {(opsOverdueMeters as any[]).slice(0, 20).map((item: any) => (
                   <div
-                    key={item.meter.id}
+                    key={(item as any).meter.id}
                     style={{
                       ...card,
                       display: 'grid',
@@ -2968,20 +8970,20 @@ async function logout() {
                     }}
                   >
                     <div>
-                      <strong>{item.meter.meter_number || item.meter.name || item.meter.id}</strong>
+                      <strong>{(item as any).meter.meter_number || (item as any).meter.name || (item as any).meter.id}</strong>
                       <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                        Last proving: {item.provingDate || 'None'}
+                        Last proving: {(item as any).provingDate || 'None'}
                       </div>
                     </div>
 
                     <div>
                       <div style={{ color: '#a8b3bd', fontSize: 12 }}>Age</div>
-                      <strong>{item.provingAgeDays === null ? 'None' : `${item.provingAgeDays} days`}</strong>
+                      <strong>{(item as any).provingAgeDays === null ? 'None' : `${(item as any).provingAgeDays} days`}</strong>
                     </div>
 
                     <div>
                       <div style={{ color: '#a8b3bd', fontSize: 12 }}>Frequency</div>
-                      <strong>{item.provingFrequencyDays} days</strong>
+                      <strong>{(item as any).provingFrequencyDays} days</strong>
                     </div>
 
                     <button style={button} onClick={() => setPage('provings')}>
@@ -2995,12 +8997,12 @@ async function logout() {
             <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div style={box}>
                 <h2>Due Soon</h2>
-                {dueSoonMeters.length === 0 && <div style={card}>Nothing due soon.</div>}
-                {dueSoonMeters.slice(0, 10).map((item) => (
-                  <div key={item.meter.id} style={card}>
-                    <strong>{item.meter.meter_number || item.meter.name || item.meter.id}</strong>
+                {opsDueSoonMeters.length === 0 && <div style={card}>Nothing due soon.</div>}
+                {(opsDueSoonMeters as any[]).slice(0, 10).map((item: any) => (
+                  <div key={(item as any).meter.id} style={card}>
+                    <strong>{(item as any).meter.meter_number || (item as any).meter.name || (item as any).meter.id}</strong>
                     <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                      Last proving: {item.provingDate || 'None'}
+                      Last proving: {(item as any).provingDate || 'None'}
                     </div>
                   </div>
                 ))}
@@ -3009,211 +9011,538 @@ async function logout() {
               <div style={box}>
                 <h2>Reading Freshness</h2>
                 {staleReadingMeters.length === 0 && <div style={card}>All meters have recent readings.</div>}
-                {staleReadingMeters.slice(0, 10).map((item) => (
-                  <div key={item.meter.id} style={card}>
-                    <strong>{item.meter.meter_number || item.meter.name || item.meter.id}</strong>
+                {(staleReadingMeters as any[]).slice(0, 10).map((item: any) => (
+                  <div key={(item as any).meter.id} style={card}>
+                    <strong>{(item as any).meter.meter_number || (item as any).meter.name || (item as any).meter.id}</strong>
                     <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                      Last reading: {item.readingDate || 'None'}
+                      Last reading: {(item as any).readingDate || 'None'}
                     </div>
                   </div>
                 ))}
               </div>
+            </div>
+                      <div style={box}>
+              <h2>Segment Over / Short</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Early over/short model: approved receipt meters minus delivery meters plus tank/line-fill movements. This becomes more accurate as meter directions, tank assets, and line fills are configured.
+              </p>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {segments.map((segment: any) => {
+                  const segmentTickets = getScopedTickets().filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
+                  const receipts = segmentTickets
+                    .filter((ticket: any) => {
+                      const meter = meters.find((m: any) => m.id === ticket.meter_id)
+                      return (meter as any)?.direction === 'receipt'
+                    })
+                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+                  const deliveries = segmentTickets
+                    .filter((ticket: any) => {
+                      const meter = meters.find((m: any) => m.id === ticket.meter_id)
+                      return (meter as any)?.direction === 'delivery'
+                    })
+                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+                  const tankMovements = segmentTickets
+                    .filter((ticket: any) => ticket.ticket_type === 'tank')
+                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.tank_movement_bbl || 0), 0)
+                  const overShort = receipts - deliveries + tankMovements
+
+                  return (
+                    <div key={segment.id} style={card}>
+                      <strong>{segment.name}</strong>
+                      <div>Receipts: {receipts.toFixed(2)}</div>
+                      <div>Deliveries: {deliveries.toFixed(2)}</div>
+                      <div>Tank Movement: {tankMovements.toFixed(2)}</div>
+                      <div><strong>Over / Short: {overShort.toFixed(2)}</strong></div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+</>
+        )}
+
+        {page === 'system_health' && (
+          <>
+            <h1>System Health</h1>
+
+            <div style={box}>
+              <h2>Setup Validation</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Checks Supabase tables, storage, company branding, meter roles, tank charts, pending tickets, inventory posting, and Flow-X setup.
+              </p>
+
+              <button style={button} disabled={systemHealthRunning} onClick={runSystemHealthCheck}>
+                {systemHealthRunning ? 'Running Checks...' : 'Run System Health Check'}
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gap: 10 }}>
+              {systemHealthChecks.length === 0 && (
+                <div style={card}>
+                  No checks have been run yet.
+                </div>
+              )}
+
+              {systemHealthChecks.map((check: any, index: number) => (
+                <div
+                  key={`${check.name}-${index}`}
+                  style={{
+                    ...card,
+                    borderColor: check.severity === 'error' ? '#ef4444' : check.severity === 'warning' ? '#f59e0b' : '#22c55e',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                    <strong>{check.name}</strong>
+                    <span>
+                      {check.severity === 'error' ? '❌' : check.severity === 'warning' ? '⚠️' : '✅'}
+                    </span>
+                  </div>
+                  <div style={{ color: '#a8b3bd', marginTop: 6 }}>
+                    {check.detail}
+                  </div>
+                </div>
+              ))}
             </div>
           </>
         )}
 
         {page === 'reports' && (
           <>
-            <h1>Reports</h1>
+            <h1>Reports Center</h1>
 
-            <div style={reportGrid}>
-              <div style={kpiCard}>
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Total Tickets</div>
-                <div style={{ fontSize: 32, fontWeight: 900 }}>{tickets.length}</div>
-                <div style={{ color: '#a8b3bd', fontSize: 12 }}>All statuses</div>
-              </div>
+            <div style={box}>
+              <h2>Report Filters</h2>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                <input style={input} type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} />
+                <input style={input} type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} />
 
-              <div style={kpiCard}>
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Approved Tickets</div>
-                <div style={{ fontSize: 32, fontWeight: 900 }}>
-                  {tickets.filter((t) => t.status === 'approved').length}
-                </div>
-                <span style={getTicketStatusStyle('approved')}>Approved</span>
-              </div>
-
-              <div style={kpiCard}>
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Submitted</div>
-                <div style={{ fontSize: 32, fontWeight: 900 }}>
-                  {tickets.filter((t) => t.status === 'submitted').length}
-                </div>
-                <span style={getTicketStatusStyle('submitted')}>Pending</span>
-              </div>
-
-              <div style={kpiCard}>
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Draft / Working</div>
-                <div style={{ fontSize: 32, fontWeight: 900 }}>
-                  {tickets.filter((t) => !t.status || t.status === 'draft').length}
-                </div>
-                <span style={getTicketStatusStyle('draft')}>Draft</span>
-              </div>
-            </div>
-
-            <div style={reportPanel}>
-              <h2>Producer PDF Export</h2>
-              <p style={{ color: '#a8b3bd' }}>
-                Bundle approved producer ticket PDFs by date range. This keeps monthly statement packages clean and easy to send.
-              </p>
-
-              <div style={reportGrid}>
-                <div style={compactMetric}>
-                  <strong>Approved Ready</strong>
-                  <div style={{ fontSize: 26, fontWeight: 900, marginTop: 8 }}>
-                    {tickets.filter((t) => t.status === 'approved').length}
-                  </div>
-                </div>
-
-                <div style={compactMetric}>
-                  <strong>Voided</strong>
-                  <div style={{ fontSize: 26, fontWeight: 900, marginTop: 8 }}>
-                    {tickets.filter((t) => t.status === 'voided').length}
-                  </div>
-                </div>
-
-                <div style={compactMetric}>
-                  <strong>Provings</strong>
-                  <div style={{ fontSize: 26, fontWeight: 900, marginTop: 8 }}>
-                    {provings.length}
-                  </div>
-                </div>
-
-                <div style={compactMetric}>
-                  <strong>Readings</strong>
-                  <div style={{ fontSize: 26, fontWeight: 900, marginTop: 8 }}>
-                    {readings.length}
-                  </div>
-                </div>
-              </div>
-
-              <div style={card}>
-                <h3>Export Producer PDFs</h3>
-                <p style={{ color: '#a8b3bd' }}>
-                  Select a producer and date range to download approved ticket PDFs as one ZIP bundle.
-                </p>
-
-                <select
-                  style={input}
-                  value={pdfBundleProducerId}
-                  onChange={(e) => setPdfBundleProducerId(e.target.value)}
-                >
+                <select style={input} value={reportProducerId} onChange={(e) => setReportProducerId(e.target.value)}>
                   <option value="">All Producers</option>
-                  {producers.map((producer) => (
-                    <option key={producer.id} value={producer.id}>
-                      {producer.name}
-                    </option>
+                  {producers.map((producer: any) => (
+                    <option key={producer.id} value={producer.id}>{producer.name}</option>
                   ))}
                 </select>
 
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <input
-                    style={input}
-                    type="date"
-                    value={pdfBundleStartDate}
-                    onChange={(e) => setPdfBundleStartDate(e.target.value)}
-                  />
+                <select style={input} value={reportSegmentId} onChange={(e) => setReportSegmentId(e.target.value)}>
+                  <option value="">All Segments</option>
+                  {segments.map((segment: any) => (
+                    <option key={segment.id} value={segment.id}>{segment.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
-                  <input
-                    style={input}
-                    type="date"
-                    value={pdfBundleEndDate}
-                    onChange={(e) => setPdfBundleEndDate(e.target.value)}
-                  />
+            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 14 }}>
+              {[
+                ['tickets', 'Custody Tickets'],
+                ['tank', 'Tank Tickets'],
+                ['pot', 'POT Exports'],
+                ['flowx', 'Flow-X Imports'],
+                ['over_short', 'Over & Short'],
+                ['inventory', 'Inventory Balances'],
+                ['daily', 'Daily Reports'],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  style={{
+                    ...button,
+                    background: reportCenterSection === key ? accentGradient() : '#1f2937',
+                    borderColor: reportCenterSection === key ? accentRgba(0.75) : '#374151',
+                  }}
+                  onClick={() => setReportCenterSection(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {reportCenterSection === 'tickets' && (
+              <div style={box}>
+                <h2>Custody Transfer Tickets</h2>
+                <p style={{ color: '#a8b3bd' }}>Export meter/custody tickets by date, producer, and segment.</p>
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  <button style={button} onClick={() => exportReportTicketsCsv('meter')}>Export Meter CSV</button>
+                  <button style={button} onClick={() => exportReportTicketsExcel('meter')}>Export Meter Excel</button>
+                  <button style={button} onClick={() => runSafeAction('Exporting producer PDF bundle', exportProducerPdfBundle)}>Producer PDF Bundle</button>
                 </div>
+                <div style={card}>Matching Tickets: {getReportFilteredTickets('meter').length}</div>
+              </div>
+            )}
 
-                <button style={button} onClick={exportProducerPdfBundle}>
-                  Export Producer PDFs Bundle
+            {reportCenterSection === 'tank' && (
+              <div style={box}>
+                <h2>Tank Tickets</h2>
+                <p style={{ color: '#a8b3bd' }}>Tank ticket exports with opening/closing gauge, GOV, GSV, NSV, and corrections.</p>
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <button style={button} onClick={() => exportReportTicketsCsv('tank')}>Export Tank CSV</button>
+                  <button style={button} onClick={() => exportReportTicketsExcel('tank')}>Export Tank Excel</button>
+                </div>
+                <div style={card}>Matching Tank Tickets: {getReportFilteredTickets('tank').length}</div>
+              </div>
+            )}
+
+            {reportCenterSection === 'pot' && (
+              <div style={box}>
+                <h2>POT Exports</h2>
+                <p style={{ color: '#a8b3bd' }}>GQ liquid import format and POT quality exports.</p>
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  <input style={input} type="date" value={potCsvStartDate} onChange={(e) => setPotCsvStartDate(e.target.value)} />
+                  <input style={input} type="date" value={potCsvEndDate} onChange={(e) => setPotCsvEndDate(e.target.value)} />
+                  <select style={input} value={potCsvProducerId} onChange={(e) => setPotCsvProducerId(e.target.value)}>
+                    <option value="">All Producers</option>
+                    {producers.map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
+                  </select>
+                </div>
+                <button style={button} onClick={() => runSafeAction('Exporting POT workings CSV', exportPotWorkingsCsv)}>
+                  Export GQ POT CSV
                 </button>
               </div>
-            </div>
+            )}
 
-            <div style={reportPanel}>
-              <h2>Status Breakdown</h2>
-              <div style={{ display: 'grid', gap: 10 }}>
-                {['draft', 'submitted', 'approved', 'voided'].map((status) => (
-                  <div
-                    key={status}
-                    style={{
-                      ...card,
-                      display: 'grid',
-                      gridTemplateColumns: '160px 1fr auto',
-                      alignItems: 'center',
-                      gap: 12,
-                    }}
-                  >
-                    <span style={getTicketStatusStyle(status)}>{status}</span>
-                    <div
-                      style={{
-                        height: 10,
-                        borderRadius: 999,
-                        background: 'rgba(255,255,255,0.08)',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <div
-                        style={{
-                          height: '100%',
-                          width: `${tickets.length ? Math.round((tickets.filter((t) => (t.status || 'draft') === status).length / tickets.length) * 100) : 0}%`,
-                          background: 'linear-gradient(90deg, #c46a2b, #e08745)',
-                        }}
-                      />
+            {reportCenterSection === 'flowx' && (
+              <div style={box}>
+                <h2>Flow-X Mapping Import</h2>
+                <p style={{ color: '#a8b3bd' }}>
+                  Upload a Flow-X CSV, map the columns, set up to 4 transporter splits, and generate draft truck tickets.
+                </p>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <input style={input} placeholder="LACT Name" value={flowxLactName} onChange={(e) => setFlowxLactName(e.target.value)} />
+                  <select style={input} value={flowxDefaultSegmentId} onChange={(e) => setFlowxDefaultSegmentId(e.target.value)}>
+                    <option value="">Default Segment</option>
+                    {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                  </select>
+                </div>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 12 }}>
+                  <input style={input} placeholder="Transporter 1" value={flowxTransporter1} onChange={(e) => setFlowxTransporter1(e.target.value)} />
+                  <input style={input} placeholder="% 1" value={flowxPercent1} onChange={(e) => setFlowxPercent1(e.target.value)} />
+                  <input style={input} placeholder="Transporter 2" value={flowxTransporter2} onChange={(e) => setFlowxTransporter2(e.target.value)} />
+                  <input style={input} placeholder="% 2" value={flowxPercent2} onChange={(e) => setFlowxPercent2(e.target.value)} />
+                  <input style={input} placeholder="Transporter 3" value={flowxTransporter3} onChange={(e) => setFlowxTransporter3(e.target.value)} />
+                  <input style={input} placeholder="% 3" value={flowxPercent3} onChange={(e) => setFlowxPercent3(e.target.value)} />
+                  <input style={input} placeholder="Transporter 4" value={flowxTransporter4} onChange={(e) => setFlowxTransporter4(e.target.value)} />
+                  <input style={input} placeholder="% 4" value={flowxPercent4} onChange={(e) => setFlowxPercent4(e.target.value)} />
+                </div>
+
+                <input
+                  style={input}
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setFlowxCsvFile(file)
+                    if (file) previewFlowXCsv(file)
+                  }}
+                />
+
+                {flowxMappingHeaders.length > 0 && (
+                  <div style={card}>
+                    <h3>Column Mapping</h3>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                      {[
+                        ['ticket_number', 'Ticket Number'],
+                        ['batch_number', 'Batch Number'],
+                        ['truck_number', 'Truck Number'],
+                        ['driver_name', 'Driver Name'],
+                        ['producer_name', 'Producer'],
+                        ['transporter_name', 'Transporter'],
+                        ['customer_name', 'Customer'],
+                        ['lease_name', 'Lease'],
+                        ['meter_number', 'Meter Number'],
+                        ['segment_name', 'Segment'],
+                        ['gross_volume_bbl', 'Gross Volume'],
+                        ['net_volume_bbl', 'Net Volume'],
+                        ['api_gravity', 'API Gravity'],
+                        ['observed_temperature', 'Observed Temp'],
+                        ['bsw_percent', 'BSW / S&W %'],
+                        ['open_datetime', 'Open Date/Time'],
+                        ['close_datetime', 'Close Date/Time'],
+                      ].map(([field, label]) => (
+                        <label key={field} style={{ display: 'grid', gap: 4 }}>
+                          <span>{label}</span>
+                          <select style={input} value={flowxColumnMap[field] || ''} onChange={(e) => { updateFlowXColumnMap(field, e.target.value); setTimeout(() => refreshFlowXAutoSplits(flowxMappingRows), 0) }}>
+                            <option value="">Not mapped</option>
+                            {flowxMappingHeaders.map((header) => (
+                              <option key={header} value={header}>{header}</option>
+                            ))}
+                          </select>
+                        </label>
+                      ))}
                     </div>
-                    <strong>{tickets.filter((t) => (t.status || 'draft') === status).length}</strong>
                   </div>
-                ))}
-              </div>
-            </div>
+                )}
 
-            <div style={reportPanel}>
-              <h2>Recent Approved Tickets</h2>
-              <div style={{ display: 'grid', gap: 10 }}>
-                {tickets
-                  .filter((ticket) => ticket.status === 'approved')
-                  .slice(0, 10)
-                  .map((ticket) => (
-                    <div
-                      key={ticket.id}
-                      style={{
-                        ...card,
-                        display: 'grid',
-                        gridTemplateColumns: '1fr auto auto',
-                        gap: 12,
-                        alignItems: 'center',
-                      }}
-                    >
-                      <div>
-                        <strong>{ticket.ticket_number || ticket.id}</strong>
-                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                          {(ticket as any).created_at ? new Date((ticket as any).created_at).toLocaleDateString() : 'No date'}
-                        </div>
-                      </div>
-                      <span style={getTicketStatusStyle(ticket.status)}>{ticket.status}</span>
-                      <button style={button} onClick={() => { setSelectedTicket(ticket); setPage('tickets') }}>
-                        Open
-                      </button>
+                {flowxMappingRows.length > 0 && (
+                  <div style={card}>
+                    <h3>Preview First 10 Rows</h3>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                        <thead>
+                          <tr>
+                            {flowxMappingHeaders.slice(0, 8).map((header) => (
+                              <th key={header} style={{ textAlign: 'left', borderBottom: '1px solid #374151', padding: 6 }}>{header}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {flowxMappingRows.map((row: any, index: number) => (
+                            <tr key={index}>
+                              {flowxMappingHeaders.slice(0, 8).map((header) => (
+                                <td key={header} style={{ borderBottom: '1px solid #1f2937', padding: 6 }}>{row[header]}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Importing transporter summary tickets', importFlowXTransporterSummaryTickets)}>
+                  Generate Transporter Summary Tickets
+                </button>
+              </div>
+            )}
+
+            {reportCenterSection === 'over_short' && (
+              <div style={box}>
+                <h2>Over & Short</h2>
+                <p style={{ color: '#a8b3bd' }}>Segment-based inventory balance export.</p>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  <input style={input} type="date" value={overShortStartDate} onChange={(e) => setOverShortStartDate(e.target.value)} />
+                  <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
+                  <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
+                    <option value="">All Segments</option>
+                    {segments.map((segment: any) => (
+                      <option key={segment.id} value={segment.id}>{segment.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <button style={button} onClick={exportOverShortCsv}>Export O/S CSV</button>
+                  <button style={button} onClick={exportOverShortExcel}>Export O/S Excel</button>
+                </div>
+              </div>
+            )}
+
+            {reportCenterSection === 'inventory' && (
+              <div style={box}>
+                <h2>Inventory Balances</h2>
+                <p style={{ color: '#a8b3bd' }}>Inventory roll-forward and segment balance report foundation.</p>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {getOverShortRows().map((row: any) => (
+                    <div key={row.segment.id} style={card}>
+                      <strong>{row.segment.name}</strong>
+                      <div>Book Inventory: {row.bookInventory.toFixed(2)}</div>
+                      <div>Actual Inventory: {row.actualInventory.toFixed(2)}</div>
+                      <div>Over / Short: {row.overShort.toFixed(2)}</div>
                     </div>
                   ))}
+                </div>
               </div>
-            </div>
+            )}
+
+            {reportCenterSection === 'daily' && (
+              <div style={box}>
+                <h2>Daily Reports</h2>
+                <p style={{ color: '#a8b3bd' }}>
+                  Daily balance exports will use the same segment inventory engine. Next phase will add save-to-database daily balance snapshots.
+                </p>
+              </div>
+            )}
           </>
         )}
 
         {page === 'tickets' && (
           <>
             <h1>Ticket Workflow</h1>
+
+            {/* Ticket Debug Counts */}
+            <div style={{ ...card, marginBottom: 12 }}>
+              Total tickets loaded: {getScopedTickets().length} • Pending workflow tickets: {getDraftWorkflowTickets().length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
+            </div>
+
+            {/* All Pending Ticket Approval Queue */}
+            
+            <div style={box}>
+              <h2>Workflow Queue</h2>
+
+              {getDraftWorkflowTickets().length === 0 && (
+                <div style={card}>No draft or submitted tickets waiting.</div>
+              )}
+
+              {groupWorkflowTickets(getDraftWorkflowTickets()).map((group: any) => {
+                const isOpen = openWorkflowTicketGroups[group.groupKey] ?? true
+                const totalNsv = group.tickets.reduce((sum: number, ticket: any) => {
+                  const calc = ticket.calculation_results || {}
+                  const observed = ticket.observed_inputs || {}
+                  return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                }, 0)
+
+                return (
+                  <div key={group.groupKey} style={{ ...card, marginBottom: 12 }}>
+                    <button
+                      style={{ ...button, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
+                      onClick={() => toggleWorkflowTicketGroup(group.groupKey)}
+                    >
+                      <span>{isOpen ? '▼' : '▶'} {group.label}</span>
+                      <span>{group.tickets.length} tickets • NSV {totalNsv.toFixed(2)}</span>
+                    </button>
+
+                    {isOpen && (
+                      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                        {group.tickets.map((ticket: any) => (
+                          <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                            <div>
+                              <strong>{compactTicketTitle(ticket)}</strong>
+                              <span style={{ ...getTicketStatusStyle(ticket.status), marginLeft: 8 }}>{ticket.status || 'draft'}</span>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
+                            </div>
+                            <button style={{ ...button, width: 150 }} onClick={() => setSelectedTicket(ticket)}>
+                              Open Ticket
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+
+{selectedTicket && (
+              <div style={box}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div>
+                    <h2 style={{ margin: 0 }}>Ticket Review: {selectedTicket!.ticket_number || selectedTicket!.id}</h2>
+                    <div style={{ color: '#a8b3bd', marginTop: 4 }}>
+                      {selectedTicket!.ticket_type || 'ticket'} • {selectedTicket!.observed_inputs?.transporter_name || (selectedTicket as any).transporter_name || (selectedTicket as any).customer_name || 'No transporter'}
+                    </div>
+                  </div>
+                  <span style={getTicketStatusStyle(selectedTicket!.status)}>{selectedTicket!.status || 'draft'}</span>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
+                  {selectedTicket!.status !== 'approved' && (
+                    <button style={{ ...button, width: 'auto', background: '#16a34a' }} onClick={() => runSafeAction('Approving ticket', () => updateTicketStatus(selectedTicket!, 'approved'))}>
+                      Approve Ticket
+                    </button>
+                  )}
+
+                  {selectedTicket!.status === 'draft' && (
+                    <button style={{ ...button, width: 'auto', background: '#2563eb' }} onClick={() => runSafeAction('Submitting ticket', () => updateTicketStatus(selectedTicket!, 'submitted'))}>
+                      Submit Ticket
+                    </button>
+                  )}
+                  <button style={{ ...button, width: 'auto' }} onClick={() => generatePdfPreview(selectedTicket)}>
+                    Generate Customer PDF
+                  </button>
+                  <button style={{ ...button, width: 'auto' }} onClick={() => navigator.clipboard?.writeText(JSON.stringify(selectedTicket, null, 2))}>
+                    Copy Ticket JSON
+                  </button>
+                  <button style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => setSelectedTicket(null)}>
+                    Close Ticket
+                  </button>
+                </div>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginTop: 14 }}>
+                  <div style={card}>
+                    <h3>Ticket Information</h3>
+                    <div><strong>Ticket #:</strong> {selectedTicket!.ticket_number || selectedTicket!.id}</div>
+                    <div><strong>Type:</strong> {selectedTicket!.ticket_type || '—'}</div>
+                    <div><strong>Status:</strong> {selectedTicket!.status || 'draft'}</div>
+                    <div><strong>Transporter:</strong> {selectedTicket!.observed_inputs?.transporter_name || (selectedTicket as any).transporter_name || (selectedTicket as any).customer_name || '—'}</div>
+                    <div><strong>LACT:</strong> {selectedTicket!.observed_inputs?.lact_name || (selectedTicket as any).lact_name || '—'}</div>
+                    <div><strong>Source Rows:</strong> {selectedTicket!.observed_inputs?.source_rows || '—'}</div>
+                  </div>
+
+                  <div style={card}>
+                    <h3>Volume Calculation</h3>
+                    <div><strong>IV:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.iv ?? selectedTicket!.calculation_results?.gov ?? selectedTicket!.observed_inputs?.gross_volume_bbl, 1)}</div>
+                    <div><strong>CTL:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</div>
+                    <div><strong>CPL:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</div>
+                    <div><strong>CCF:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.ccf ?? selectedTicket!.observed_inputs?.ccf ?? selectedTicket!.calculation_results?.ctpl, 6)}</div>
+                    <div><strong>MF:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.mf ?? selectedTicket!.observed_inputs?.mf, 6)}</div>
+                    <div><strong>CSW:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.csw ?? selectedTicket!.observed_inputs?.csw, 6)}</div>
+                    <hr style={{ borderColor: '#1f2937' }} />
+                    <div><strong>GSV:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.gsv, 1)}</div>
+                    <div><strong>NSV:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.nsv, 1)}</div>
+                  </div>
+
+                  <div style={card}>
+                    <h3>Quality Information</h3>
+                    <div><strong>Observed API:</strong> {formatTicketDetailNumber(selectedTicket!.observed_inputs?.observed_api_gravity ?? selectedTicket!.observed_inputs?.api_observed ?? selectedTicket!.observed_inputs?.api_gravity_observed, 2)}</div>
+                    <div><strong>API Gravity @ 60°F:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.api_gravity_60 ?? selectedTicket!.observed_inputs?.api_gravity_60 ?? selectedTicket!.calculation_results?.api_gravity ?? selectedTicket!.observed_inputs?.api_gravity, 2)}</div>
+                    <div><strong>Observed Temp:</strong> {formatTicketDetailNumber(selectedTicket!.observed_inputs?.observed_temperature ?? selectedTicket!.observed_inputs?.temperature ?? selectedTicket!.observed_inputs?.average_temperature ?? selectedTicket!.calculation_results?.average_temperature, 2)}</div>
+                    <div><strong>Average Temp:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.average_temperature ?? selectedTicket!.observed_inputs?.average_temperature, 2)}</div>
+                    <div><strong>Observed Pressure:</strong> {formatTicketDetailNumber(selectedTicket!.observed_inputs?.observed_pressure ?? selectedTicket!.observed_inputs?.pressure ?? selectedTicket!.observed_inputs?.average_pressure ?? selectedTicket!.calculation_results?.average_pressure, 2)}</div>
+                    <div><strong>Average Pressure:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.average_pressure ?? selectedTicket!.observed_inputs?.average_pressure, 2)}</div>
+                    <div><strong>BS&W %:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.bsw_percent ?? selectedTicket!.observed_inputs?.bsw_percent ?? selectedTicket!.observed_inputs?.bsw, 4)}</div>
+                    <div><strong>API Correction Delta:</strong> {formatTicketDetailNumber(
+                      (selectedTicket!.calculation_results?.api_gravity_60 ?? selectedTicket!.observed_inputs?.api_gravity_60 ?? selectedTicket!.calculation_results?.api_gravity ?? selectedTicket!.observed_inputs?.api_gravity) -
+                      (selectedTicket!.observed_inputs?.observed_api_gravity ?? selectedTicket!.observed_inputs?.api_observed ?? selectedTicket!.observed_inputs?.api_gravity_observed ?? 0),
+                      2
+                    )}</div>
+                    <div><strong>Corrected Gravity Source:</strong> {selectedTicket!.observed_inputs?.assigned_pot_label ? 'Assigned POT' : selectedTicket!.observed_inputs?.api_gravity_60 ? 'Imported' : 'Calculated/Default'}</div>
+                  </div>
+
+                  <div style={card}>
+                    <h3>POT Assignment</h3>
+                    <div><strong>Assigned POT:</strong> {getTicketAssignedPotLabel(selectedTicket)}</div>
+                    <div><strong>POT ID:</strong> {(selectedTicket as any).assigned_pot_id || selectedTicket!.observed_inputs?.assigned_pot_id || '—'}</div>
+                    <div><strong>POT Source:</strong> {selectedTicket!.observed_inputs?.pot_source || 'Transporter POT Map'}</div>
+                  </div>
+
+                  <div style={card}>
+                    <h3>Contract Information</h3>
+                    <div><strong>Contract:</strong> {getTicketContractName(selectedTicket)}</div>
+                    <div><strong>API Version:</strong> {getTicketApiVersionLabel(selectedTicket)}</div>
+                    <div><strong>Method:</strong> {selectedTicket!.observed_inputs?.calculation_method || (selectedTicket as any).calculation_method || '—'}</div>
+                    <div><strong>Formula:</strong> {selectedTicket!.observed_inputs?.calculation_formula || selectedTicket!.calculation_results?.formula || '—'}</div>
+                    <div><strong>Correction Source:</strong> {selectedTicket!.observed_inputs?.correction_source || (selectedTicket as any).correction_source || '—'}</div>
+                  </div>
+
+                  <div style={card}>
+                    <h3>Source Summary</h3>
+                    <div><strong>Ticket Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.ticket_numbers) || '—'}</div>
+                    <div><strong>Batch Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.batch_numbers) || '—'}</div>
+                    <div><strong>Truck Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.truck_numbers) || '—'}</div>
+                    <div><strong>Lease Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.leases) || '—'}</div>
+                  </div>
+                </div>
+
+                {selectedTicket!.observed_inputs?.calculation_audit && (
+                  <div style={{ ...card, marginTop: 12 }}>
+                    <h3>Calculation Audit</h3>
+                    <pre style={{ whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
+                      {JSON.stringify(selectedTicket!.observed_inputs?.calculation_audit, null, 2)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+            {hasLocalTicketDraft && (
+              <div style={card}>
+                <strong>Autosave is active</strong>
+                <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 4 }}>
+                  Draft selections are being saved on this device.
+                </div>
+                <button style={{ ...button, width: 'auto' }} onClick={clearLocalTicketDraft}>
+                  Clear Autosaved Draft
+                </button>
+              </div>
+            )}
             <div style={box}>
               <h3>Create Draft Ticket</h3>
               <select style={input} value={selectedSegment} onChange={(e) => { setSelectedSegment(e.target.value); setSelectedProducer(''); setSelectedLease(''); setSelectedMeter('') }}>
                 <option value="">Select Segment</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {getScopedSegments().map((s: any) => <option key={s.id} value={s.id}>{s.segment_name || s.name}</option>)}
               </select>
               <select style={input} value={selectedProducer} onChange={(e) => { setSelectedProducer(e.target.value); setSelectedLease(''); setSelectedMeter('') }}>
                 <option value="">Select Producer</option>
@@ -3221,22 +9550,115 @@ async function logout() {
               </select>
               <select style={input} value={selectedLease} onChange={(e) => { setSelectedLease(e.target.value); setSelectedMeter('') }}>
                 <option value="">Select Lease</option>
-                {filteredLeases.map((l) => <option key={l.id} value={l.id}>{l.lease_name}</option>)}
+                {filteredLeases.map((l: any) => <option key={l.id} value={l.id}>{l.lease_name || l.name || l.lease_number}</option>)}
               </select>
               <select style={input} value={selectedMeter} onChange={(e) => setSelectedMeter(e.target.value)}>
                 <option value="">Select Meter</option>
-                {filteredMeters.map((m) => <option key={m.id} value={m.id}>{m.meter_number}</option>)}
+                {filteredMeters.map((m: any) => <option key={m.id} value={m.id}>{m.meter_number || m.meter_name}</option>)}
               </select>
               <select style={input} value={ticketType} onChange={(e) => setTicketType(e.target.value)}>
                 <option value="meter">Meter Ticket</option>
                 <option value="tank">Tank Ticket</option>
+                <option value="line_fill">Line Fill Ticket</option>
+                <option value="transfer">Transfer Ticket</option>
                 <option value="truck">Truck Ticket</option>
               </select>
+
+              {(ticketType === 'tank' || ticketType === 'transfer') && (
+                <div style={card}>
+                  <h3>Tank Ticket Inputs</h3>
+                  <select style={input} value={selectedTank} onChange={(e) => setSelectedTank(e.target.value)}>
+                    <option value="">Select Tank</option>
+                    {tanks
+                      .filter((tank: any) => !selectedSegment || tank.segment_id === selectedSegment)
+                      .map((tank: any) => (
+                        <option key={tank.id} value={tank.id}>
+                          {tank.tank_number} {tank.tank_name ? `- ${tank.tank_name}` : ''}
+                        </option>
+                      ))}
+                  </select>
+
+                  <select style={input} value={tankMovementDirection} onChange={(e) => setTankMovementDirection(e.target.value)}>
+                    <option value="delivery">Delivery / Drawdown</option>
+                    <option value="receipt">Receipt / Fill</option>
+                  </select>
+
+                  <div style={card}>
+                    <strong>Opening Gauge Auto-Fill</strong>
+                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                      Opening comes from the last approved tank ticket closing gauge when available.
+                    </div>
+                    <div>
+                      Opening Decimal: {selectedTank ? getPreviousTankClosingGauge(selectedTank) || openingGauge || 'None' : 'Select tank'}
+                    </div>
+                    <input
+                      style={input}
+                      placeholder="Manual Opening Gauge Override (decimal feet)"
+                      value={openingGauge}
+                      onChange={(e) => setOpeningGauge(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                    <input style={input} placeholder="Closing Feet" value={tankClosingFeet} onChange={(e) => setTankClosingFeet(e.target.value)} />
+                    <input style={input} placeholder="Closing Inches" value={tankClosingInches} onChange={(e) => setTankClosingInches(e.target.value)} />
+                    <input style={input} placeholder="Closing 8ths" value={tankClosingEighths} onChange={(e) => setTankClosingEighths(e.target.value)} />
+                  </div>
+
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <input style={input} placeholder="Average Temp" value={tankAverageTemp} onChange={(e) => setTankAverageTemp(e.target.value)} />
+                    <input style={input} placeholder="Ambient Temp" value={tankAmbientTemp} onChange={(e) => setTankAmbientTemp(e.target.value)} />
+                    <input style={input} placeholder="Observed Gravity" value={tankObservedGravity} onChange={(e) => setTankObservedGravity(e.target.value)} />
+                    <input style={input} placeholder="Observed Temp" value={tankObservedTemp} onChange={(e) => setTankObservedTemp(e.target.value)} />
+                  </div>
+
+                  {selectedTank && tankClosingFeet !== '' && (
+                    <div style={card}>
+                      <h4>Tank Calculation Preview</h4>
+                      <div>Opening Gauge: {calculateTankTicketSnapshot(selectedTank).openingGaugeDecimal.toFixed(4)}</div>
+                      <div>Closing Gauge: {calculateTankTicketSnapshot(selectedTank).closingGaugeDecimal.toFixed(4)}</div>
+                      <div>Opening BBLS: {calculateTankTicketSnapshot(selectedTank).movement.openingCorrected.toFixed(2)}</div>
+                      <div>Closing BBLS: {calculateTankTicketSnapshot(selectedTank).movement.closingCorrected.toFixed(2)}</div>
+                      <div>GOV: {calculateTankTicketSnapshot(selectedTank).gov.toFixed(2)}</div>
+                      <div>API @60: {calculateTankTicketSnapshot(selectedTank).corrections.api_gravity_60.toFixed(1)}</div>
+                      <div>CTL: {calculateTankTicketSnapshot(selectedTank).ctl.toFixed(5)}</div>
+                      <div>CPL: {calculateTankTicketSnapshot(selectedTank).cpl.toFixed(5)}</div>
+                      <div>CCF: {calculateTankTicketSnapshot(selectedTank).ccf.toFixed(5)}</div>
+                      <div>GSV: {calculateTankTicketSnapshot(selectedTank).gsv.toFixed(2)}</div>
+                      <div>NSV: {calculateTankTicketSnapshot(selectedTank).nsv.toFixed(2)}</div>
+                      <div>Deadwood Opening Adj: {getDeadwoodAdjustment(selectedTank, calculateTankTicketSnapshot(selectedTank).openingGaugeDecimal).toFixed(2)} bbl</div>
+                      <div>Deadwood Closing Adj: {getDeadwoodAdjustment(selectedTank, calculateTankTicketSnapshot(selectedTank).closingGaugeDecimal).toFixed(2)} bbl</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {ticketType === 'line_fill' && (
+                <div style={card}>
+                  <h3>Line Fill Ticket Inputs</h3>
+                  <select style={input} value={selectedLineFill} onChange={(e) => setSelectedLineFill(e.target.value)}>
+                    <option value="">Select Line Fill</option>
+                    {lineFills
+                      .filter((line: any) => !selectedSegment || line.segment_id === selectedSegment)
+                      .map((line: any) => (
+                        <option key={line.id} value={line.id}>{line.line_name}</option>
+                      ))}
+                  </select>
+                </div>
+              )}
+
+              <input
+                style={input}
+                placeholder="Closing Reading (optional — opening auto-fills from previous approved lease ticket)"
+                value={manualClosingReading}
+                onChange={(e) => setManualClosingReading(e.target.value)}
+              />
 
               <div style={card}>
                 <h3>Autofill Preview</h3>
                 <div>Profile: {autofillPreview?.profile?.name || 'None'}</div>
                 <div>IV: {autofillPreview?.reading?.indicated_volume ?? 'None'}</div>
+                <div>Previous Closing Reading: {selectedLease ? getPreviousClosingForLease(selectedLease, selectedMeter) || 'None' : 'Select lease'}</div>
                 <div>Avg Temp: {autofillPreview?.reading?.average_temperature ?? 'None'}</div>
                 <div>Avg Pressure: {autofillPreview?.reading?.average_pressure ?? 'None'}</div>
                 <div>Latest Approved {autofillPreview?.proving?.factor_type || 'MF'}: {autofillPreview?.proving?.accepted_meter_factor ?? 'None'}</div>
@@ -3247,53 +9669,69 @@ async function logout() {
                 <div>POT CSW: {autofillPreview?.pot?.csw ?? 'None'}</div>
               </div>
 
-              <button style={button} onClick={createTicket}>Auto Build Draft Ticket</button>
+              <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating ticket', async () => { await createTicket(); clearLocalTicketDraft() })}>Auto Build Draft Ticket</button>
             </div>
 
             <div style={box}>
-              <h3>Workflow Queue</h3>
-              {activeTickets.map((t) => (
-                <div key={t.id} style={card}>
-                  <strong>{t.ticket_number}</strong>
-                  <div><span style={getTicketStatusStyle(t.status)}>{t.status || 'draft'}</span></div>
-                  <div>Type: {t.ticket_type}</div>
-                  <div>Factor Type: {t.observed_inputs?.factor_type || 'MF'}</div>
-                  <div>Factor Source: {t.observed_inputs?.mf_source || 'None'}</div>
-                  <div>POT Source: {t.observed_inputs?.pot_source || 'None'}</div>
-                  <div>GSV: {t.calculation_results?.gsv ?? 'None'}</div>
-                  <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
-                  <button style={button} onClick={() => { setSelectedTicket(t); setPage('tickets') }}>Open Ticket →</button>
-                </div>
-              ))}
+              <h2>Approved Tickets by Month</h2>
+
+              {getApprovedTickets().length === 0 && (
+                <div style={card}>No approved tickets yet.</div>
+              )}
+
+              {groupTicketsByMonth(getApprovedTickets()).map((group: any) => {
+                const isOpen = openApprovedTicketMonths[group.monthKey] ?? true
+                const totalNsv = group.tickets.reduce((sum: number, ticket: any) => {
+                  const calc = ticket.calculation_results || {}
+                  const observed = ticket.observed_inputs || {}
+                  return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                }, 0)
+
+                return (
+                  <div key={group.monthKey} style={{ ...card, marginBottom: 12 }}>
+                    <button
+                      style={{ ...button, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
+                      onClick={() => toggleApprovedTicketMonth(group.monthKey)}
+                    >
+                      <span>{isOpen ? '▼' : '▶'} {group.label}</span>
+                      <span>{group.tickets.length} tickets • NSV {totalNsv.toFixed(2)}</span>
+                    </button>
+
+                    {isOpen && (
+                      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                        {group.tickets.map((ticket: any) => (
+                          <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                            <div>
+                              <strong>{compactTicketTitle(ticket)}</strong>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
+                            </div>
+                            <button style={{ ...button, width: 170 }} onClick={() => setSelectedTicket(ticket)}>
+                              Open Approved Ticket
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
 
-            <div style={box}>
-              <h3>Approved Tickets</h3>
-              {approvedTickets.length === 0 && <div style={card}>No approved tickets yet.</div>}
-              {approvedTickets.map((t) => (
-                <div key={t.id} style={card}>
-                  <strong>{t.ticket_number}</strong>
-                  <div><span style={getTicketStatusStyle(t.status)}>{t.status || 'draft'}</span></div>
-                  <div>NSV: {t.calculation_results?.nsv ?? 'None'}</div>
-                  <button style={button} onClick={() => { setSelectedTicket(t); setPage('tickets') }}>Open Approved Ticket</button>
-                </div>
-              ))}
-            </div>
-
-            {selectedTicket && canViewAudit && (
+{selectedTicket && canViewAudit && (
               <div style={box}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                   <h2 style={{ margin: 0 }}>Ticket Detail</h2>
-                  <span style={getTicketStatusStyle(selectedTicket.status)}>{selectedTicket.status || 'draft'}</span>
+                  <span style={getTicketStatusStyle(selectedTicket!.status)}>{selectedTicket!.status || 'draft'}</span>
                 </div>
-                <div><strong>Ticket:</strong> {selectedTicket.ticket_number}</div>
+                <div><strong>Ticket:</strong> {selectedTicket!.ticket_number}</div>
                 <div><strong>Locked:</strong> {(selectedTicket as any).is_locked ? 'Yes' : 'No'}</div>
                 <div><strong>Locked At:</strong> {selectedTicket.locked_at || 'N/A'}</div>
-                <div><strong>Status:</strong> {selectedTicket.status}</div>
-                <div><strong>Type:</strong> {selectedTicket.ticket_type}</div>
+                <div><strong>Status:</strong> {selectedTicket!.status}</div>
+                <div><strong>Type:</strong> {selectedTicket!.ticket_type}</div>
                 <div><strong>Profile:</strong> {selectedTicket.calculation_profile_snapshot?.name || 'None'}</div>
-                <div><strong>Contract Profile:</strong> {selectedTicket.observed_inputs?.contract_profile_name || selectedTicket.calculation_profile_snapshot?.contract_profile?.name || 'Default'}</div>
-                <div><strong>Calculation Method:</strong> {selectedTicket.observed_inputs?.calculation_method || selectedTicket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL'}</div>
+                <div><strong>Contract Profile:</strong> {selectedTicket!.observed_inputs?.contract_profile_name || selectedTicket.calculation_profile_snapshot?.contract_profile?.name || 'Default'}</div>
+                <div><strong>Calculation Method:</strong> {selectedTicket!.observed_inputs?.calculation_method || selectedTicket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL'}</div>
 
                 {selectedTicket.approved_at && (
                   <div style={{ color: '#86efac', marginTop: 10 }}>
@@ -3301,7 +9739,7 @@ async function logout() {
                   </div>
                 )}
 
-                {selectedTicket.status === 'approved' && (
+                {selectedTicket!.status === 'approved' && (
                   <div style={{ background: '#14532d', padding: 12, borderRadius: 8, marginTop: 12 }}>
                     Approved ticket is locked for custody transfer.
                   </div>
@@ -3309,24 +9747,24 @@ async function logout() {
 
                 <div style={card}>
                   <h3>Observed Inputs</h3>
-                  <div>IV: {selectedTicket.observed_inputs?.iv}</div>
-                  <div>CTL: {selectedTicket.observed_inputs?.ctl}</div>
-                  <div>CPL: {selectedTicket.observed_inputs?.cpl}</div>
-                  <div>CTLP: {selectedTicket.observed_inputs?.ctlp}</div>
-                  <div>{selectedTicket.observed_inputs?.factor_type || 'MF'}: {selectedTicket.observed_inputs?.mf}</div>
-                  <div>API Gravity: {selectedTicket.observed_inputs?.api_gravity}</div>
-                  <div>Temp: {selectedTicket.observed_inputs?.temperature}</div>
-                  <div>Avg Temp: {selectedTicket.observed_inputs?.average_temperature}</div>
-                  <div>Avg Pressure: {selectedTicket.observed_inputs?.average_pressure}</div>
-                  <div>BS&W %: {selectedTicket.observed_inputs?.bsw_percent}</div>
-                  <div>CSW: {selectedTicket.observed_inputs?.csw}</div>
+                  <div>IV: {selectedTicket!.observed_inputs?.iv}</div>
+                  <div>CTL: {selectedTicket!.observed_inputs?.ctl}</div>
+                  <div>CPL: {selectedTicket!.observed_inputs?.cpl}</div>
+                  <div>CTLP: {selectedTicket!.observed_inputs?.ctlp}</div>
+                  <div>{selectedTicket!.observed_inputs?.factor_type || 'MF'}: {selectedTicket!.observed_inputs?.mf}</div>
+                  <div>API Gravity: {selectedTicket!.observed_inputs?.api_gravity}</div>
+                  <div>Temp: {selectedTicket!.observed_inputs?.temperature}</div>
+                  <div>Avg Temp: {selectedTicket!.observed_inputs?.average_temperature}</div>
+                  <div>Avg Pressure: {selectedTicket!.observed_inputs?.average_pressure}</div>
+                  <div>BS&W %: {selectedTicket!.observed_inputs?.bsw_percent}</div>
+                  <div>CSW: {selectedTicket!.observed_inputs?.csw}</div>
                 </div>
 
                 <div style={card}>
                   <h3>Calculated Results</h3>
-                  <div>CCF: {selectedTicket.calculation_results?.ccf}</div>
-                  <div>GSV: {selectedTicket.calculation_results?.gsv}</div>
-                  <div>NSV: {selectedTicket.calculation_results?.nsv}</div>
+                  <div>CCF: {selectedTicket!.calculation_results?.ccf}</div>
+                  <div>GSV: {selectedTicket!.calculation_results?.gsv}</div>
+                  <div>NSV: {selectedTicket!.calculation_results?.nsv}</div>
                 </div>
 
                 {(selectedTicket as any).is_locked && (
@@ -3359,14 +9797,14 @@ async function logout() {
                 <div style={card}>
                   <h3>Ticket Audit Timeline</h3>
 
-                  {getTicketAuditRows(selectedTicket.id).length === 0 && (
+                  {getTicketAuditRows(selectedTicket!.id).length === 0 && (
                     <div style={{ color: '#a8b3bd' }}>
                       No audit events recorded yet.
                     </div>
                   )}
 
                   <div style={{ display: 'grid', gap: 12 }}>
-                    {getTicketAuditRows(selectedTicket.id).map((log: any) => (
+                    {getTicketAuditRows(selectedTicket!.id).map((log: any) => (
                       <div
                         key={log.id}
                         style={{
@@ -3403,14 +9841,16 @@ async function logout() {
                   </div>
                 </div>
 
-                <button style={button} onClick={() => updateTicketStatus(selectedTicket, 'submitted')}>Submit Ticket</button>
-                <button style={button} onClick={() => updateTicketStatus(selectedTicket, 'approved')}>Approve Ticket</button>
-                <button style={button} onClick={() => updateTicketStatus(selectedTicket, 'draft')}>Reject to Draft</button>
-                <button style={{ ...button, background: '#dc2626' }} onClick={() => updateTicketStatus(selectedTicket, 'voided')}>Void Ticket</button>
-                <button style={{ ...button, background: '#16a34a' }} onClick={() => generatePdfPreview(selectedTicket)}>Generate PDF Preview</button>
+                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Submitting ticket', () => updateTicketStatus(selectedTicket, 'submitted'))}>Submit Ticket</button>
+                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Approving ticket', () => updateTicketStatus(selectedTicket, 'approved'))}>Approve Ticket</button>
+                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Returning ticket to draft', () => updateTicketStatus(selectedTicket, 'draft'))}>Reject to Draft</button>
+                <button style={{ ...button, background: '#dc2626' }} disabled={isActionRunning} onClick={() => runSafeAction('Voiding ticket', () => updateTicketStatus(selectedTicket, 'voided'))}>Void Ticket</button>
+                <button style={{ ...button, background: '#16a34a' }} disabled={isActionRunning} onClick={() => runSafeAction('Generating PDF preview', () => generatePdfPreview(selectedTicket))}>Generate PDF Preview</button>
               </div>
             )}
           </>
+        )}
+                </>
         )}
       </main>
     </div>

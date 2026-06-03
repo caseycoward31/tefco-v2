@@ -731,6 +731,10 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [showUserManagement, setShowUserManagement] = useState(true)
   const [showContractProfiles, setShowContractProfiles] = useState(false)
   const [showCompanySetupHub, setShowCompanySetupHub] = useState(false)
+  const [newCheckGroupName, setNewCheckGroupName] = useState('')
+  const [newCheckGroupSegmentId, setNewCheckGroupSegmentId] = useState('')
+  const [newCheckGroupCheckMeterId, setNewCheckGroupCheckMeterId] = useState('')
+  const [newCheckGroupInputMeterIds, setNewCheckGroupInputMeterIds] = useState<string[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
   const [newCompanyName, setNewCompanyName] = useState('')
   const [selectedAdminCompanyId, setSelectedAdminCompanyId] = useState('')
@@ -1885,7 +1889,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       segment_id: selectedReadingSegment || null,
       lease_id: selectedReadingLease || null,
       meter_id: selectedReadingMeter || null,
-      movement_type: readingMovementType,
+      movement_type: getSelectedReadingMovementType(),
       opening_reading: Number(readingOpen || 0),
       closing_reading: Number(readingClose || 0),
       indicated_volume: iv,
@@ -5078,16 +5082,56 @@ async function createCompany() {
     )
   }
 
+  function normalizeMeterRole(value: any) {
+    const role = String(value || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_')
+    if (['receipt', 'inbound', 'receive', 'receipts'].includes(role)) return 'receipt'
+    if (['delivery', 'outbound', 'deliveries', 'sale', 'sales'].includes(role)) return 'delivery'
+    if (['check', 'check_meter', 'master', 'master_meter'].includes(role)) return 'check_meter'
+    if (['butane', 'butane_injection', 'blend', 'blend_meter'].includes(role)) return 'butane'
+    if (['refined', 'refined_product', 'diesel', 'gasoline', 'gas', 'jet'].includes(role)) return 'refined'
+    if (['excluded', 'exclude', 'ignore'].includes(role)) return 'excluded'
+    return role || ''
+  }
+
+  function getMeterById(meterId: string) {
+    return meters.find((m: any) => String(m.id) === String(meterId))
+  }
+
+  function getMeterConfiguredRole(meter: any) {
+    return normalizeMeterRole(meter?.meter_role || meter?.balance_role || meter?.meter_direction || meter?.direction)
+  }
+
+  function getMeterProductType(meter: any) {
+    return String(meter?.product_type || meter?.product || meter?.commodity || '').trim().toLowerCase()
+  }
+
+  function meterIncludedInOS(meter: any) {
+    if (!meter) return true
+    if (meter.include_in_os === false || meter.include_in_over_short === false) return false
+    return getMeterConfiguredRole(meter) !== 'excluded'
+  }
+
   function getMeterBalanceRole(ticket: any) {
-    const meter = meters.find((m: any) => m.id === ticket.meter_id)
-    return String(
-      ticket.meter_direction ||
-      ticket.observed_inputs?.meter_direction ||
+    const meter = meters.find((m: any) => String(m.id) === String(ticket.meter_id || ticket.observed_inputs?.meter_id || ''))
+    return normalizeMeterRole(
       (meter as any)?.meter_role ||
+      (meter as any)?.balance_role ||
       (meter as any)?.meter_direction ||
       (meter as any)?.direction ||
+      ticket.meter_direction ||
+      ticket.observed_inputs?.meter_direction ||
       ''
-    ).toLowerCase()
+    )
+  }
+
+  function getSelectedReadingMeterRole() {
+    return getMeterConfiguredRole(getMeterById(selectedReadingMeter))
+  }
+
+  function getSelectedReadingMovementType() {
+    const role = getSelectedReadingMeterRole()
+    if (role === 'delivery') return 'delivery'
+    return 'receipt'
   }
 
   function getTankSignedMovement(ticket: any) {
@@ -5245,11 +5289,17 @@ async function createCompany() {
         )
 
         const receipts = segmentTickets
-          .filter((ticket: any) => ticket.ticket_type !== 'tank' && getMeterBalanceRole(ticket) === 'receipt')
+          .filter((ticket: any) => {
+            const meter = getMeterById(ticket.meter_id || ticket.observed_inputs?.meter_id || '')
+            return ticket.ticket_type !== 'tank' && meterIncludedInOS(meter) && getMeterBalanceRole(ticket) === 'receipt'
+          })
           .reduce((sum: number, ticket: any) => sum + getTicketVolumeForBalance(ticket), 0)
 
         const deliveries = segmentTickets
-          .filter((ticket: any) => ticket.ticket_type !== 'tank' && getMeterBalanceRole(ticket) === 'delivery')
+          .filter((ticket: any) => {
+            const meter = getMeterById(ticket.meter_id || ticket.observed_inputs?.meter_id || '')
+            return ticket.ticket_type !== 'tank' && meterIncludedInOS(meter) && getMeterBalanceRole(ticket) === 'delivery'
+          })
           .reduce((sum: number, ticket: any) => sum + getTicketVolumeForBalance(ticket), 0)
 
         const truckTickets = segmentTickets
@@ -5416,7 +5466,7 @@ async function createCompany() {
         segment?.name || '',
         meter?.meter_number || '',
         ticket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? '',
-        selectedTicket!.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? '',
+        ticket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? '',
         getTicketReportDate(ticket),
       ]
     })
@@ -5440,8 +5490,8 @@ async function createCompany() {
           producer?.name || '',
           segment?.name || '',
           meter?.meter_number || '',
-          Number(selectedTicket!.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? 0).toFixed(2),
-          Number(selectedTicket!.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? 0).toFixed(2),
+          Number(ticket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? 0).toFixed(2),
+          Number(ticket.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? 0).toFixed(2),
           getTicketReportDate(ticket),
         ]
       }),
@@ -5469,7 +5519,7 @@ async function createCompany() {
         (ticket as any).customer_name || ticket.observed_inputs?.customer_name || '',
         ticket.split_percent || ticket.observed_inputs?.split_percent || '',
         Number(ticket.calculation_results?.gsv ?? 0).toFixed(2),
-        Number(selectedTicket!.calculation_results?.nsv ?? 0).toFixed(2),
+        Number(ticket.calculation_results?.nsv ?? 0).toFixed(2),
         ticket.lact_name || ticket.observed_inputs?.lact_name || '',
         getTicketReportDate(ticket),
       ]),
@@ -5628,6 +5678,62 @@ async function createCompany() {
     })
   }
 
+
+  async function saveCheckMeterGroup() {
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!activeCompanyID) {
+      alert('Select a company first.')
+      return
+    }
+    if (!newCheckGroupName || !newCheckGroupSegmentId || !newCheckGroupCheckMeterId) {
+      alert('Enter group name, segment, and check meter.')
+      return
+    }
+
+    const { data: groupRow, error: groupError } = await supabase
+      .from('balance_check_groups')
+      .insert({
+        company_id: activeCompanyID,
+        name: newCheckGroupName,
+        segment_id: newCheckGroupSegmentId,
+        check_meter_id: newCheckGroupCheckMeterId,
+        active: true,
+      })
+      .select('*')
+      .single()
+
+    if (groupError) {
+      alert(`Could not create check meter group: ${groupError.message}`)
+      return
+    }
+
+    const memberRows = [
+      { company_id: activeCompanyID, check_group_id: groupRow.id, meter_id: newCheckGroupCheckMeterId, role: 'check', active: true },
+      ...newCheckGroupInputMeterIds.map((meterId) => ({ company_id: activeCompanyID, check_group_id: groupRow.id, meter_id: meterId, role: 'input', active: true })),
+    ]
+
+    const { error: memberError } = await supabase.from('balance_check_group_meters').insert(memberRows)
+    if (memberError) {
+      alert(`Check group created, but meter assignment failed: ${memberError.message}`)
+      return
+    }
+
+    setNewCheckGroupName('')
+    setNewCheckGroupSegmentId('')
+    setNewCheckGroupCheckMeterId('')
+    setNewCheckGroupInputMeterIds([])
+    await loadAll()
+  }
+
+  async function updateMeterMasterField(meterId: string, patch: any) {
+    const { error } = await supabase.from('meters').update(patch).eq('id', meterId)
+    if (error) {
+      alert(`Could not update meter: ${error.message}`)
+      return
+    }
+    setMeters((current: any[]) => current.map((meter: any) => String(meter.id) === String(meterId) ? { ...meter, ...patch } : meter))
+  }
+
   async function importMetersCsv() {
     if (!meterCsvFile) {
       alert('Choose a CSV file first.')
@@ -5660,7 +5766,13 @@ async function createCompany() {
         const producerName = row.producer || row.producer_name || ''
         const leaseName = row.lease || row.lease_name || ''
         const meterNumber = row.meter_number || row.meter || row.meter_name || ''
-        const meterDirection = row.meter_direction || row.direction || ''
+        const meterDirection = row.meter_direction || row.direction || row.meter_role || row.meter_type || ''
+        const meterRole = normalizeMeterRole(row.meter_role || row.meter_type || row.balance_role || meterDirection)
+        const productType = row.product_type || row.product || row.commodity || ''
+        const includeInOsRaw = String(row.include_in_os || row.include_in_over_short || 'true').trim().toLowerCase()
+        const includeInOs = !['false', 'no', 'n', '0', 'exclude', 'excluded'].includes(includeInOsRaw)
+        const checkGroupName = row.check_meter_group || row.check_group || ''
+        const reportsToCheckMeter = row.reports_to_check_meter || row.check_meter || ''
         const defaultTicketType = row.default_ticket_type || row.ticket_type || ''
         const sourceTankNumber = row.source_tank || row.source_tank_number || ''
         const destinationTankNumber = row.destination_tank || row.destination_tank_number || ''
@@ -5709,7 +5821,12 @@ async function createCompany() {
               producer_id: producer?.id || existingMeter.producer_id || null,
               lease_id: lease?.id || existingMeter.lease_id || null,
               active: true,
-              direction: meterDirection || existingMeter.direction || null,
+              direction: meterRole || meterDirection || existingMeter.direction || null,
+              meter_role: meterRole || existingMeter.meter_role || null,
+              product_type: productType || existingMeter.product_type || null,
+              include_in_os: includeInOs,
+              check_meter_group_name: checkGroupName || existingMeter.check_meter_group_name || null,
+              reports_to_check_meter: reportsToCheckMeter || existingMeter.reports_to_check_meter || null,
               default_ticket_type: defaultTicketType || existingMeter.default_ticket_type || null,
               source_tank_id: sourceTank?.id || existingMeter.source_tank_id || null,
               destination_tank_id: destinationTank?.id || existingMeter.destination_tank_id || null,
@@ -5725,7 +5842,12 @@ async function createCompany() {
             producer_id: producer?.id || null,
             lease_id: lease?.id || null,
             active: true,
-            direction: meterDirection || null,
+            direction: meterRole || meterDirection || null,
+            meter_role: meterRole || null,
+            product_type: productType || null,
+            include_in_os: includeInOs,
+            check_meter_group_name: checkGroupName || null,
+            reports_to_check_meter: reportsToCheckMeter || null,
             default_ticket_type: defaultTicketType || null,
             source_tank_id: sourceTank?.id || null,
             destination_tank_id: destinationTank?.id || null,
@@ -7788,6 +7910,102 @@ async function saveUserRole() {
                       >
                         {meterCsvImporting ? 'Importing...' : 'Import Meters CSV'}
                       </button>
+                      <p style={{ color: '#a8b3bd', fontSize: 12 }}>
+                        V3 headers also supported: meter_role, product_type, include_in_os, check_meter_group, reports_to_check_meter.
+                      </p>
+                    </div>
+
+                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                      <h3>Balance Center V3 - Meter Master Roles</h3>
+                      <p style={{ color: '#a8b3bd' }}>
+                        Set each meter once. Readings and O/S now use the meter role instead of making operators choose receipt/delivery.
+                      </p>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr>
+                              <th style={{ textAlign: 'left' }}>Meter</th>
+                              <th style={{ textAlign: 'left' }}>Segment</th>
+                              <th style={{ textAlign: 'left' }}>Role</th>
+                              <th style={{ textAlign: 'left' }}>Product</th>
+                              <th style={{ textAlign: 'left' }}>O/S</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {getScopedMeters().slice(0, 60).map((meter: any) => {
+                              const segment = segments.find((s: any) => String(s.id) === String(meter.segment_id))
+                              return (
+                                <tr key={meter.id}>
+                                  <td>{meter.meter_number || meter.meter_name}</td>
+                                  <td>{segment?.name || segment?.segment_name || '—'}</td>
+                                  <td>
+                                    <select style={input} value={getMeterConfiguredRole(meter)} onChange={(e) => updateMeterMasterField(meter.id, { meter_role: e.target.value, direction: e.target.value })}>
+                                      <option value="">Select role</option>
+                                      <option value="receipt">Receipt</option>
+                                      <option value="delivery">Delivery</option>
+                                      <option value="check_meter">Check Meter</option>
+                                      <option value="butane">Butane Injection</option>
+                                      <option value="refined">Refined Product</option>
+                                      <option value="excluded">Excluded</option>
+                                    </select>
+                                  </td>
+                                  <td>
+                                    <select style={input} value={getMeterProductType(meter)} onChange={(e) => updateMeterMasterField(meter.id, { product_type: e.target.value })}>
+                                      <option value="">Select product</option>
+                                      <option value="crude">Crude Oil</option>
+                                      <option value="butane">Butane</option>
+                                      <option value="diesel">Diesel</option>
+                                      <option value="gasoline">Gasoline</option>
+                                      <option value="jet">Jet Fuel</option>
+                                      <option value="manual">Manual Total</option>
+                                    </select>
+                                  </td>
+                                  <td>
+                                    <input type="checkbox" checked={meterIncludedInOS(meter)} onChange={(e) => updateMeterMasterField(meter.id, { include_in_os: e.target.checked })} />
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                      <h3>Check Meter Groups</h3>
+                      <p style={{ color: '#a8b3bd' }}>
+                        Group receipt/delivery meters and compare them to a selected check meter inside the same segment.
+                      </p>
+                      <input style={input} placeholder="Group Name" value={newCheckGroupName} onChange={(e) => setNewCheckGroupName(e.target.value)} />
+                      <select style={input} value={newCheckGroupSegmentId} onChange={(e) => { setNewCheckGroupSegmentId(e.target.value); setNewCheckGroupCheckMeterId(''); setNewCheckGroupInputMeterIds([]) }}>
+                        <option value="">Select Segment</option>
+                        {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+                      </select>
+                      <select style={input} value={newCheckGroupCheckMeterId} onChange={(e) => setNewCheckGroupCheckMeterId(e.target.value)} disabled={!newCheckGroupSegmentId}>
+                        <option value="">Select Check Meter</option>
+                        {meters.filter((meter: any) => String(meter.segment_id || '') === String(newCheckGroupSegmentId || '')).map((meter: any) => <option key={meter.id} value={meter.id}>{meter.meter_number || meter.meter_name}</option>)}
+                      </select>
+                      <div style={{ margin: '10px 0', color: '#a8b3bd' }}>Included meters</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                        {meters.filter((meter: any) => String(meter.segment_id || '') === String(newCheckGroupSegmentId || '') && String(meter.id) !== String(newCheckGroupCheckMeterId || '')).map((meter: any) => (
+                          <label key={meter.id} style={{ ...box, display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={newCheckGroupInputMeterIds.includes(meter.id)}
+                              onChange={(e) => setNewCheckGroupInputMeterIds((current) => e.target.checked ? [...current, meter.id] : current.filter((id) => id !== meter.id))}
+                            />
+                            {meter.meter_number || meter.meter_name}
+                          </label>
+                        ))}
+                      </div>
+                      <button style={button} onClick={() => runSafeAction('Saving check meter group', saveCheckMeterGroup)}>Save Check Meter Group</button>
+                      <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
+                        {balanceCheckGroups.map((group: any) => {
+                          const segment = segments.find((s: any) => String(s.id) === String(group.segment_id))
+                          const checkMeter = meters.find((m: any) => String(m.id) === String(group.check_meter_id))
+                          return <div key={group.id} style={{ color: '#a8b3bd' }}>{group.name} • {segment?.name || 'Segment'} • Check: {checkMeter?.meter_number || '—'}</div>
+                        })}
+                      </div>
                     </div>
 
                     <div style={{ ...card, gridColumn: '1 / -1' }}>
@@ -8155,14 +8373,9 @@ async function saveUserRole() {
                 ))}
               </select>
 
-              <select style={input} value={readingMovementType} onChange={(e) => setReadingMovementType(e.target.value)}>
-                <option value="receipt">Receipt / Inbound</option>
-                <option value="delivery">Delivery / Outbound</option>
-              </select>
-
               {selectedReadingMeter && (
                 <div style={{ color: '#a8b3bd', fontSize: 13 }}>
-                  Auto-selected meter: <strong>{getSelectedReadingMeterNumber()}</strong> • Movement: <strong>{readingMovementType === 'receipt' ? 'Receipt / Inbound' : 'Delivery / Outbound'}</strong>
+                  Auto-selected meter: <strong>{getSelectedReadingMeterNumber()}</strong> • Movement from Meter Master: <strong>{getSelectedReadingMovementType() === 'receipt' ? 'Receipt / Inbound' : 'Delivery / Outbound'}</strong>
                 </div>
               )}
               <input style={input} placeholder="Opening Reading" value={readingOpen} onChange={(e) => setReadingOpen(e.target.value)} />

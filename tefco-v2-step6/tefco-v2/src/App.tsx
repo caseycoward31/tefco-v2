@@ -709,6 +709,10 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [meters, setMeters] = useState<Meter[]>([])
   const [tanks, setTanks] = useState<any[]>([])
   const [lineFills, setLineFills] = useState<any[]>([])
+  const [balanceCheckGroups, setBalanceCheckGroups] = useState<any[]>([])
+  const [balanceCheckGroupMeters, setBalanceCheckGroupMeters] = useState<any[]>([])
+  const [balanceInventoryEntries, setBalanceInventoryEntries] = useState<any[]>([])
+  const [balanceButaneAdjustments, setBalanceButaneAdjustments] = useState<any[]>([])
   const [meterAssetConfigs, setMeterAssetConfigs] = useState<any[]>([])
   const [tankCalibrationVersions, setTankCalibrationVersions] = useState<any[]>([])
   const [tankStrappingRows, setTankStrappingRows] = useState<any[]>([])
@@ -796,7 +800,6 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [selectedPotArea, setSelectedPotArea] = useState('')
   const [selectedPotSegment, setSelectedPotSegment] = useState('')
   const [selectedPotLease, setSelectedPotLease] = useState('')
-  const [selectedPotMeter, setSelectedPotMeter] = useState('')
   const [selectedProvingArea, setSelectedProvingArea] = useState('')
   const [selectedProvingSegment, setSelectedProvingSegment] = useState('')
   const [selectedProvingLease, setSelectedProvingLease] = useState('')
@@ -1145,45 +1148,7 @@ useEffect(() => {
     if (areaAccessLoadError) {
       console.warn('Area access load error:', areaAccessLoadError)
     }
-
-    // Operator/measurement users sometimes cannot read user_area_access/areas directly due RLS.
-    // This RPC returns ONLY the logged-in user's assigned active areas and maps old retired duplicate areas
-    // (example: DPG - OLD DO NOT USE) to the active area with the same base name.
-    const { data: assignedAreaRpcData, error: assignedAreaRpcError } = (!scope.isSuperAdmin && !scope.isCompanyAdmin)
-      ? await supabase.rpc('tefco_my_assigned_areas')
-      : { data: null, error: null } as any
-
-    if (assignedAreaRpcError) {
-      console.warn('Assigned area RPC unavailable:', assignedAreaRpcError)
-    }
-
-    const rpcAssignedAreas = Array.isArray(assignedAreaRpcData) ? assignedAreaRpcData : []
-    const rpcAreaAccessRows = rpcAssignedAreas.map((area: any) => ({
-      user_id: scope.authUserId,
-      area_id: area.id,
-      company_id: area.company_id || activeCompanyIdForLoad || scope.companyId || null,
-    }))
-
-    const resolvedAreaAccessData = [
-      ...(Array.isArray(areaAccessData) ? areaAccessData : []),
-      ...rpcAreaAccessRows,
-    ].filter((row: any, idx: number, arr: any[]) =>
-      row?.area_id && arr.findIndex((other: any) => String(other.area_id) === String(row.area_id) && String(other.user_id || '') === String(row.user_id || '')) === idx
-    )
-
-    const rpcAreaRows = rpcAssignedAreas.map((area: any) => ({
-      id: area.id,
-      company_id: area.company_id || activeCompanyIdForLoad || scope.companyId || null,
-      name: area.name,
-      active: true,
-    }))
-
-    const mergedResolvedAreaData = [
-      ...(Array.isArray(resolvedAreaData) ? resolvedAreaData : []),
-      ...rpcAreaRows,
-    ].filter((area: any, idx: number, arr: any[]) =>
-      area?.id && arr.findIndex((other: any) => String(other.id) === String(area.id)) === idx
-    )
+    const resolvedAreaAccessData = Array.isArray(areaAccessData) ? areaAccessData : []
 
     const { data: ticketData } = await applyCompanyScope(supabase.from('tickets').select('*')).order('created_at', { ascending: false })
 
@@ -1227,8 +1192,17 @@ useEffect(() => {
     const { data: tankStrappingData } = await applyCompanyScope(supabase.from('tank_strapping_rows').select('*')).order('gauge_decimal')
     const { data: tankDeadwoodData } = await applyCompanyScope(supabase.from('tank_deadwood_rules').select('*').eq('active', true))
 
+    // Balance Center tables are optional. If the SQL has not been run yet, the app keeps working with empty balance setup.
+    const { data: balanceCheckGroupData, error: balanceCheckGroupError } = await applyCompanyScope(supabase.from('balance_check_groups').select('*')).order('name')
+    const { data: balanceCheckGroupMeterData, error: balanceCheckGroupMeterError } = await applyCompanyScope(supabase.from('balance_check_group_meters').select('*'))
+    const { data: balanceInventoryEntryData, error: balanceInventoryEntryError } = await applyCompanyScope(supabase.from('balance_inventory_entries').select('*')).order('period_start', { ascending: false })
+    const { data: balanceButaneAdjustmentData, error: balanceButaneAdjustmentError } = await applyCompanyScope(supabase.from('balance_butane_adjustments').select('*')).order('period_start', { ascending: false })
+    if (balanceCheckGroupError || balanceCheckGroupMeterError || balanceInventoryEntryError || balanceButaneAdjustmentError) {
+      console.warn('Balance Center optional tables unavailable:', { balanceCheckGroupError, balanceCheckGroupMeterError, balanceInventoryEntryError, balanceButaneAdjustmentError })
+    }
+
     setUserAreaAccess(resolvedAreaAccessData)
-    if (mergedResolvedAreaData) setAreas(mergedResolvedAreaData)
+    if (resolvedAreaData) setAreas(resolvedAreaData)
     if (resolvedSegmentData) setSegments(resolvedSegmentData)
     if (resolvedLeaseData) setLeases(resolvedLeaseData)
     if (resolvedMeterData) setMeters(resolvedMeterData)
@@ -1251,6 +1225,10 @@ useEffect(() => {
     if (tankCalibrationData) setTankCalibrationVersions(tankCalibrationData)
     if (tankStrappingData) setTankStrappingRows(tankStrappingData)
     if (tankDeadwoodData) setTankDeadwoodRules(tankDeadwoodData)
+    if (balanceCheckGroupData) setBalanceCheckGroups(balanceCheckGroupData)
+    if (balanceCheckGroupMeterData) setBalanceCheckGroupMeters(balanceCheckGroupMeterData)
+    if (balanceInventoryEntryData) setBalanceInventoryEntries(balanceInventoryEntryData)
+    if (balanceButaneAdjustmentData) setBalanceButaneAdjustments(balanceButaneAdjustmentData)
 
     const { data: contractProfileData } = await supabase
       .from('contract_profiles')
@@ -1425,69 +1403,25 @@ const provingCompliancePercent =
     return Array.isArray(value) ? value : []
   }
 
-  function isActiveRow(row: any) {
-    return row?.active !== false && String(row?.active ?? 'true').toLowerCase() !== 'false'
-  }
-
-  function cleanAreaName(value: any) {
-    return String(value || '')
-      .replace(/\s*-\s*old.*$/i, '')
-      .replace(/\s+do not use.*$/i, '')
-      .trim()
-      .toLowerCase()
-  }
-
-  function getActiveAreas(): any[] {
-    return asArray(areas).filter((area: any) =>
-      isActiveRow(area) && !String(area.name || '').toLowerCase().includes('old do not use')
-    )
-  }
-
 
   function getCurrentAuthUserIdForAreaAccess() {
     return currentAuthUserId || asArray(userRoles)?.[0]?.user_id || ''
   }
 
   function getAllowedAreaIdsForCurrentUser() {
-    const activeAreas = getActiveAreas()
-    if (userIsSuperAdmin || userIsCompanyAdmin) return activeAreas.map((area: any) => String(area.id))
+    const areaRows = asArray(areas)
+    if (userIsSuperAdmin || userIsCompanyAdmin) return areaRows.map((area: any) => String(area.id))
 
     const uid = getCurrentAuthUserIdForAreaAccess()
     if (!uid) return []
 
-    const rawAssignedIds = asArray(userAreaAccess)
+    return asArray(userAreaAccess)
       .filter((row: any) => String(row.user_id || row.profile_id || '') === String(uid))
       .map((row: any) => String(row.area_id))
-
-    const allowed = new Set<string>()
-    const allAreas = asArray(areas)
-
-    rawAssignedIds.forEach((areaId) => {
-      const assignedArea: any = allAreas.find((area: any) => String(area.id) === String(areaId))
-
-      // Normal case: assigned area is active, so use that exact ID.
-      if (assignedArea && isActiveRow(assignedArea) && !String(assignedArea.name || '').toLowerCase().includes('old do not use')) {
-        allowed.add(String(assignedArea.id))
-        return
-      }
-
-      // Repair case: the user was assigned to an old/retired duplicate area.
-      // Map them to the active area in the same company with the same base name.
-      const baseName = cleanAreaName(assignedArea?.name)
-      const company = assignedArea?.company_id || companyId
-      const activeMatch: any = activeAreas.find((area: any) => {
-        const sameCompany = !company || !area.company_id || String(area.company_id) === String(company)
-        return sameCompany && baseName && cleanAreaName(area.name) === baseName
-      })
-
-      if (activeMatch?.id) allowed.add(String(activeMatch.id))
-    })
-
-    return Array.from(allowed)
   }
 
   function getScopedAreas(): any[] {
-    const areaRows = getActiveAreas()
+    const areaRows = asArray(areas)
     if (userIsSuperAdmin || userIsCompanyAdmin) return areaRows
 
     const allowed = getAllowedAreaIdsForCurrentUser()
@@ -1496,43 +1430,6 @@ const provingCompliancePercent =
 
   function getVisibleAreas() {
     return getScopedAreas()
-  }
-
-
-  function isSingleAreaAutoScopeUser() {
-    return !userIsSuperAdmin && !userIsCompanyAdmin && getVisibleAreas().length === 1
-  }
-
-  function getAutoAssignedAreaId() {
-    const visible = getVisibleAreas()
-    return visible.length === 1 ? String(visible[0]?.id || '') : ''
-  }
-
-  function isVisibleAreaId(areaId: string) {
-    if (!areaId) return false
-    return getVisibleAreas().some((area: any) => String(area.id) === String(areaId))
-  }
-
-  function getEffectiveAreaId(areaId: string) {
-    if (areaId && isVisibleAreaId(areaId)) return areaId
-    return getAutoAssignedAreaId()
-  }
-
-
-  function ensureAutoAssignedAreaSelection() {
-    if (!isSingleAreaAutoScopeUser()) return
-    const areaId = getAutoAssignedAreaId()
-    if (!areaId) return
-
-    if (!isVisibleAreaId(selectedReadingArea)) handleReadingAreaSelect(areaId)
-    if (!isVisibleAreaId(selectedPotArea)) handlePotAreaSelect(areaId)
-    if (!isVisibleAreaId(selectedProvingArea)) handleProvingAreaSelect(areaId)
-    if (!isVisibleAreaId(selectedArea)) {
-      setSelectedArea(areaId)
-      setSelectedSegment('')
-      setSelectedLease('')
-      setSelectedMeter('')
-    }
   }
 
   function userCanAccessArea(areaId: string) {
@@ -1981,7 +1878,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     await supabase.from('operator_readings').insert({
       company_id: companyId,
-      area_id: getEffectiveAreaId(selectedReadingArea) || null,
+      area_id: selectedReadingArea || null,
       segment_id: selectedReadingSegment || null,
       lease_id: selectedReadingLease || null,
       meter_id: selectedReadingMeter || null,
@@ -2010,39 +1907,16 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     setSelectedPotArea(areaId)
     setSelectedPotSegment('')
     setSelectedPotLease('')
-    setSelectedPotMeter('')
-    setPotSegment('')
-    setPotLease('')
   }
 
   function handlePotSegmentSelect(segmentId: string) {
     setSelectedPotSegment(segmentId)
     setSelectedPotLease('')
-    setSelectedPotMeter('')
-    setPotSegment(segmentId)
-    setPotLease('')
-  }
-
-  function handlePotLeaseSelect(leaseId: string) {
-    setSelectedPotLease(leaseId)
-    setPotLease(leaseId)
-
-    const leaseMeters = getVisibleMeters(leaseId)
-    if (leaseMeters.length >= 1) {
-      setSelectedPotMeter(leaseMeters[0].id)
-    } else {
-      setSelectedPotMeter('')
-    }
-  }
-
-  function getSelectedPotMeterNumber() {
-    const meter = asArray(meters).find((m: any) => String(m.id || '') === String(selectedPotMeter || ''))
-    return meter?.meter_number || meter?.meter_name || ''
   }
 
   async function savePotQuality() {
-    if (!companyId || !getEffectiveAreaId(selectedPotArea) || !(selectedPotSegment || potSegment) || !(selectedPotLease || potLease) || !potDate) {
-      alert('Select area, segment, lease, and sample date first.')
+    if (!companyId || !selectedPotArea || !(selectedPotSegment || potSegment) || !potProducer || !(selectedPotLease || potLease) || !potDate) {
+      alert('Select area, segment, producer, lease, and sample date first.')
       return
     }
 
@@ -2051,9 +1925,9 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     const { error } = await supabase.from('pot_quality').insert({
       company_id: companyId,
-      area_id: getEffectiveAreaId(selectedPotArea) || null,
+      area_id: selectedPotArea || null,
       segment_id: selectedPotSegment || potSegment,
-      producer_id: potProducer || null,
+      producer_id: potProducer,
       lease_id: selectedPotLease || potLease,
       sample_date: potDate,
       api_gravity: Number(
@@ -2093,7 +1967,6 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     setPotBSW('')
     setPotTemp('')
     setPotNotes('')
-    setSelectedPotMeter('')
     alert('POT quality saved.')
     loadAll()
   }
@@ -2159,11 +2032,6 @@ function handleProvingAreaSelect(areaId: string) {
     }
   }
 
-
-  useEffect(() => {
-    ensureAutoAssignedAreaSelection()
-  }, [Role, currentAuthUserId, userAreaAccess, areas, segments, leases, meters])
-
   async function saveProving() {
     if (!companyId || !provingMeter || !provingDate) {
       alert('Select meter and proving date first.')
@@ -2181,7 +2049,7 @@ function handleProvingAreaSelect(areaId: string) {
       .from('meter_provings')
       .insert({
         company_id: companyId,
-        area_id: getEffectiveAreaId(selectedProvingArea) || null,
+        area_id: selectedProvingArea || null,
       segment_id: selectedProvingSegment || null,
       lease_id: selectedProvingLease || null,
       meter_id: provingMeter,
@@ -3089,7 +2957,7 @@ function handleProvingAreaSelect(areaId: string) {
     </div>
 
     <div class="footer">
-      <div>Generated by Measurement Platform</div>
+      <div>Generated by TEFCO Measurement Platform</div>
       <div>${new Date().toLocaleString()}</div>
     </div>
   </div>
@@ -5197,9 +5065,9 @@ async function createCompany() {
 
   function getTicketVolumeForBalance(ticket: any) {
     return Number(
-      selectedTicket!.calculation_results?.nsv ??
+      ticket.calculation_results?.nsv ??
       ticket.calculation_results?.tank_nsv ??
-      selectedTicket!.calculation_results?.gsv ??
+      ticket.calculation_results?.gsv ??
       ticket.calculation_results?.tank_gsv ??
       ticket.calculation_results?.gov ??
       ticket.calculation_results?.tank_gov ??
@@ -5224,7 +5092,7 @@ async function createCompany() {
     const volume = Number(
       ticket.calculation_results?.tank_nsv ??
       ticket.calculation_results?.tank_movement_bbl ??
-      selectedTicket!.calculation_results?.nsv ??
+      ticket.calculation_results?.nsv ??
       0
     )
 
@@ -5259,6 +5127,69 @@ async function createCompany() {
     }, 0)
   }
 
+  function isBalanceEntryInRange(entry: any) {
+    const raw = entry.period_start || entry.effective_date || entry.created_at || ''
+    if (!raw) return true
+    const date = new Date(raw)
+    if (Number.isNaN(date.getTime())) return true
+    if (overShortStartDate && date < new Date(`${overShortStartDate}T00:00:00`)) return false
+    if (overShortEndDate && date > new Date(`${overShortEndDate}T23:59:59`)) return false
+    return true
+  }
+
+  function getBalanceInventoryEntryForSegment(segmentId: string) {
+    return balanceInventoryEntries
+      .filter((entry: any) => entry.segment_id === segmentId && isBalanceEntryInRange(entry))
+      .sort((a: any, b: any) => new Date(b.period_start || b.created_at || 0).getTime() - new Date(a.period_start || a.created_at || 0).getTime())[0]
+  }
+
+  function getButaneAdjustmentForSegment(segmentId: string) {
+    const entry = balanceButaneAdjustments
+      .filter((adjustment: any) => adjustment.segment_id === segmentId && isBalanceEntryInRange(adjustment) && adjustment.active !== false)
+      .sort((a: any, b: any) => new Date(b.period_start || b.created_at || 0).getTime() - new Date(a.period_start || a.created_at || 0).getTime())[0]
+
+    const butaneGsv = Number(entry?.butane_gsv_bbl ?? entry?.butane_gsv ?? 0)
+    const totalBlendVolume = Number(entry?.total_blend_volume_bbl ?? entry?.total_initial_volume_bbl ?? 0)
+    const shrinkageAdjustmentBbl = Number(entry?.shrinkage_adjustment_bbl ?? entry?.shrinkage_bbl ?? 0)
+    const blendPercent = totalBlendVolume ? (butaneGsv / totalBlendVolume) * 100 : 0
+
+    return {
+      entry,
+      butaneGsv,
+      totalBlendVolume,
+      blendPercent,
+      shrinkageAdjustmentBbl,
+    }
+  }
+
+  function getApprovedMeterVolume(meterId: string) {
+    return getScopedTickets()
+      .filter((ticket: any) =>
+        ticket.status === 'approved' &&
+        ticket.meter_id === meterId &&
+        isTicketInOverShortRange(ticket)
+      )
+      .reduce((sum: number, ticket: any) => sum + getTicketVolumeForBalance(ticket), 0)
+  }
+
+  function getCheckMeterRowsForSegment(segmentId: string) {
+    return balanceCheckGroups
+      .filter((group: any) => group.segment_id === segmentId && group.active !== false)
+      .map((group: any) => {
+        const members = balanceCheckGroupMeters.filter((member: any) => member.check_group_id === group.id || member.group_id === group.id)
+        const inputMeterIds = members
+          .filter((member: any) => String(member.role || member.meter_role || 'input').toLowerCase() !== 'check')
+          .map((member: any) => member.meter_id)
+          .filter(Boolean)
+        const checkMeterId = group.check_meter_id || members.find((member: any) => String(member.role || member.meter_role || '').toLowerCase() === 'check')?.meter_id
+        const inputTotal = inputMeterIds.reduce((sum: number, meterId: string) => sum + getApprovedMeterVolume(meterId), 0)
+        const checkTotal = checkMeterId ? getApprovedMeterVolume(checkMeterId) : 0
+        const difference = inputTotal - checkTotal
+        const differencePercent = checkTotal ? (difference / Math.abs(checkTotal)) * 100 : 0
+        return { group, inputMeterIds, checkMeterId, inputTotal, checkTotal, difference, differencePercent }
+      })
+  }
+
   function getOverShortRows() {
     return segments
       .filter((segment: any) => !overShortSegmentId || segment.id === overShortSegmentId)
@@ -5281,16 +5212,29 @@ async function createCompany() {
           .filter((ticket: any) => ticket.ticket_type === 'truck')
           .reduce((sum: number, ticket: any) => sum + getTicketVolumeForBalance(ticket), 0)
 
-        const tankChange = segmentTickets
+        const inventoryEntry = getBalanceInventoryEntryForSegment(segment.id)
+        const ticketTankChange = segmentTickets
           .filter((ticket: any) => ticket.ticket_type === 'tank')
           .reduce((sum: number, ticket: any) => sum + getTankSignedMovement(ticket), 0)
 
-        const lineFillChange = segmentTickets
+        const ticketLineFillChange = segmentTickets
           .filter((ticket: any) => ticket.ticket_type === 'line_fill')
           .reduce((sum: number, ticket: any) => sum + getTicketVolumeForBalance(ticket), 0)
 
-        const bookInventory = receipts - deliveries - truckTickets + tankChange + lineFillChange
-        const actualInventory = getActualTankInventoryForSegment(segment.id)
+        const tankBegin = Number(inventoryEntry?.tank_inventory_begin_bbl ?? inventoryEntry?.tank_begin_bbl ?? 0)
+        const tankEnd = Number(inventoryEntry?.tank_inventory_end_bbl ?? inventoryEntry?.tank_end_bbl ?? 0)
+        const lineFillBegin = Number(inventoryEntry?.line_fill_begin_bbl ?? 0)
+        const lineFillEnd = Number(inventoryEntry?.line_fill_end_bbl ?? 0)
+        const tankChange = inventoryEntry ? (tankBegin - tankEnd) : ticketTankChange
+        const lineFillChange = inventoryEntry ? (lineFillBegin - lineFillEnd) : ticketLineFillChange
+        const butaneAdjustment = getButaneAdjustmentForSegment(segment.id)
+        const checkMeterRows = getCheckMeterRowsForSegment(segment.id)
+        const checkMeterOverShort = checkMeterRows.reduce((sum: number, row: any) => sum + row.difference, 0)
+
+        const bookInventory = receipts - deliveries - truckTickets + tankChange + lineFillChange + butaneAdjustment.shrinkageAdjustmentBbl
+        const actualInventory = inventoryEntry
+          ? Number(inventoryEntry?.actual_inventory_bbl ?? inventoryEntry?.actual_inventory ?? getActualTankInventoryForSegment(segment.id))
+          : getActualTankInventoryForSegment(segment.id)
         const overShort = actualInventory - bookInventory
         const overShortPercent = bookInventory !== 0 ? (overShort / Math.abs(bookInventory)) * 100 : 0
 
@@ -5301,6 +5245,13 @@ async function createCompany() {
           truckTickets,
           tankChange,
           lineFillChange,
+          tankBegin,
+          tankEnd,
+          lineFillBegin,
+          lineFillEnd,
+          butaneAdjustment,
+          checkMeterRows,
+          checkMeterOverShort,
           bookInventory,
           actualInventory,
           overShort,
@@ -5418,7 +5369,7 @@ async function createCompany() {
         producer?.name || '',
         segment?.name || '',
         meter?.meter_number || '',
-        selectedTicket!.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? '',
+        ticket.calculation_results?.gsv ?? ticket.calculation_results?.tank_gsv ?? '',
         selectedTicket!.calculation_results?.nsv ?? ticket.calculation_results?.tank_nsv ?? '',
         getTicketReportDate(ticket),
       ]
@@ -5471,7 +5422,7 @@ async function createCompany() {
         ticket.driver_name || ticket.observed_inputs?.driver_name || '',
         (ticket as any).customer_name || ticket.observed_inputs?.customer_name || '',
         ticket.split_percent || ticket.observed_inputs?.split_percent || '',
-        Number(selectedTicket!.calculation_results?.gsv ?? 0).toFixed(2),
+        Number(ticket.calculation_results?.gsv ?? 0).toFixed(2),
         Number(selectedTicket!.calculation_results?.nsv ?? 0).toFixed(2),
         ticket.lact_name || ticket.observed_inputs?.lact_name || '',
         getTicketReportDate(ticket),
@@ -5494,6 +5445,10 @@ async function createCompany() {
         'Truck Tickets',
         'Tank Change',
         'Line Fill Change',
+        'Butane GSV',
+        'Blend %',
+        'Shrinkage Adj',
+        'Check Meter O/S',
         'Book Inventory',
         'Actual Inventory',
         'Over / Short',
@@ -5506,6 +5461,10 @@ async function createCompany() {
         row.truckTickets.toFixed(2),
         row.tankChange.toFixed(2),
         row.lineFillChange.toFixed(2),
+        row.butaneAdjustment.butaneGsv.toFixed(2),
+        row.butaneAdjustment.blendPercent.toFixed(4),
+        row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2),
+        row.checkMeterOverShort.toFixed(2),
         row.bookInventory.toFixed(2),
         row.actualInventory.toFixed(2),
         row.overShort.toFixed(2),
@@ -5555,6 +5514,10 @@ async function createCompany() {
       'Truck Tickets',
       'Tank Change',
       'Line Fill Change',
+      'Butane GSV',
+      'Blend %',
+      'Shrinkage Adjustment',
+      'Check Meter O/S',
       'Book Inventory',
       'Actual Inventory',
       'Over Short',
@@ -5568,6 +5531,10 @@ async function createCompany() {
       row.truckTickets.toFixed(2),
       row.tankChange.toFixed(2),
       row.lineFillChange.toFixed(2),
+      row.butaneAdjustment.butaneGsv.toFixed(2),
+      row.butaneAdjustment.blendPercent.toFixed(4),
+      row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2),
+      row.checkMeterOverShort.toFixed(2),
       row.bookInventory.toFixed(2),
       row.actualInventory.toFixed(2),
       row.overShort.toFixed(2),
@@ -5585,14 +5552,14 @@ async function createCompany() {
           const meter = meters.find((m: any) => m.id === ticket.meter_id)
           return ((meter as any)?.meter_role || (meter as any)?.meter_direction || (meter as any)?.direction) === 'receipt'
         })
-        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || selectedTicket!.calculation_results?.gsv || 0), 0)
+        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
 
       const deliveryVolume = segmentTickets
         .filter((ticket: any) => {
           const meter = meters.find((m: any) => m.id === ticket.meter_id)
           return ((meter as any)?.meter_role || (meter as any)?.meter_direction || (meter as any)?.direction) === 'delivery'
         })
-        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || selectedTicket!.calculation_results?.gsv || 0), 0)
+        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
 
       const tankMovement = segmentTickets
         .filter((ticket: any) => ticket.ticket_type === 'tank')
@@ -5600,7 +5567,7 @@ async function createCompany() {
 
       const truckVolume = segmentTickets
         .filter((ticket: any) => ticket.ticket_type === 'truck')
-        .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || 0), 0)
+        .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || 0), 0)
 
       const overShort = receiptVolume - deliveryVolume + tankMovement - truckVolume
 
@@ -8112,16 +8079,16 @@ async function saveUserRole() {
           <>
             <h1>Operator Readings</h1>
             <div style={box}>
-              <select style={input} value={getEffectiveAreaId(selectedReadingArea)} onChange={(e) => handleReadingAreaSelect(e.target.value)} disabled={isSingleAreaAutoScopeUser()}>
+              <select style={input} value={selectedReadingArea} onChange={(e) => handleReadingAreaSelect(e.target.value)}>
                 <option value="">Select Area</option>
                 {getVisibleAreas().map((area: any) => (
                   <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
                 ))}
               </select>
 
-              <select style={input} value={selectedReadingSegment} onChange={(e) => handleReadingSegmentSelect(e.target.value)} disabled={!getEffectiveAreaId(selectedReadingArea)}>
-                <option value="">{getEffectiveAreaId(selectedReadingArea) ? 'Select Segment' : 'Select area first'}</option>
-                {getVisibleSegments(getEffectiveAreaId(selectedReadingArea)).map((segment: any) => (
+              <select style={input} value={selectedReadingSegment} onChange={(e) => handleReadingSegmentSelect(e.target.value)} disabled={!selectedReadingArea}>
+                <option value="">{selectedReadingArea ? 'Select Segment' : 'Select area first'}</option>
+                {getVisibleSegments(selectedReadingArea).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
               </select>
@@ -8363,33 +8330,31 @@ async function saveUserRole() {
             </div>
             <div style={box}>
               <h3>New POT Quality</h3>
-              <select style={input} value={getEffectiveAreaId(selectedPotArea)} onChange={(e) => handlePotAreaSelect(e.target.value)} disabled={isSingleAreaAutoScopeUser()}>
+              <select style={input} value={selectedPotArea} onChange={(e) => handlePotAreaSelect(e.target.value)}>
                 <option value="">Select Area</option>
                 {getVisibleAreas().map((area: any) => (
                   <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
                 ))}
               </select>
 
-              <select style={input} value={selectedPotSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!getEffectiveAreaId(selectedPotArea)}>
-                <option value="">{getEffectiveAreaId(selectedPotArea) ? 'Select Segment' : 'Select area first'}</option>
-                {getVisibleSegments(getEffectiveAreaId(selectedPotArea)).map((segment: any) => (
+              <select style={input} value={potSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
+                <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
+                {getVisibleSegments(selectedPotArea).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
               </select>
 
-              <select style={input} value={potLease} onChange={(e) => handlePotLeaseSelect(e.target.value)} disabled={!selectedPotSegment}>
+              <select style={input} value={potProducer} onChange={(e) => { setPotProducer(e.target.value); setPotLease('') }}>
+                <option value="">Select Producer</option>
+                {filteredPotProducers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+
+              <select style={input} value={potLease} onChange={(e) => { setSelectedPotLease(e.target.value); setPotLease(e.target.value) }} disabled={!selectedPotSegment}>
                 <option value="">{selectedPotSegment ? 'Select Lease' : 'Select segment first'}</option>
                 {getVisibleLeases(selectedPotSegment).map((lease: any) => (
                   <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
                 ))}
               </select>
-
-              <input
-                style={input}
-                value={getSelectedPotMeterNumber()}
-                readOnly
-                placeholder={potLease ? 'Meter number auto-filled from selected lease' : 'Meter number will auto-fill after lease select'}
-              />
               <input style={input} type="date" value={potDate} onChange={(e) => setPotDate(e.target.value)} />
               <input style={input} placeholder="Observed API Gravity" value={potGravity} onChange={(e) => setPotGravity(e.target.value)} />
               <input style={input} placeholder="Observed Temperature" value={potTemp} onChange={(e) => setPotTemp(e.target.value)} />
@@ -8449,16 +8414,16 @@ async function saveUserRole() {
 
             <div style={box}>
               <h2>New Proving</h2>
-              <select style={input} value={getEffectiveAreaId(selectedProvingArea)} onChange={(e) => handleProvingAreaSelect(e.target.value)} disabled={isSingleAreaAutoScopeUser()}>
+              <select style={input} value={selectedProvingArea} onChange={(e) => handleProvingAreaSelect(e.target.value)}>
                 <option value="">Select Area</option>
                 {getVisibleAreas().map((area: any) => (
                   <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
                 ))}
               </select>
 
-              <select style={input} value={selectedProvingSegment} onChange={(e) => handleProvingSegmentSelect(e.target.value)} disabled={!getEffectiveAreaId(selectedProvingArea)}>
-                <option value="">{getEffectiveAreaId(selectedProvingArea) ? 'Select Segment' : 'Select area first'}</option>
-                {getVisibleSegments(getEffectiveAreaId(selectedProvingArea)).map((segment: any) => (
+              <select style={input} value={selectedProvingSegment} onChange={(e) => handleProvingSegmentSelect(e.target.value)} disabled={!selectedProvingArea}>
+                <option value="">{selectedProvingArea ? 'Select Segment' : 'Select area first'}</option>
+                {getVisibleSegments(selectedProvingArea).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
               </select>
@@ -8544,7 +8509,7 @@ async function saveUserRole() {
             <div style={box}>
               <h2>Segment-Based Over / Short Detail Engine</h2>
               <p style={{ color: '#a8b3bd' }}>
-                Approved tickets only. Uses meter receipt/delivery role, tank movements, truck tickets, and latest tank inventory.
+                Approved tickets only. Uses meter roles, tank/line fill entries, truck tickets, check meter groups, and butane shrinkage adjustments.
               </p>
 
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
@@ -8577,11 +8542,25 @@ async function saveUserRole() {
                       <div>Truck Tickets: <strong>{row.truckTickets.toFixed(2)}</strong></div>
                       <div>Tank Change: <strong>{row.tankChange.toFixed(2)}</strong></div>
                       <div>Line Fill: <strong>{row.lineFillChange.toFixed(2)}</strong></div>
+                      <div>Butane GSV: <strong>{row.butaneAdjustment.butaneGsv.toFixed(2)}</strong></div>
+                      <div>Blend %: <strong>{row.butaneAdjustment.blendPercent.toFixed(4)}%</strong></div>
+                      <div>Shrink Adj: <strong>{row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2)}</strong></div>
+                      <div>Check Meter O/S: <strong>{row.checkMeterOverShort.toFixed(2)}</strong></div>
                       <div>Book Inv: <strong>{row.bookInventory.toFixed(2)}</strong></div>
                       <div>Actual Inv: <strong>{row.actualInventory.toFixed(2)}</strong></div>
                       <div>O/S: <strong style={{ color: Math.abs(row.overShort) > 0.01 ? '#fca5a5' : '#86efac' }}>{row.overShort.toFixed(2)}</strong></div>
                       <div>O/S %: <strong>{row.overShortPercent.toFixed(4)}%</strong></div>
                     </div>
+                    {row.checkMeterRows.length > 0 && (
+                      <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+                        <strong>Check Meter Groups</strong>
+                        {row.checkMeterRows.map((check: any) => (
+                          <div key={check.group.id} style={{ color: '#a8b3bd' }}>
+                            {check.group.name}: Inputs {check.inputTotal.toFixed(2)} / Check {check.checkTotal.toFixed(2)} / Diff {check.difference.toFixed(2)} ({check.differencePercent.toFixed(4)}%)
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -8716,13 +8695,13 @@ async function saveUserRole() {
                       const meter = meters.find((m: any) => m.id === ticket.meter_id)
                       return (meter as any)?.direction === 'receipt'
                     })
-                    .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || selectedTicket!.calculation_results?.gsv || 0), 0)
+                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
                   const deliveries = segmentTickets
                     .filter((ticket: any) => {
                       const meter = meters.find((m: any) => m.id === ticket.meter_id)
                       return (meter as any)?.direction === 'delivery'
                     })
-                    .reduce((sum: number, ticket: any) => sum + Number(selectedTicket!.calculation_results?.nsv || selectedTicket!.calculation_results?.gsv || 0), 0)
+                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
                   const tankMovements = segmentTickets
                     .filter((ticket: any) => ticket.ticket_type === 'tank')
                     .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.tank_movement_bbl || 0), 0)

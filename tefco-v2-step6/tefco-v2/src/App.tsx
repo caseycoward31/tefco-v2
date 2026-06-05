@@ -11,14 +11,17 @@ type Company = {
 }
 
 type Area = { id: string; name: string }
-type Segment = { id: string; name: string }
+type Segment = { id: string; name: string; segment_name?: string; area_id?: string | null; active?: boolean | null }
 
 type Lease = {
   id: string
   lease_name: string
+  name?: string
   lease_number?: string
   segment_id?: string
+  area_id?: string | null
   producer_id?: string
+  active?: boolean | null
 }
 
 type Meter = {

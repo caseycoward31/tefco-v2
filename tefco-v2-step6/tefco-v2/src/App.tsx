@@ -5499,56 +5499,18 @@ async function createCompany() {
     return true
   }
 
-  function getExportSegmentsForOverShort() {
-    const allSegmentRows = asArray(segments).filter(segmentIsInCurrentCompanyScope)
+  function getOverShortExportSegments() {
+    // Export must use the same real segment rows the O/S screen uses.
+    // Do not use hardcoded/fallback segment names here. Excel safety is handled only in safeWorksheetName().
+    const segmentRows = asArray(getScopedSegments && typeof getScopedSegments === 'function' ? getScopedSegments() : segments)
+      .filter((segment: any) => segment && segment.active !== false)
+      .filter((segment: any) => !overShortSegmentId || String(segment.id || '') === String(overShortSegmentId))
 
-    if (overShortSegmentId) {
-      return allSegmentRows
-        .filter((segment: any) => String(segment.id || '') === String(overShortSegmentId))
-        .sort((a: any, b: any) => getSegmentDisplayName(a).localeCompare(getSegmentDisplayName(b)))
-    }
-
-    // Build the workbook from real segment records that actually have current-month balance activity.
-    // This avoids exporting old/stale segment rows or any placeholder/fallback list.
-    const activeSegmentIds = new Set<string>()
-
-    getScopedTickets()
-      .filter((ticket: any) => ticket.status === 'approved' && isTicketInOverShortRange(ticket))
-      .forEach((ticket: any) => {
-        const id = String(ticket.segment_id || ticket.observed_inputs?.segment_id || '')
-        if (id) activeSegmentIds.add(id)
-      })
-
-    asArray(balanceInventoryEntries).forEach((entry: any) => {
-      const id = String(entry.segment_id || '')
-      if (id) activeSegmentIds.add(id)
-    })
-
-    asArray(balanceCheckGroups).forEach((group: any) => {
-      if (group.active === false) return
-      const id = String(group.segment_id || '')
-      if (id) activeSegmentIds.add(id)
-    })
-
-    asArray(balanceEquations).forEach((equation: any) => {
-      if (equation.active === false) return
-      const id = String(equation.segment_id || '')
-      if (id) activeSegmentIds.add(id)
-    })
-
-    asArray(segmentBalanceSettings).forEach((setting: any) => {
-      const id = String(setting.segment_id || '')
-      if (id && (setting.enable_butane_blend || setting.enable_check_meters || setting.enable_tank_inventory || setting.enable_line_fill)) activeSegmentIds.add(id)
-    })
-
-    const activitySegments = allSegmentRows.filter((segment: any) => activeSegmentIds.has(String(segment.id || '')))
-
-    return (activitySegments.length ? activitySegments : allSegmentRows)
-      .sort((a: any, b: any) => getSegmentDisplayName(a).localeCompare(getSegmentDisplayName(b)))
+    return segmentRows.sort((a: any, b: any) => getSegmentDisplayName(a).localeCompare(getSegmentDisplayName(b)))
   }
 
   function getOverShortRows() {
-    return getExportSegmentsForOverShort()
+    return getOverShortExportSegments()
       .map((segment: any) => {
         const segmentTickets = getScopedTickets().filter((ticket: any) =>
           ticket.status === 'approved' &&

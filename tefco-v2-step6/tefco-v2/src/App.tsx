@@ -5558,12 +5558,37 @@ async function createCompany() {
   }
 
 
+  function cleanExcelText(value: any) {
+    // SpreadsheetML/Excel will reject XML control characters. Keep tabs/newlines, strip the rest.
+    return String(value ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+  }
+
   function xmlEscape(value: any) {
-    return String(value ?? '')
+    return cleanExcelText(value)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
+  }
+
+  function safeWorksheetName(rawName: any, usedNames: Set<string>) {
+    const cleaned = cleanExcelText(rawName || 'Sheet')
+      .replace(/[\\\/\?\*\[\]\:]/g, '-')
+      .replace(/'/g, '')
+      .trim() || 'Sheet'
+
+    const base = cleaned.slice(0, 31) || 'Sheet'
+    let name = base
+    let index = 2
+
+    while (usedNames.has(name.toLowerCase())) {
+      const suffix = ` ${index}`
+      name = `${base.slice(0, Math.max(1, 31 - suffix.length))}${suffix}`
+      index += 1
+    }
+
+    usedNames.add(name.toLowerCase())
+    return name
   }
 
   function excelCell(value: any, type: 'String' | 'Number' = 'String') {
@@ -5577,6 +5602,13 @@ async function createCompany() {
   }
 
   function downloadExcelXml(filename: string, sheets: { name: string; rows: any[][]; numericIndexes?: number[] }[]) {
+    const usedSheetNames = new Set<string>()
+    const safeSheets = sheets.map((sheet) => ({
+      ...sheet,
+      safeName: safeWorksheetName(sheet.name, usedSheetNames),
+      rows: Array.isArray(sheet.rows) && sheet.rows.length ? sheet.rows : [['No data']],
+    }))
+
     const workbook = `<?xml version="1.0"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
@@ -5589,8 +5621,8 @@ async function createCompany() {
    <Interior ss:Color="#D9EAF7" ss:Pattern="Solid"/>
   </Style>
  </Styles>
- ${sheets.map((sheet) => `
- <Worksheet ss:Name="${xmlEscape(sheet.name.slice(0, 31))}">
+ ${safeSheets.map((sheet) => `
+ <Worksheet ss:Name="${xmlEscape(sheet.safeName)}">
   <Table>
    ${sheet.rows.map((row, rowIndex) => {
      const xmlRow = excelRow(row, rowIndex === 0 ? [] : (sheet.numericIndexes || []))
@@ -5604,7 +5636,7 @@ async function createCompany() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = filename
+    link.download = filename.replace(/\.xlsx$/i, '.xls')
     document.body.appendChild(link)
     link.click()
     link.remove()

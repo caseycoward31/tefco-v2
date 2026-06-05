@@ -10,15 +10,8 @@ type Company = {
   created_at?: string | null
 }
 
-type Area = { id: string; name: string; active?: boolean | null; company_id?: string | null }
-type Segment = {
-  id: string
-  name: string
-  segment_name?: string | null
-  area_id?: string | null
-  company_id?: string | null
-  active?: boolean | null
-}
+type Area = { id: string; name: string }
+type Segment = { id: string; name: string }
 
 type Lease = {
   id: string
@@ -26,13 +19,6 @@ type Lease = {
   lease_number?: string
   segment_id?: string
   producer_id?: string
-  area_id?: string | null
-  company_id?: string | null
-  active?: boolean | null
-  segment_name?: string | null
-  segment?: string | null
-  route_segment?: string | null
-  system_segment?: string | null
 }
 
 type Meter = {
@@ -749,6 +735,8 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [newCheckGroupSegmentId, setNewCheckGroupSegmentId] = useState('')
   const [newCheckGroupCheckMeterId, setNewCheckGroupCheckMeterId] = useState('')
   const [newCheckGroupInputMeterIds, setNewCheckGroupInputMeterIds] = useState<string[]>([])
+  const [meterMasterSegmentFilterId, setMeterMasterSegmentFilterId] = useState('')
+  const [selectedMeterMasterId, setSelectedMeterMasterId] = useState('')
   const [companies, setCompanies] = useState<Company[]>([])
   const [newCompanyName, setNewCompanyName] = useState('')
   const [selectedAdminCompanyId, setSelectedAdminCompanyId] = useState('')
@@ -794,6 +782,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [selectedProducer, setSelectedProducer] = useState('')
   const [selectedLease, setSelectedLease] = useState('')
   const [selectedMeter, setSelectedMeter] = useState('')
+  const [selectedTicketArea, setSelectedTicketArea] = useState('')
   const [ticketType, setTicketType] = useState('meter')
   const [selectedTank, setSelectedTank] = useState('')
   const [selectedLineFill, setSelectedLineFill] = useState('')
@@ -819,6 +808,7 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [selectedPotArea, setSelectedPotArea] = useState('')
   const [selectedPotSegment, setSelectedPotSegment] = useState('')
   const [selectedPotLease, setSelectedPotLease] = useState('')
+  const [selectedPotMeter, setSelectedPotMeter] = useState('')
   const [selectedProvingArea, setSelectedProvingArea] = useState('')
   const [selectedProvingSegment, setSelectedProvingSegment] = useState('')
   const [selectedProvingLease, setSelectedProvingLease] = useState('')
@@ -1330,31 +1320,17 @@ const provingCompliancePercent =
 
   const approvedTickets = tickets.filter((t) => t.status === 'approved')
 
-  const selectedTicketSegmentLeases = selectedSegment ? getVisibleLeases(selectedSegment) : getScopedLeases()
+  const selectedTicketSegmentLeases = selectedSegment ? getVisibleLeases(selectedSegment) : []
+  const filteredLeases = sortLeasesForDropdown(selectedTicketSegmentLeases)
+  const selectedTicketLeaseMeters = selectedLease ? getVisibleMeters(selectedLease) : []
+  const filteredMeters = sortMetersForDropdown(selectedTicketLeaseMeters)
+  const selectedTicketLeaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(selectedLease))
+  const selectedTicketProducerRow: any = asArray(producers).find((producer: any) => String(producer.id || '') === String(selectedTicketLeaseRow?.producer_id || ''))
 
-  const filteredProducers = selectedSegment
-    ? producers.filter((p) => selectedTicketSegmentLeases.some((l: any) => String(l.producer_id || '') === String(p.id)))
-    : producers
-
-  const filteredLeases = selectedTicketSegmentLeases.filter(
-    (l: any) => !selectedProducer || String(l.producer_id || '') === String(selectedProducer)
-  )
-
-  const selectedTicketLeaseMeters = selectedLease ? getVisibleMeters(selectedLease) : getScopedMeters()
-
-  const filteredMeters = selectedTicketLeaseMeters.filter(
-    (m: any) => !selectedProducer || String(m.producer_id || '') === String(selectedProducer)
-  )
-
-  const selectedPotSegmentLeases = potSegment ? getVisibleLeases(potSegment) : getScopedLeases()
-
-  const filteredPotProducers = potSegment
-    ? producers.filter((p) => selectedPotSegmentLeases.some((l: any) => String(l.producer_id || '') === String(p.id)))
-    : producers
-
-  const filteredPotLeases = selectedPotSegmentLeases.filter(
-    (l: any) => !potProducer || String(l.producer_id || '') === String(potProducer)
-  )
+  const selectedPotSegmentLeases = selectedPotSegment ? getVisibleLeases(selectedPotSegment) : []
+  const filteredPotLeases = sortLeasesForDropdown(selectedPotSegmentLeases)
+  const selectedPotLeaseMeters = selectedPotLease ? getVisibleMeters(selectedPotLease) : []
+  const selectedPotMeterRow: any = asArray(meters).find((meter: any) => String(meter.id || '') === String(selectedPotMeter))
 
   async function addArea() {
     if (!newArea || !companyId) return
@@ -1451,6 +1427,16 @@ const provingCompliancePercent =
 
   function getVisibleAreas() {
     return getScopedAreas()
+  }
+
+  function getDefaultWorkflowAreaId() {
+    const visibleAreas = getVisibleAreas()
+    if (visibleAreas.length === 1) return String(visibleAreas[0].id || '')
+    return ''
+  }
+
+  function shouldHideAreaSelector() {
+    return !userIsSuperAdmin && !userIsCompanyAdmin && getVisibleAreas().length === 1
   }
 
   function userCanAccessArea(areaId: string) {
@@ -1830,6 +1816,31 @@ const provingCompliancePercent =
     await loadAll()
     alert('Area access saved.')
   }
+function handleTicketAreaSelect(areaId: string) {
+    setSelectedTicketArea(areaId)
+    setSelectedSegment('')
+    setSelectedLease('')
+    setSelectedMeter('')
+    setSelectedProducer('')
+  }
+
+  function handleTicketSegmentSelect(segmentId: string) {
+    setSelectedSegment(segmentId)
+    setSelectedLease('')
+    setSelectedMeter('')
+    setSelectedProducer('')
+  }
+
+  function handleTicketLeaseSelect(leaseId: string) {
+    setSelectedLease(leaseId)
+
+    const leaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(leaseId))
+    setSelectedProducer(leaseRow?.producer_id ? String(leaseRow.producer_id) : '')
+
+    const leaseMeters = getVisibleMeters(leaseId)
+    setSelectedMeter(leaseMeters.length === 1 ? String(leaseMeters[0].id) : '')
+  }
+
 function handleReadingAreaSelect(areaId: string) {
     setSelectedReadingArea(areaId)
     setSelectedReadingSegment('')
@@ -1928,16 +1939,31 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     setSelectedPotArea(areaId)
     setSelectedPotSegment('')
     setSelectedPotLease('')
+    setSelectedPotMeter('')
   }
 
   function handlePotSegmentSelect(segmentId: string) {
     setSelectedPotSegment(segmentId)
+    setPotSegment(segmentId)
     setSelectedPotLease('')
+    setPotLease('')
+    setSelectedPotMeter('')
+  }
+
+  function handlePotLeaseSelect(leaseId: string) {
+    setSelectedPotLease(leaseId)
+    setPotLease(leaseId)
+
+    const leaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(leaseId))
+    setPotProducer(leaseRow?.producer_id ? String(leaseRow.producer_id) : '')
+
+    const leaseMeters = getVisibleMeters(leaseId)
+    setSelectedPotMeter(leaseMeters.length === 1 ? String(leaseMeters[0].id) : '')
   }
 
   async function savePotQuality() {
-    if (!companyId || !selectedPotArea || !(selectedPotSegment || potSegment) || !potProducer || !(selectedPotLease || potLease) || !potDate) {
-      alert('Select area, segment, producer, lease, and sample date first.')
+    if (!companyId || !selectedPotArea || !selectedPotSegment || !selectedPotLease || !potDate) {
+      alert('Select area, segment, lease, and sample date first.')
       return
     }
 
@@ -1947,9 +1973,9 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     const { error } = await supabase.from('pot_quality').insert({
       company_id: companyId,
       area_id: selectedPotArea || null,
-      segment_id: selectedPotSegment || potSegment,
-      producer_id: potProducer,
-      lease_id: selectedPotLease || potLease,
+      segment_id: selectedPotSegment || null,
+      producer_id: potProducer || null,
+      lease_id: selectedPotLease || null,
       sample_date: potDate,
       api_gravity: Number(
         calculateApi11Corrections({
@@ -6714,6 +6740,16 @@ async function saveUserRole() {
   }
 
 
+  useEffect(() => {
+    const defaultAreaId = getDefaultWorkflowAreaId()
+    if (!defaultAreaId) return
+
+    if (!selectedReadingArea) setSelectedReadingArea(defaultAreaId)
+    if (!selectedPotArea) setSelectedPotArea(defaultAreaId)
+    if (!selectedProvingArea) setSelectedProvingArea(defaultAreaId)
+    if (!selectedTicketArea) setSelectedTicketArea(defaultAreaId)
+  }, [areas.length, userAreaAccess.length, currentAuthUserId, Role])
+
   async function runSystemHealthCheck() {
     setSystemHealthRunning(true)
 
@@ -7024,6 +7060,7 @@ async function saveUserRole() {
       
         @media (max-width: 768px) {
           .desktop-sidebar,
+          .app-sidebar,
           aside,
           nav[aria-label="sidebar"],
           [data-sidebar="true"] {
@@ -7281,7 +7318,7 @@ async function saveUserRole() {
         {!mobileMenuOpen && page && (
           <div className="mobile-page-header" style={{ display: 'none', gap: 10, alignItems: 'center', marginBottom: 12, position: 'sticky', top: 0, zIndex: 80, background: '#050b12', padding: '10px 0' }}>
             <button style={{ ...button, width: 'auto', padding: '10px 14px' }} onClick={() => setMobileMenuOpen(true)}>
-              Home
+              ← Home
             </button>
             <div style={{ fontWeight: 900, textTransform: 'uppercase' }}>{page}</div>
           </div>
@@ -7932,28 +7969,72 @@ async function saveUserRole() {
                     <div style={{ ...card, gridColumn: '1 / -1' }}>
                       <h3>Balance Center V3 - Meter Master Roles</h3>
                       <p style={{ color: '#a8b3bd' }}>
-                        Set each meter once. Readings and O/S now use the meter role instead of making operators choose receipt/delivery.
+                        Pick one meter, set its role/product, and save. This keeps the admin screen clean while readings and O/S still use Meter Master automatically.
                       </p>
-                      <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                          <thead>
-                            <tr>
-                              <th style={{ textAlign: 'left' }}>Meter</th>
-                              <th style={{ textAlign: 'left' }}>Segment</th>
-                              <th style={{ textAlign: 'left' }}>Role</th>
-                              <th style={{ textAlign: 'left' }}>Product</th>
-                              <th style={{ textAlign: 'left' }}>O/S</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {getScopedMeters().slice(0, 60).map((meter: any) => {
-                              const segment = segments.find((s: any) => String(s.id) === String(meter.segment_id))
-                              return (
-                                <tr key={meter.id}>
-                                  <td>{meter.meter_number || meter.meter_name}</td>
-                                  <td>{segment?.name || segment?.segment_name || '—'}</td>
-                                  <td>
-                                    <select style={input} value={getMeterConfiguredRole(meter)} onChange={(e) => updateMeterMasterField(meter.id, { meter_role: e.target.value, direction: e.target.value })}>
+
+                      {(() => {
+                        const scopedMeters = getScopedMeters()
+                        const filteredMeters = scopedMeters.filter((meter: any) => !meterMasterSegmentFilterId || String(meter.segment_id || '') === String(meterMasterSegmentFilterId))
+                        const selectedMeter = scopedMeters.find((meter: any) => String(meter.id) === String(selectedMeterMasterId)) || filteredMeters[0]
+                        const selectedSegment = selectedMeter ? segments.find((segment: any) => String(segment.id) === String(selectedMeter.segment_id)) : null
+                        const selectedLease = selectedMeter ? leases.find((lease: any) => String(lease.id) === String(selectedMeter.lease_id)) : null
+
+                        return (
+                          <div style={{ display: 'grid', gap: 12 }}>
+                            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                              <select
+                                style={input}
+                                value={meterMasterSegmentFilterId}
+                                onChange={(e) => {
+                                  setMeterMasterSegmentFilterId(e.target.value)
+                                  setSelectedMeterMasterId('')
+                                }}
+                              >
+                                <option value="">All Segments</option>
+                                {segments.map((segment: any) => (
+                                  <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name || 'Segment'}</option>
+                                ))}
+                              </select>
+
+                              <select
+                                style={input}
+                                value={selectedMeter?.id || ''}
+                                onChange={(e) => setSelectedMeterMasterId(e.target.value)}
+                              >
+                                <option value="">Select Meter</option>
+                                {filteredMeters.map((meter: any) => (
+                                  <option key={meter.id} value={meter.id}>{meter.meter_number || meter.meter_name || 'Meter'}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {selectedMeter ? (
+                              <div style={{ ...box, display: 'grid', gap: 12 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                                  <div>
+                                    <div style={{ fontWeight: 800 }}>{selectedMeter.meter_number || selectedMeter.meter_name}</div>
+                                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                                      {selectedSegment?.name || selectedSegment?.segment_name || 'No segment'}{selectedLease ? ` • ${selectedLease.lease_name || selectedLease.name || 'Lease'}` : ''}
+                                    </div>
+                                  </div>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#dce3ea' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={meterIncludedInOS(selectedMeter)}
+                                      onChange={(e) => updateMeterMasterField(selectedMeter.id, { include_in_os: e.target.checked })}
+                                    />
+                                    Include in O/S
+                                  </label>
+                                </div>
+
+                                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                                  <label style={{ display: 'grid', gap: 6 }}>
+                                    <span style={{ color: '#a8b3bd', fontSize: 12 }}>Meter Role</span>
+                                    <select
+                                      style={input}
+                                      value={getMeterConfiguredRole(selectedMeter)}
+                                      onChange={(e) => updateMeterMasterField(selectedMeter.id, { meter_role: e.target.value, direction: e.target.value })}
+                                    >
                                       <option value="">Select role</option>
                                       <option value="receipt">Receipt</option>
                                       <option value="delivery">Delivery</option>
@@ -7962,9 +8043,15 @@ async function saveUserRole() {
                                       <option value="refined">Refined Product</option>
                                       <option value="excluded">Excluded</option>
                                     </select>
-                                  </td>
-                                  <td>
-                                    <select style={input} value={getMeterProductType(meter)} onChange={(e) => updateMeterMasterField(meter.id, { product_type: e.target.value })}>
+                                  </label>
+
+                                  <label style={{ display: 'grid', gap: 6 }}>
+                                    <span style={{ color: '#a8b3bd', fontSize: 12 }}>Product Type</span>
+                                    <select
+                                      style={input}
+                                      value={getMeterProductType(selectedMeter)}
+                                      onChange={(e) => updateMeterMasterField(selectedMeter.id, { product_type: e.target.value })}
+                                    >
                                       <option value="">Select product</option>
                                       <option value="crude">Crude Oil</option>
                                       <option value="butane">Butane</option>
@@ -7973,16 +8060,15 @@ async function saveUserRole() {
                                       <option value="jet">Jet Fuel</option>
                                       <option value="manual">Manual Total</option>
                                     </select>
-                                  </td>
-                                  <td>
-                                    <input type="checkbox" checked={meterIncludedInOS(meter)} onChange={(e) => updateMeterMasterField(meter.id, { include_in_os: e.target.checked })} />
-                                  </td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                                  </label>
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ color: '#a8b3bd' }}>No meters found for this scope.</div>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
 
                     <div style={{ ...card, gridColumn: '1 / -1' }}>
@@ -8357,12 +8443,16 @@ async function saveUserRole() {
           <>
             <h1>Operator Readings</h1>
             <div style={box}>
-              <select style={input} value={selectedReadingArea} onChange={(e) => handleReadingAreaSelect(e.target.value)}>
-                <option value="">Select Area</option>
-                {getVisibleAreas().map((area: any) => (
-                  <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
-                ))}
-              </select>
+              {!shouldHideAreaSelector() ? (
+                <select style={input} value={selectedReadingArea} onChange={(e) => handleReadingAreaSelect(e.target.value)}>
+                  <option value="">Select Area</option>
+                  {getVisibleAreas().map((area: any) => (
+                    <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <div style={card}>Area: <strong>{getVisibleAreas()[0]?.area_name || getVisibleAreas()[0]?.name || 'Assigned Area'}</strong></div>
+              )}
 
               <select style={input} value={selectedReadingSegment} onChange={(e) => handleReadingSegmentSelect(e.target.value)} disabled={!selectedReadingArea}>
                 <option value="">{selectedReadingArea ? 'Select Segment' : 'Select area first'}</option>
@@ -8603,31 +8693,34 @@ async function saveUserRole() {
             </div>
             <div style={box}>
               <h3>New POT Quality</h3>
-              <select style={input} value={selectedPotArea} onChange={(e) => handlePotAreaSelect(e.target.value)}>
-                <option value="">Select Area</option>
-                {getVisibleAreas().map((area: any) => (
-                  <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
-                ))}
-              </select>
+              {!shouldHideAreaSelector() ? (
+                <select style={input} value={selectedPotArea} onChange={(e) => handlePotAreaSelect(e.target.value)}>
+                  <option value="">Select Area</option>
+                  {getVisibleAreas().map((area: any) => (
+                    <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <div style={card}>Area: <strong>{getVisibleAreas()[0]?.area_name || getVisibleAreas()[0]?.name || 'Assigned Area'}</strong></div>
+              )}
 
-              <select style={input} value={potSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
+              <select style={input} value={selectedPotSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
                 <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
                 {getVisibleSegments(selectedPotArea).map((segment: any) => (
                   <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
               </select>
 
-              <select style={input} value={potProducer} onChange={(e) => { setPotProducer(e.target.value); setPotLease('') }}>
-                <option value="">Select Producer</option>
-                {filteredPotProducers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-
-              <select style={input} value={potLease} onChange={(e) => { setSelectedPotLease(e.target.value); setPotLease(e.target.value) }} disabled={!selectedPotSegment}>
+              <select style={input} value={selectedPotLease} onChange={(e) => handlePotLeaseSelect(e.target.value)} disabled={!selectedPotSegment}>
                 <option value="">{selectedPotSegment ? 'Select Lease' : 'Select segment first'}</option>
-                {getVisibleLeases(selectedPotSegment).map((lease: any) => (
+                {filteredPotLeases.map((lease: any) => (
                   <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
                 ))}
               </select>
+
+              <div style={card}>
+                Meter Number: <strong>{selectedPotMeterRow?.meter_number || selectedPotMeterRow?.meter_name || (selectedPotLease ? 'No meter linked' : 'Select lease first')}</strong>
+              </div>
               <input style={input} type="date" value={potDate} onChange={(e) => setPotDate(e.target.value)} />
               <input style={input} placeholder="Observed API Gravity" value={potGravity} onChange={(e) => setPotGravity(e.target.value)} />
               <input style={input} placeholder="Observed Temperature" value={potTemp} onChange={(e) => setPotTemp(e.target.value)} />
@@ -8687,12 +8780,16 @@ async function saveUserRole() {
 
             <div style={box}>
               <h2>New Proving</h2>
-              <select style={input} value={selectedProvingArea} onChange={(e) => handleProvingAreaSelect(e.target.value)}>
-                <option value="">Select Area</option>
-                {getVisibleAreas().map((area: any) => (
-                  <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
-                ))}
-              </select>
+              {!shouldHideAreaSelector() ? (
+                <select style={input} value={selectedProvingArea} onChange={(e) => handleProvingAreaSelect(e.target.value)}>
+                  <option value="">Select Area</option>
+                  {getVisibleAreas().map((area: any) => (
+                    <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <div style={card}>Area: <strong>{getVisibleAreas()[0]?.area_name || getVisibleAreas()[0]?.name || 'Assigned Area'}</strong></div>
+              )}
 
               <select style={input} value={selectedProvingSegment} onChange={(e) => handleProvingSegmentSelect(e.target.value)} disabled={!selectedProvingArea}>
                 <option value="">{selectedProvingArea ? 'Select Segment' : 'Select area first'}</option>
@@ -9503,22 +9600,33 @@ async function saveUserRole() {
             )}
             <div style={box}>
               <h3>Create Draft Ticket</h3>
-              <select style={input} value={selectedSegment} onChange={(e) => { setSelectedSegment(e.target.value); setSelectedProducer(''); setSelectedLease(''); setSelectedMeter('') }}>
-                <option value="">Select Segment</option>
-                {getScopedSegments().map((s: any) => <option key={s.id} value={s.id}>{s.segment_name || s.name}</option>)}
+              {!shouldHideAreaSelector() ? (
+                <select style={input} value={selectedTicketArea} onChange={(e) => handleTicketAreaSelect(e.target.value)}>
+                  <option value="">Select Area</option>
+                  {getVisibleAreas().map((area: any) => (
+                    <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <div style={card}>Area: <strong>{getVisibleAreas()[0]?.area_name || getVisibleAreas()[0]?.name || 'Assigned Area'}</strong></div>
+              )}
+
+              <select style={input} value={selectedSegment} onChange={(e) => handleTicketSegmentSelect(e.target.value)} disabled={!selectedTicketArea}>
+                <option value="">{selectedTicketArea ? 'Select Segment' : 'Select area first'}</option>
+                {getVisibleSegments(selectedTicketArea).map((s: any) => <option key={s.id} value={s.id}>{s.segment_name || s.name}</option>)}
               </select>
-              <select style={input} value={selectedProducer} onChange={(e) => { setSelectedProducer(e.target.value); setSelectedLease(''); setSelectedMeter('') }}>
-                <option value="">Select Producer</option>
-                {filteredProducers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <select style={input} value={selectedLease} onChange={(e) => { setSelectedLease(e.target.value); setSelectedMeter('') }}>
-                <option value="">Select Lease</option>
+
+              <select style={input} value={selectedLease} onChange={(e) => handleTicketLeaseSelect(e.target.value)} disabled={!selectedSegment}>
+                <option value="">{selectedSegment ? 'Select Lease' : 'Select segment first'}</option>
                 {filteredLeases.map((l: any) => <option key={l.id} value={l.id}>{l.lease_name || l.name || l.lease_number}</option>)}
               </select>
-              <select style={input} value={selectedMeter} onChange={(e) => setSelectedMeter(e.target.value)}>
-                <option value="">Select Meter</option>
+
+              <select style={input} value={selectedMeter} onChange={(e) => setSelectedMeter(e.target.value)} disabled={!selectedLease}>
+                <option value="">{selectedLease ? 'Select Meter' : 'Select lease first'}</option>
                 {filteredMeters.map((m: any) => <option key={m.id} value={m.id}>{m.meter_number || m.meter_name}</option>)}
               </select>
+
+              <div style={card}>Producer: <strong>{selectedTicketProducerRow?.name || (selectedLease ? 'No producer linked' : 'Auto-fills after lease')}</strong></div>
               <select style={input} value={ticketType} onChange={(e) => setTicketType(e.target.value)}>
                 <option value="meter">Meter Ticket</option>
                 <option value="tank">Tank Ticket</option>

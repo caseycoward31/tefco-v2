@@ -5734,104 +5734,207 @@ async function createCompany() {
   function exportOverShortExcel() {
     const rows = getOverShortRows()
 
+    const getTicketLease = (ticket: any) => {
+      const leaseId = ticket.lease_id || ticket.observed_inputs?.lease_id
+      return leases.find((lease: any) => String(lease.id) === String(leaseId))
+    }
+
+    const getTicketMeter = (ticket: any) => {
+      const meterId = ticket.meter_id || ticket.observed_inputs?.meter_id
+      return meters.find((meter: any) => String(meter.id) === String(meterId))
+    }
+
+    const getTicketIv = (ticket: any) => Number(
+      ticket.observed_inputs?.iv ??
+      ticket.observed_inputs?.total_batch_bbls ??
+      ticket.observed_inputs?.gross_bbls ??
+      ticket.calculation_results?.iv ??
+      ticket.calculation_results?.gross_bbls ??
+      ticket.gross_volume ??
+      getTicketVolumeForBalance(ticket) ??
+      0
+    )
+
+    const getTicketGsv = (ticket: any) => Number(
+      ticket.calculation_results?.gsv ??
+      ticket.calculation_results?.tank_gsv ??
+      ticket.observed_inputs?.tank_gsv ??
+      ticket.gsv ??
+      getTicketVolumeForBalance(ticket) ??
+      0
+    )
+
+    const getTicketNsv = (ticket: any) => Number(
+      ticket.calculation_results?.nsv ??
+      ticket.calculation_results?.tank_nsv ??
+      ticket.observed_inputs?.tank_nsv ??
+      ticket.nsv ??
+      getTicketVolumeForBalance(ticket) ??
+      0
+    )
+
+    const getTicketSw = (ticket: any) => {
+      const direct = ticket.observed_inputs?.sw_percent ?? ticket.observed_inputs?.bsw ?? ticket.bsw
+      if (direct !== undefined && direct !== null && direct !== '') return Number(direct)
+      const csw = Number(ticket.observed_inputs?.csw ?? ticket.csw ?? 1)
+      return Number.isFinite(csw) ? (1 - csw) * 100 : 0
+    }
+
+    const getTicketCtl = (ticket: any) => Number(ticket.calculation_results?.ctl ?? ticket.observed_inputs?.ctl ?? ticket.ctl ?? 0)
+    const getTicketCpl = (ticket: any) => Number(ticket.calculation_results?.cpl ?? ticket.observed_inputs?.cpl ?? ticket.cpl ?? 0)
+
+    const isTicketInput = (ticket: any) => {
+      const role = String(getMeterBalanceRole(ticket) || '').trim().toLowerCase()
+      return ['receipt', 'inbound', 'butane', 'butane injection', 'refined', 'truck', 'tank receipt'].includes(role)
+    }
+
+    const isTicketOutput = (ticket: any) => {
+      const role = String(getMeterBalanceRole(ticket) || '').trim().toLowerCase()
+      return ['delivery', 'outbound', 'tank delivery'].includes(role)
+    }
+
+    const getSegmentApprovedTickets = (segmentId: string) => tickets.filter((ticket: any) =>
+      ticket.status === 'approved' &&
+      String(ticket.segment_id || '') === String(segmentId) &&
+      isTicketInOverShortRange(ticket)
+    )
+
     const summaryRows = [
+      ['Executive Measurement Closeout Summary'],
+      ['Period Start', overShortStartDate || 'All', 'Period End', overShortEndDate || 'All'],
+      [],
       [
         'Segment',
-        'Receipts',
-        'Deliveries',
-        'Truck Tickets',
-        'Tank Change',
-        'Line Fill Change',
-        'Butane GSV',
-        'Blend %',
-        'Shrinkage Adj',
-        'Check Meter O/S',
-        'Station Equation O/S',
-        'Book Inventory',
-        'Actual Inventory',
-        'Over / Short',
-        'Over / Short %',
+        'IV In', 'IV Out', 'IV O/S',
+        'GSV In', 'GSV Out', 'GSV O/S',
+        'NSV In', 'NSV Out', 'NSV O/S', 'NSV O/S %',
+        'Tank Begin', 'Tank End', 'Tank Change',
+        'Line Fill Begin', 'Line Fill End', 'Line Fill Change',
+        'Station Input NSV', 'Station Output NSV', 'Station O/S NSV',
+        'Butane GSV', 'Blend %', 'Shrinkage BBLs',
       ],
-      ...rows.map((row: any) => [
-        row.segment.name,
-        row.receipts.toFixed(2),
-        row.deliveries.toFixed(2),
-        row.truckTickets.toFixed(2),
-        row.tankChange.toFixed(2),
-        row.lineFillChange.toFixed(2),
-        row.butaneEnabled ? row.butaneAdjustment.butaneGsv.toFixed(2) : '',
-        row.butaneEnabled ? row.butaneAdjustment.blendPercent.toFixed(4) : '',
-        row.butaneEnabled ? row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2) : '',
-        row.checkMeterOverShort.toFixed(2),
-        (row.stationEquationRows || []).reduce((sum: number, equation: any) => sum + Number(equation.difference || 0), 0).toFixed(2),
-        row.bookInventory.toFixed(2),
-        row.actualInventory.toFixed(2),
-        row.overShort.toFixed(2),
-        row.overShortPercent.toFixed(4),
-      ]),
-    ]
+      ...rows.map((row: any) => {
+        const segmentTickets = getSegmentApprovedTickets(row.segment.id)
+        const inputTickets = segmentTickets.filter(isTicketInput)
+        const outputTickets = segmentTickets.filter(isTicketOutput)
+        const sum = (ticketRows: any[], getter: (ticket: any) => number) => ticketRows.reduce((total, ticket) => total + Number(getter(ticket) || 0), 0)
+        const ivIn = sum(inputTickets, getTicketIv)
+        const ivOut = sum(outputTickets, getTicketIv)
+        const gsvIn = sum(inputTickets, getTicketGsv)
+        const gsvOut = sum(outputTickets, getTicketGsv)
+        const nsvIn = sum(inputTickets, getTicketNsv)
+        const nsvOut = sum(outputTickets, getTicketNsv)
+        const stationInput = (row.stationEquationRows || []).length
+          ? (row.stationEquationRows || []).reduce((total: number, equation: any) => total + Number(equation.sideA || 0), 0)
+          : nsvIn
+        const stationOutput = (row.stationEquationRows || []).length
+          ? (row.stationEquationRows || []).reduce((total: number, equation: any) => total + Number(equation.sideB || 0), 0)
+          : nsvOut
+        const stationOs = stationInput - stationOutput
+        const nsvOs = nsvIn - nsvOut + Number(row.tankChange || 0) + Number(row.lineFillChange || 0) + (row.butaneEnabled ? Number(row.butaneAdjustment?.shrinkageAdjustmentBbl || 0) : 0)
+        const nsvOsPercent = nsvIn !== 0 ? (nsvOs / Math.abs(nsvIn)) * 100 : 0
 
-    const segmentSheets = rows.map((row: any) => {
-      const segmentTickets = tickets
-        .filter((ticket: any) =>
-          ticket.status === 'approved' &&
-          ticket.segment_id === row.segment.id &&
-          isTicketInOverShortRange(ticket)
-        )
-
-      return {
-        name: row.segment.name || 'Segment',
-        numericIndexes: [4, 5, 6, 7],
-        rows: [
-          ['Ticket #', 'Type', 'Status', 'Meter Role', 'Volume', 'Tank Change', 'Date', 'Transporter'],
-          ...segmentTickets.map((ticket: any) => [
-            ticket.ticket_number || ticket.id,
-            ticket.ticket_type || '',
-            ticket.status || '',
-            getMeterBalanceRole(ticket) || ticket.observed_inputs?.tank_movement_direction || '',
-            getTicketVolumeForBalance(ticket).toFixed(2),
-            ticket.ticket_type === 'tank' ? getTankSignedMovement(ticket).toFixed(2) : '',
-            getTicketDateForBalance(ticket),
-            (ticket as any).customer_name || ticket.observed_inputs?.customer_name || '',
-          ]),
-        ],
-      }
-    })
-
-    const checkRows = [
-      ['Segment', 'Check Group', 'Input Total', 'Check Total', 'Difference', 'Difference %'],
-      ...rows.flatMap((row: any) => (row.checkMeterRows || []).map((check: any) => [
-        row.segment.name,
-        check.group.name,
-        check.inputTotal.toFixed(2),
-        check.checkTotal.toFixed(2),
-        check.difference.toFixed(2),
-        check.differencePercent.toFixed(4),
-      ])),
+        return [
+          row.segment.name,
+          ivIn.toFixed(2), ivOut.toFixed(2), (ivIn - ivOut).toFixed(2),
+          gsvIn.toFixed(2), gsvOut.toFixed(2), (gsvIn - gsvOut).toFixed(2),
+          nsvIn.toFixed(2), nsvOut.toFixed(2), nsvOs.toFixed(2), nsvOsPercent.toFixed(4),
+          Number(row.tankBegin || 0).toFixed(2), Number(row.tankEnd || 0).toFixed(2), Number(row.tankChange || 0).toFixed(2),
+          Number(row.lineFillBegin || 0).toFixed(2), Number(row.lineFillEnd || 0).toFixed(2), Number(row.lineFillChange || 0).toFixed(2),
+          stationInput.toFixed(2), stationOutput.toFixed(2), stationOs.toFixed(2),
+          row.butaneEnabled ? Number(row.butaneAdjustment?.butaneGsv || 0).toFixed(2) : '',
+          row.butaneEnabled ? Number(row.butaneAdjustment?.blendPercent || 0).toFixed(4) : '',
+          row.butaneEnabled ? Number(row.butaneAdjustment?.shrinkageAdjustmentBbl || 0).toFixed(2) : '',
+        ]
+      }),
     ]
 
     const stationRows = [
-      ['Segment', 'Equation', 'Side A', 'Side B', 'Difference', 'Difference %'],
+      ['Segment', 'Equation', 'Side A Input NSV', 'Side B Output NSV', 'Station O/S NSV', 'Station O/S %'],
       ...rows.flatMap((row: any) => (row.stationEquationRows || []).map((equation: any) => [
         row.segment.name,
         equation.equation.name,
-        equation.sideA.toFixed(2),
-        equation.sideB.toFixed(2),
-        equation.difference.toFixed(2),
-        equation.differencePercent.toFixed(4),
+        Number(equation.sideA || 0).toFixed(2),
+        Number(equation.sideB || 0).toFixed(2),
+        Number(equation.difference || 0).toFixed(2),
+        Number(equation.differencePercent || 0).toFixed(4),
+      ])),
+    ]
+
+    const checkRows = [
+      ['Segment', 'Check Group', 'Assigned Meter Total NSV', 'Check Meter Total NSV', 'Difference NSV', 'Difference %'],
+      ...rows.flatMap((row: any) => (row.checkMeterRows || []).map((check: any) => [
+        row.segment.name,
+        check.group.name,
+        Number(check.inputTotal || 0).toFixed(2),
+        Number(check.checkTotal || 0).toFixed(2),
+        Number(check.difference || 0).toFixed(2),
+        Number(check.differencePercent || 0).toFixed(4),
       ])),
     ]
 
     const butaneRows = [
-      ['Segment', 'Butane GSV', 'Blend %', 'Shrinkage Adjustment', 'O/S After Shrinkage'],
+      ['Segment', 'Butane GSV', 'Crude/Blend GSV', 'Blend %', 'Shrinkage Factor', 'Shrinkage BBLs', 'O/S After Shrinkage'],
       ...rows.filter((row: any) => row.butaneEnabled).map((row: any) => [
         row.segment.name,
-        row.butaneAdjustment.butaneGsv.toFixed(2),
-        row.butaneAdjustment.blendPercent.toFixed(4),
-        row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2),
-        row.overShort.toFixed(2),
+        Number(row.butaneAdjustment?.butaneGsv || 0).toFixed(2),
+        Number(row.butaneAdjustment?.totalBlendGsv || row.butaneAdjustment?.crudeGsv || 0).toFixed(2),
+        Number(row.butaneAdjustment?.blendPercent || 0).toFixed(4),
+        Number(row.butaneAdjustment?.shrinkageFactor || 0).toFixed(6),
+        Number(row.butaneAdjustment?.shrinkageAdjustmentBbl || 0).toFixed(2),
+        Number(row.overShort || 0).toFixed(2),
       ]),
     ]
+
+    const segmentSheets = rows.map((row: any) => {
+      const segmentTickets = getSegmentApprovedTickets(row.segment.id)
+        .sort((a: any, b: any) => String(getTicketDateForBalance(a)).localeCompare(String(getTicketDateForBalance(b))))
+
+      return {
+        name: row.segment.name || 'Segment',
+        numericIndexes: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        rows: [
+          [
+            'Lease',
+            'Ticket #',
+            'Opening Meter Reading',
+            'Closing Meter Reading',
+            'Total Batch Barrels',
+            'Avg Temp',
+            'Avg Pressure',
+            'S&W',
+            'CTL',
+            'CPL',
+            'GSV',
+            'NSV',
+            'Meter #',
+            'Date',
+            'Role',
+          ],
+          ...segmentTickets.map((ticket: any) => {
+            const lease = getTicketLease(ticket)
+            const meter = getTicketMeter(ticket)
+            return [
+              lease?.lease_name || lease?.name || meter?.meter_name || meter?.meter_number || '',
+              ticket.ticket_number || ticket.id,
+              ticket.opening_reading ?? ticket.observed_inputs?.opening_reading ?? '',
+              ticket.closing_reading ?? ticket.observed_inputs?.closing_reading ?? '',
+              getTicketIv(ticket).toFixed(2),
+              Number(ticket.observed_inputs?.average_temperature ?? ticket.observed_temperature ?? ticket.avg_temp ?? 0).toFixed(2),
+              Number(ticket.observed_inputs?.average_pressure ?? ticket.observed_pressure ?? ticket.avg_pressure ?? 0).toFixed(2),
+              getTicketSw(ticket).toFixed(4),
+              getTicketCtl(ticket).toFixed(6),
+              getTicketCpl(ticket).toFixed(6),
+              getTicketGsv(ticket).toFixed(2),
+              getTicketNsv(ticket).toFixed(2),
+              meter?.meter_number || '',
+              getTicketDateForBalance(ticket),
+              getMeterBalanceRole(ticket) || '',
+            ]
+          }),
+        ],
+      }
+    })
 
     const photoRows = [
       ['Date', 'Lease', 'Meter', 'File', 'URL'],
@@ -5849,10 +5952,10 @@ async function createCompany() {
     ]
 
     downloadExcelXml(`measurement-closeout-${overShortStartDate || 'all'}-to-${overShortEndDate || 'all'}.xls`, [
-      { name: 'Executive Summary', rows: summaryRows, numericIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9] },
+      { name: 'Executive Summary', rows: summaryRows, numericIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22] },
+      { name: 'Station Balance', rows: stationRows, numericIndexes: [2, 3, 4, 5] },
       { name: 'Check Meter Groups', rows: checkRows, numericIndexes: [2, 3, 4, 5] },
-      { name: 'Station Equations', rows: stationRows, numericIndexes: [2, 3, 4, 5] },
-      { name: 'Butane Shrinkage', rows: butaneRows, numericIndexes: [1, 2, 3, 4] },
+      { name: 'Butane Shrinkage', rows: butaneRows, numericIndexes: [1, 2, 3, 4, 5, 6] },
       { name: 'Reading Photos', rows: photoRows },
       ...segmentSheets,
     ])

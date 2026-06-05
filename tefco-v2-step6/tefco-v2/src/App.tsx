@@ -2224,7 +2224,12 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     }
     addText(`trailer\n<< /Size ${offsets.length} /Root 1 0 R /Info << /Title (${title.replace(/[()\\]/g, '')}) >> >>\nstartxref\n${xrefOffset}\n%%EOF`)
 
-    return new Blob(objectParts, { type: 'application/pdf' })
+    const pdfBytes = concatBytes(objectParts)
+    const pdfArrayBuffer = pdfBytes.buffer.slice(
+      pdfBytes.byteOffset,
+      pdfBytes.byteOffset + pdfBytes.byteLength
+    ) as ArrayBuffer
+    return new Blob([pdfArrayBuffer], { type: 'application/pdf' })
   }
 
   async function uploadProvingOriginalPhotos(provingId: string, files: File[]) {

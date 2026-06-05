@@ -836,6 +836,9 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [readingAvgPressure, setReadingAvgPressure] = useState('')
   const [readingBSW, setReadingBSW] = useState('')
   const [readingMF, setReadingMF] = useState('')
+  const [readingPhotoFiles, setReadingPhotoFiles] = useState<File[]>([])
+  const [readingPhotoUploading, setReadingPhotoUploading] = useState(false)
+  const [readingPhotos, setReadingPhotos] = useState<any[]>([])
 
   const [provingDate, setProvingDate] = useState('')
   const [proverVolume, setProverVolume] = useState('')
@@ -1206,6 +1209,10 @@ useEffect(() => {
     const { data: profileData } = await applyCompanyScope(supabase.from('calculation_profiles').select('*')).order('name')
     const { data: producerData } = await applyCompanyScope(supabase.from('producers').select('*')).order('name')
     const { data: readingData } = await applyCompanyScope(supabase.from('operator_readings').select('*')).order('created_at', { ascending: false })
+    const { data: readingPhotoData, error: readingPhotoLoadError } = await applyCompanyScope(supabase.from('operator_reading_photos').select('*')).order('created_at', { ascending: false })
+    if (readingPhotoLoadError) {
+      console.warn('Operator reading photo table unavailable:', readingPhotoLoadError)
+    }
     const { data: provingData } = await applyCompanyScope(supabase.from('meter_provings').select('*')).order('proving_date', { ascending: false })
     const { data: potData } = await applyCompanyScope(supabase.from('pot_quality').select('*')).order('sample_date', { ascending: false })
 
@@ -1244,6 +1251,7 @@ useEffect(() => {
     if (profileData) setProfiles(profileData)
     if (producerData) setProducers(producerData)
     if (readingData) setReadings(readingData)
+    if (readingPhotoData) setReadingPhotos(readingPhotoData)
     if (provingData) setProvings(provingData)
     if (potData) setPotQuality(potData)
     if (tankData) setTanks(tankData)
@@ -1916,6 +1924,61 @@ function handleReadingAreaSelect(areaId: string) {
     return meter?.meter_number || meter?.meter_name || ''
   }
 
+  function getReadingPhotosForLease(leaseId: string) {
+    if (!leaseId) return []
+    return readingPhotos
+      .filter((photo: any) => String(photo.lease_id || '') === String(leaseId))
+      .slice(0, 12)
+  }
+
+  function safePhotoFileName(file: File) {
+    return String(file.name || 'photo.jpg')
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .slice(-120)
+  }
+
+  async function uploadReadingPhotosForReading(readingId: string) {
+    if (!readingId || readingPhotoFiles.length === 0) return
+    setReadingPhotoUploading(true)
+    try {
+      const uploadedRows: any[] = []
+      for (const file of readingPhotoFiles) {
+        const path = `${companyId}/${selectedReadingLease || 'unassigned'}/${readingId}/${Date.now()}-${safePhotoFileName(file)}`
+        const { error: uploadError } = await supabase.storage
+          .from('reading-photos')
+          .upload(path, file, { cacheControl: '3600', upsert: false })
+
+        if (uploadError) throw uploadError
+
+        const { data: urlData } = supabase.storage.from('reading-photos').getPublicUrl(path)
+        uploadedRows.push({
+          company_id: companyId,
+          area_id: selectedReadingArea || null,
+          segment_id: selectedReadingSegment || null,
+          lease_id: selectedReadingLease || null,
+          meter_id: selectedReadingMeter || null,
+          reading_id: readingId,
+          file_name: file.name,
+          file_path: path,
+          public_url: urlData?.publicUrl || '',
+          content_type: file.type || 'image/jpeg',
+          size_bytes: file.size || 0,
+        })
+      }
+
+      if (uploadedRows.length) {
+        const { error: insertError } = await supabase.from('operator_reading_photos').insert(uploadedRows)
+        if (insertError) throw insertError
+      }
+      setReadingPhotoFiles([])
+    } catch (error: any) {
+      console.error('Reading photo upload failed:', error)
+      alert(`Reading saved, but photo upload failed: ${error?.message || 'Unknown error'}`)
+    } finally {
+      setReadingPhotoUploading(false)
+    }
+  }
+
   async function saveReading() {
     if (isReadOnly) {
       alert('System is in read-only auditor mode.')
@@ -1925,7 +1988,7 @@ function handleReadingAreaSelect(areaId: string) {
     if (!companyId) return
 const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
-    await supabase.from('operator_readings').insert({
+    const { data: savedReading, error: readingSaveError } = await supabase.from('operator_readings').insert({
       company_id: companyId,
       area_id: selectedReadingArea || null,
       segment_id: selectedReadingSegment || null,
@@ -1938,7 +2001,14 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       average_temperature: Number(readingAvgTemp || 0),
       average_pressure: Number(readingAvgPressure || 0),
       meter_factor: Number(readingMF || 0),
-    })
+    }).select('id').single()
+
+    if (readingSaveError) {
+      alert(`Could not save reading: ${readingSaveError.message}`)
+      return
+    }
+
+    await uploadReadingPhotosForReading(savedReading?.id)
 
     setReadingOpen('')
     setReadingClose('')
@@ -1948,6 +2018,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     setReadingAvgPressure('')
     setReadingBSW('')
     setReadingMF('')
+    setReadingPhotoFiles([])
     loadAll()
   }
 
@@ -5727,8 +5798,62 @@ async function createCompany() {
       }
     })
 
-    downloadExcelXml(`segment-over-short-${overShortStartDate || 'all'}-to-${overShortEndDate || 'all'}.xls`, [
-      { name: 'Segment Summary', rows: summaryRows, numericIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9] },
+    const checkRows = [
+      ['Segment', 'Check Group', 'Input Total', 'Check Total', 'Difference', 'Difference %'],
+      ...rows.flatMap((row: any) => (row.checkMeterRows || []).map((check: any) => [
+        row.segment.name,
+        check.group.name,
+        check.inputTotal.toFixed(2),
+        check.checkTotal.toFixed(2),
+        check.difference.toFixed(2),
+        check.differencePercent.toFixed(4),
+      ])),
+    ]
+
+    const stationRows = [
+      ['Segment', 'Equation', 'Side A', 'Side B', 'Difference', 'Difference %'],
+      ...rows.flatMap((row: any) => (row.stationEquationRows || []).map((equation: any) => [
+        row.segment.name,
+        equation.equation.name,
+        equation.sideA.toFixed(2),
+        equation.sideB.toFixed(2),
+        equation.difference.toFixed(2),
+        equation.differencePercent.toFixed(4),
+      ])),
+    ]
+
+    const butaneRows = [
+      ['Segment', 'Butane GSV', 'Blend %', 'Shrinkage Adjustment', 'O/S After Shrinkage'],
+      ...rows.filter((row: any) => row.butaneEnabled).map((row: any) => [
+        row.segment.name,
+        row.butaneAdjustment.butaneGsv.toFixed(2),
+        row.butaneAdjustment.blendPercent.toFixed(4),
+        row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2),
+        row.overShort.toFixed(2),
+      ]),
+    ]
+
+    const photoRows = [
+      ['Date', 'Lease', 'Meter', 'File', 'URL'],
+      ...readingPhotos.slice(0, 250).map((photo: any) => {
+        const lease = leases.find((l: any) => l.id === photo.lease_id)
+        const meter = meters.find((m: any) => m.id === photo.meter_id)
+        return [
+          photo.created_at || '',
+          lease?.lease_name || lease?.name || '',
+          meter?.meter_number || '',
+          photo.file_name || '',
+          photo.public_url || '',
+        ]
+      }),
+    ]
+
+    downloadExcelXml(`measurement-closeout-${overShortStartDate || 'all'}-to-${overShortEndDate || 'all'}.xls`, [
+      { name: 'Executive Summary', rows: summaryRows, numericIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9] },
+      { name: 'Check Meter Groups', rows: checkRows, numericIndexes: [2, 3, 4, 5] },
+      { name: 'Station Equations', rows: stationRows, numericIndexes: [2, 3, 4, 5] },
+      { name: 'Butane Shrinkage', rows: butaneRows, numericIndexes: [1, 2, 3, 4] },
+      { name: 'Reading Photos', rows: photoRows },
       ...segmentSheets,
     ])
   }
@@ -6869,6 +6994,14 @@ async function saveUserRole() {
 
 
 
+  const dashboardOverShortRows = getOverShortRows()
+  const dashboardSystemOs = dashboardOverShortRows.reduce((sum: number, row: any) => sum + Number(row.overShort || 0), 0)
+  const dashboardSystemBook = dashboardOverShortRows.reduce((sum: number, row: any) => sum + Number(row.bookInventory || 0), 0)
+  const dashboardSystemOsPct = dashboardSystemBook ? (dashboardSystemOs / dashboardSystemBook) * 100 : 0
+  const dashboardOpenTickets = getScopedTickets().filter((t: any) => !['approved', 'voided'].includes(String(t.status || 'draft').toLowerCase())).length
+  const dashboardPendingProvings = getScopedProvings().filter((p: any) => String(p.status || '').toLowerCase() !== 'approved').length
+  const dashboardPendingPots = getScopedPotQuality().filter((p: any) => !['approved', 'accepted', 'voided'].includes(String(p.status || '').toLowerCase())).length
+
   const mobileHomeModules = [
     { key: 'dashboard', label: 'Dashboard', description: 'Totals and quick status' },
     { key: 'tickets', label: 'Tickets', description: 'Create, open, approve tickets' },
@@ -7476,31 +7609,51 @@ async function saveUserRole() {
           <>
         {page === 'dashboard' && (
           <>
-            <h1>Dashboard</h1>
-            <div style={{ color: '#a8b3bd', fontSize: 13, marginBottom: 8 }}>{getAreaAccessDebugText()} • Detected role: {String(Role || 'none')} • Loaded roles: {asArray(userRoles).map((r: any) => r.role).join(', ') || 'none'}</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 14 }}>
+              <div>
+                <h1 style={{ marginBottom: 4 }}>Dashboard</h1>
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Measurement closeout command center • {companySettings?.company_name || companyName || 'Measurement Database'}</div>
+              </div>
+              <button style={{ ...button, width: 'auto', padding: '10px 14px' }} onClick={() => setPage('operations')}>Open Balance Center</button>
+            </div>
+
+            <div style={{ ...box, background: `linear-gradient(135deg, ${accentRgba(0.24)}, rgba(15,23,42,0.96))`, border: `1px solid ${accentRgba(0.45)}` }}>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1.3fr repeat(4, 1fr)', gap: 12 }}>
+                <div style={{ ...card, minHeight: 120 }}>
+                  <div style={{ color: '#a8b3bd', fontSize: 13 }}>System Over / Short</div>
+                  <div style={{ fontSize: 42, fontWeight: 950, color: Math.abs(dashboardSystemOs) > 0.01 ? '#fca5a5' : '#86efac' }}>{dashboardSystemOs.toFixed(2)}</div>
+                  <div style={{ color: '#a8b3bd' }}>{dashboardSystemOsPct.toFixed(4)}% of book inventory</div>
+                </div>
+                <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Draft / Working</div><div style={{ fontSize: 34, fontWeight: 900 }}>{dashboardOpenTickets}</div></div>
+                <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Pending POTs</div><div style={{ fontSize: 34, fontWeight: 900 }}>{dashboardPendingPots}</div></div>
+                <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Pending Provings</div><div style={{ fontSize: 34, fontWeight: 900 }}>{dashboardPendingProvings}</div></div>
+                <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Proving Compliance</div><div style={{ fontSize: 34, fontWeight: 900 }}>{provingCompliance}%</div></div>
+              </div>
+            </div>
+
             <div style={box}>
-              <h2>Over / Short Summary</h2>
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-                {getOverShortRows().slice(0, 4).map((row: any) => (
-                  <div key={row.segment.id} style={card}>
-                    <strong>{row.segment.name}</strong>
-                    <div>Book: {row.bookInventory.toFixed(2)}</div>
-                    <div>Actual: {row.actualInventory.toFixed(2)}</div>
-                    <div style={{ color: Math.abs(row.overShort) > 0.01 ? '#fca5a5' : '#86efac' }}>
-                      O/S: {row.overShort.toFixed(2)}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                <div>
+                  <h2 style={{ margin: 0 }}>Segment Over / Short</h2>
+                  <div style={{ color: '#a8b3bd', fontSize: 12 }}>Receipts, deliveries, inventory, check meters, and butane shrinkage by segment.</div>
+                </div>
+              </div>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12 }}>
+                {dashboardOverShortRows.map((row: any) => (
+                  <div key={row.segment.id} style={{ ...card, borderLeft: `5px solid ${Math.abs(row.overShort) > 0.01 ? '#f87171' : '#22c55e'}` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                      <strong style={{ fontSize: 18 }}>{row.segment.name}</strong>
+                      <span style={{ color: Math.abs(row.overShort) > 0.01 ? '#fca5a5' : '#86efac', fontWeight: 900 }}>{row.overShort.toFixed(2)}</span>
                     </div>
+                    <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 8 }}>Book {row.bookInventory.toFixed(2)} • Actual {row.actualInventory.toFixed(2)}</div>
+                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>Receipts {row.receipts.toFixed(2)} • Deliveries {row.deliveries.toFixed(2)}</div>
+                    {row.butaneEnabled && <div style={{ color: '#fef3c7', fontSize: 12 }}>Butane Blend {row.butaneAdjustment.blendPercent.toFixed(4)}% • Shrink {row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2)}</div>}
                   </div>
                 ))}
               </div>
             </div>
-            {/* Phase 3 Dashboard KPIs */}
-            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
-              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Total Tickets</div><div style={{ fontSize: 30, fontWeight: 900 }}>{getScopedTickets().length}</div></div>
-              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Approved</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.filter((t) => t.status === 'approved').length}</div></div>
-              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Draft / Working</div><div style={{ fontSize: 30, fontWeight: 900 }}>{tickets.filter((t) => !t.status || t.status === 'draft').length}</div></div>
-              <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Meters</div><div style={{ fontSize: 30, fontWeight: 900 }}>{getScopedMeters().length}</div></div>
-            </div>
-            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 20 }}>
+
+            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 12 }}>
               <div style={box}>Areas<h2>{getScopedAreas().length}</h2></div>
               <div style={box}>Segments<h2>{getScopedSegments().length}</h2></div>
               <div style={box}>Leases<h2>{getScopedLeases().length}</h2></div>
@@ -7509,16 +7662,6 @@ async function saveUserRole() {
               <div style={box}>Readings<h2>{getScopedReadings().length}</h2></div>
               <div style={box}>Provings<h2>{getScopedProvings().length}</h2></div>
               <div style={box}>Tickets<h2>{getScopedTickets().length}</h2></div>
-            </div>
-
-            <div style={box}>
-              <h2>Monthly Proving KPI</h2>
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}>
-                <div style={card}>Active Meters<h2>{activeMeters.length}</h2></div>
-                <div style={card}>Proved This Month<h2>{provedThisMonthCount}</h2></div>
-                <div style={card}>Remaining<h2>{remainingProvingCount}</h2></div>
-                <div style={card}>Compliance<h2>{provingCompliance}%</h2></div>
-              </div>
             </div>
           </>
         )}
@@ -8694,8 +8837,40 @@ async function saveUserRole() {
               <input style={input} placeholder="Average Temperature" value={readingAvgTemp} onChange={(e) => setReadingAvgTemp(e.target.value)} />
               <input style={input} placeholder="Average Pressure" value={readingAvgPressure} onChange={(e) => setReadingAvgPressure(e.target.value)} />
               <input style={input} placeholder="Fallback Meter Factor" value={readingMF} onChange={(e) => setReadingMF(e.target.value)} />
+
+              <div style={{ ...card, border: '1px dashed rgba(148,163,184,0.35)' }}>
+                <strong>Meter / Flow Computer Photos</strong>
+                <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 4 }}>
+                  Upload multiple photos for this lease. Use this for meter displays, flow computer totals, seals, or screen checks.
+                </div>
+                <input
+                  style={{ ...input, marginTop: 10 }}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => setReadingPhotoFiles(Array.from(e.target.files || []))}
+                />
+                {readingPhotoFiles.length > 0 && (
+                  <div style={{ color: '#bbf7d0', fontSize: 12 }}>{readingPhotoFiles.length} photo(s) ready to upload with this reading.</div>
+                )}
+              </div>
+
+              {selectedReadingLease && getReadingPhotosForLease(selectedReadingLease).length > 0 && (
+                <div style={card}>
+                  <strong>Recent Photos for Selected Lease</strong>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginTop: 10 }}>
+                    {getReadingPhotosForLease(selectedReadingLease).map((photo: any) => (
+                      <a key={photo.id || photo.file_path} href={photo.public_url || '#'} target="_blank" rel="noreferrer" style={{ color: '#e5e7eb', textDecoration: 'none' }}>
+                        <img src={photo.public_url} alt={photo.file_name || 'reading photo'} style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 10, border: '1px solid rgba(148,163,184,0.25)' }} />
+                        <div style={{ fontSize: 11, color: '#a8b3bd', marginTop: 4 }}>{new Date(photo.created_at || Date.now()).toLocaleString()}</div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div style={{ marginTop: 15 }}>IV: {(Number(readingClose || 0) - Number(readingOpen || 0)).toFixed(2)}</div>
-              <button style={button} onClick={saveReading}>Save Reading</button>
+              <button style={button} onClick={saveReading} disabled={readingPhotoUploading}>{readingPhotoUploading ? 'Saving Photos...' : 'Save Reading'}</button>
             </div>
           </>
         )}

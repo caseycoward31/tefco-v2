@@ -7612,7 +7612,7 @@ async function saveUserRole() {
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 14 }}>
               <div>
                 <h1 style={{ marginBottom: 4 }}>Dashboard</h1>
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Measurement closeout command center • {companySettings?.company_name || companyName || 'Measurement Database'}</div>
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Measurement closeout command center • {companySettings?.company_name || getCompanyDisplayName() || 'Measurement Database'}</div>
               </div>
               <button style={{ ...button, width: 'auto', padding: '10px 14px' }} onClick={() => setPage('operations')}>Open Balance Center</button>
             </div>

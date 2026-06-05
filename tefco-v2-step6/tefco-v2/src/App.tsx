@@ -76,6 +76,11 @@ type Proving = {
   id: string
   meter_id: string
   proving_date: string
+  company_id?: string | null
+  area_id?: string | null
+  segment_id?: string | null
+  lease_id?: string | null
+  producer_id?: string | null
   observed_meter_factor?: number
   accepted_meter_factor?: number
   factor_type?: string
@@ -847,6 +852,7 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [provingWitness, setProvingWitness] = useState('')
   const [provingFactorType, setProvingFactorType] = useState('MF')
   const [provingPdfFile, setProvingPdfFile] = useState<File | null>(null)
+  const [provingPhotoFiles, setProvingPhotoFiles] = useState<File[]>([])
 
   const [potSegment, setPotSegment] = useState('')
   const [potProducer, setPotProducer] = useState('')
@@ -2106,26 +2112,191 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     loadAll()
   }
 
-  async function uploadProvingPdf(provingId: string) {
-    if (!provingPdfFile || !companyId) return { pdfUrl: null, fileName: null }
+  function sanitizeFileName(value: any, fallback = 'file') {
+    const cleaned = String(value || fallback)
+      .trim()
+      .replace(/[^a-zA-Z0-9._-]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+    return cleaned || fallback
+  }
 
-    const safeName = provingPdfFile.name.replace(/\s+/g, '_')
-    const filePath = `${companyId}/${provingId}/${Date.now()}-${safeName}`
+  function bytesFromBase64(base64: string) {
+    const binary = atob(base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+    return bytes
+  }
 
-    const { error } = await supabase.storage
-      .from('proving-reports')
-      .upload(filePath, provingPdfFile, {
-        cacheControl: '3600',
-        upsert: true,
-        contentType: 'application/pdf',
+  function concatBytes(parts: Uint8Array[]) {
+    const length = parts.reduce((sum, part) => sum + part.length, 0)
+    const output = new Uint8Array(length)
+    let offset = 0
+    for (const part of parts) {
+      output.set(part, offset)
+      offset += part.length
+    }
+    return output
+  }
+
+  async function imageFileToJpeg(file: File): Promise<{ bytes: Uint8Array; width: number; height: number }> {
+    const objectUrl = URL.createObjectURL(file)
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image()
+        img.onload = () => resolve(img)
+        img.onerror = () => reject(new Error('Could not read image'))
+        img.src = objectUrl
       })
 
-    if (error) {
-      alert('PDF upload failed: ' + error.message)
-      return { pdfUrl: null, fileName: null }
+      const maxWidth = 1650
+      const maxHeight = 2200
+      const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height)
+      const width = Math.max(1, Math.round(image.width * scale))
+      const height = Math.max(1, Math.round(image.height * scale))
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Could not create image canvas')
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, width, height)
+      ctx.drawImage(image, 0, 0, width, height)
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
+      return { bytes: bytesFromBase64(dataUrl.split(',')[1] || ''), width, height }
+    } finally {
+      URL.revokeObjectURL(objectUrl)
+    }
+  }
+
+  async function buildPdfFromImages(files: File[], title = 'Proving Report') {
+    const encoder = new TextEncoder()
+    const pageWidth = 612
+    const pageHeight = 792
+    const margin = 24
+    const images = [] as Array<{ bytes: Uint8Array; width: number; height: number }>
+
+    for (const file of files) images.push(await imageFileToJpeg(file))
+
+    const objectParts: Uint8Array[] = []
+    const offsets: number[] = []
+    let currentOffset = 0
+    const addChunk = (chunk: Uint8Array) => { objectParts.push(chunk); currentOffset += chunk.length }
+    const addText = (text: string) => addChunk(encoder.encode(text))
+    const addObject = (number: number, body: Uint8Array | string) => {
+      offsets[number] = currentOffset
+      addText(`${number} 0 obj\n`)
+      if (typeof body === 'string') addText(body)
+      else addChunk(body)
+      addText('\nendobj\n')
     }
 
-    return { pdfUrl: filePath, fileName: provingPdfFile.name }
+    const pageObjectNumbers = images.map((_, index) => 3 + index * 3)
+    const pagesKids = pageObjectNumbers.map((number) => `${number} 0 R`).join(' ')
+
+    addText('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n')
+    addObject(1, '<< /Type /Catalog /Pages 2 0 R >>')
+    addObject(2, `<< /Type /Pages /Kids [${pagesKids}] /Count ${images.length} >>`)
+
+    images.forEach((img, index) => {
+      const pageObj = 3 + index * 3
+      const contentObj = pageObj + 1
+      const imageObj = pageObj + 2
+      const drawScale = Math.min((pageWidth - margin * 2) / img.width, (pageHeight - margin * 2) / img.height)
+      const drawWidth = img.width * drawScale
+      const drawHeight = img.height * drawScale
+      const x = (pageWidth - drawWidth) / 2
+      const y = (pageHeight - drawHeight) / 2
+      const imageName = `Im${index + 1}`
+      const content = `q\n${drawWidth.toFixed(2)} 0 0 ${drawHeight.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm\n/${imageName} Do\nQ`
+
+      addObject(pageObj, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /${imageName} ${imageObj} 0 R >> >> /Contents ${contentObj} 0 R >>`)
+      addObject(contentObj, `<< /Length ${encoder.encode(content).length} >>\nstream\n${content}\nendstream`)
+      const header = encoder.encode(`<< /Type /XObject /Subtype /Image /Width ${img.width} /Height ${img.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${img.bytes.length} >>\nstream\n`)
+      const footer = encoder.encode('\nendstream')
+      addObject(imageObj, concatBytes([header, img.bytes, footer]))
+    })
+
+    const xrefOffset = currentOffset
+    addText(`xref\n0 ${offsets.length}\n`)
+    addText('0000000000 65535 f \n')
+    for (let i = 1; i < offsets.length; i += 1) {
+      addText(`${String(offsets[i] || 0).padStart(10, '0')} 00000 n \n`)
+    }
+    addText(`trailer\n<< /Size ${offsets.length} /Root 1 0 R /Info << /Title (${title.replace(/[()\\]/g, '')}) >> >>\nstartxref\n${xrefOffset}\n%%EOF`)
+
+    return new Blob(objectParts, { type: 'application/pdf' })
+  }
+
+  async function uploadProvingOriginalPhotos(provingId: string, files: File[]) {
+    if (!companyId || files.length === 0) return
+
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index]
+      const safeName = sanitizeFileName(file.name || `photo-${index + 1}.jpg`)
+      const photoPath = `${companyId}/${provingId}/original-photos/${Date.now()}-${index + 1}-${safeName}`
+      const { error } = await supabase.storage
+        .from('proving-reports')
+        .upload(photoPath, file, { cacheControl: '3600', upsert: true, contentType: file.type || 'image/jpeg' })
+
+      if (!error) {
+        const { error: insertError } = await supabase.from('proving_report_photos').insert({
+          company_id: companyId,
+          proving_id: provingId,
+          area_id: selectedProvingArea || null,
+          segment_id: selectedProvingSegment || null,
+          lease_id: selectedProvingLease || null,
+          meter_id: provingMeter || null,
+          file_path: photoPath,
+          file_name: file.name || safeName,
+          content_type: file.type || 'image/jpeg',
+          photo_order: index + 1,
+        })
+        if (insertError) console.warn('Could not save proving photo row:', insertError.message)
+      } else {
+        console.warn('Could not upload proving photo:', error.message)
+      }
+    }
+  }
+
+  async function uploadProvingPdf(provingId: string) {
+    if (!companyId) return { pdfUrl: null, fileName: null }
+
+    const selectedMeter = meters.find((m: any) => String(m.id) === String(provingMeter))
+    const baseFileName = `${sanitizeFileName(selectedMeter?.meter_number || 'meter')}_${sanitizeFileName(provingDate || new Date().toISOString().slice(0, 10))}`
+
+    if (provingPdfFile) {
+      const safeName = sanitizeFileName(provingPdfFile.name || `${baseFileName}.pdf`)
+      const filePath = `${companyId}/${provingId}/${Date.now()}-${safeName}`
+      const { error } = await supabase.storage
+        .from('proving-reports')
+        .upload(filePath, provingPdfFile, { cacheControl: '3600', upsert: true, contentType: 'application/pdf' })
+
+      if (error) {
+        alert('PDF upload failed: ' + error.message)
+        return { pdfUrl: null, fileName: null }
+      }
+
+      return { pdfUrl: filePath, fileName: safeName }
+    }
+
+    if (provingPhotoFiles.length > 0) {
+      const pdfBlob = await buildPdfFromImages(provingPhotoFiles, 'Proving Report')
+      const fileName = `${baseFileName}_proving_report.pdf`
+      const filePath = `${companyId}/${provingId}/${Date.now()}-${fileName}`
+      const { error } = await supabase.storage
+        .from('proving-reports')
+        .upload(filePath, pdfBlob, { cacheControl: '3600', upsert: true, contentType: 'application/pdf' })
+
+      if (error) {
+        alert('Proving photo PDF upload failed: ' + error.message)
+        return { pdfUrl: null, fileName: null }
+      }
+
+      await uploadProvingOriginalPhotos(provingId, provingPhotoFiles)
+      return { pdfUrl: filePath, fileName }
+    }
+
+    return { pdfUrl: null, fileName: null }
   }
 
   async function viewProvingPdf(filePath?: string) {
@@ -2185,9 +2356,10 @@ function handleProvingAreaSelect(areaId: string) {
       .insert({
         company_id: companyId,
         area_id: selectedProvingArea || null,
-      segment_id: selectedProvingSegment || null,
-      lease_id: selectedProvingLease || null,
-      meter_id: provingMeter,
+        segment_id: selectedProvingSegment || null,
+        lease_id: selectedProvingLease || null,
+        producer_id: leases.find((l: any) => String(l.id) === String(selectedProvingLease))?.producer_id || meters.find((m: any) => String(m.id) === String(provingMeter))?.producer_id || null,
+        meter_id: provingMeter,
         proving_date: provingDate,
         prover_volume: Number(proverVolume || 0),
         indicated_volume: Number(provingIndicatedVolume || 0),
@@ -2230,6 +2402,7 @@ function handleProvingAreaSelect(areaId: string) {
     setProvingWitness('')
     setProvingFactorType('MF')
     setProvingPdfFile(null)
+    setProvingPhotoFiles([])
 
     alert('Proving saved.')
     loadAll()
@@ -6649,157 +6822,74 @@ async function saveUserRole() {
     const end = new Date(`${pdfBundleEndDate}T23:59:59`)
 
     const getTicketDate = (ticket: any) =>
-      ticket.ticket_date ||
-      ticket.ticketDate ||
-      ticket.created_at ||
-      ticket.createdAt ||
-      ticket.updated_at ||
-      ticket.updatedAt ||
-      ticket.approved_at ||
-      ticket.approvedAt ||
-      ''
+      ticket.ticket_date || ticket.ticketDate || ticket.created_at || ticket.createdAt || ticket.updated_at || ticket.updatedAt || ticket.approved_at || ticket.approvedAt || ''
 
     const getTicketProducerId = (ticket: any) =>
-      ticket.producer_id ||
-      ticket.producerId ||
-      ticket.observed_inputs?.producer_id ||
-      ticket.calculation_profile_snapshot?.producer_id ||
-      ''
+      ticket.producer_id || ticket.producerId || ticket.observed_inputs?.producer_id || ticket.calculation_profile_snapshot?.producer_id || ''
+
+    const getProvingDate = (proving: any) =>
+      proving.proving_date || proving.provingDate || proving.created_at || proving.createdAt || proving.approved_at || proving.approvedAt || ''
+
+    const getProvingProducerId = (proving: any) => {
+      if (proving.producer_id || proving.producerId) return proving.producer_id || proving.producerId
+      const lease = leases.find((l: any) => String(l.id) === String(proving.lease_id || proving.leaseId || ''))
+      if (lease?.producer_id) return lease.producer_id
+      const meter = meters.find((m: any) => String(m.id) === String(proving.meter_id || proving.meterId || ''))
+      if (meter?.producer_id) return meter.producer_id
+      const meterLease = leases.find((l: any) => String(l.id) === String(meter?.lease_id || ''))
+      return meterLease?.producer_id || ''
+    }
 
     const ticketsToExport = getScopedTickets().filter((ticket: any) => {
-      const statusOk = ticket.status === 'approved'
       const ticketDateValue = getTicketDate(ticket)
-
-      const dateOk = ticketDateValue
-        ? new Date(ticketDateValue) >= start && new Date(ticketDateValue) <= end
-        : true
-
-      const producerOk = pdfBundleProducerId
-        ? getTicketProducerId(ticket) === pdfBundleProducerId
-        : true
-
-      return statusOk && dateOk && producerOk
+      const dateOk = ticketDateValue ? new Date(ticketDateValue) >= start && new Date(ticketDateValue) <= end : true
+      const producerOk = pdfBundleProducerId ? getTicketProducerId(ticket) === pdfBundleProducerId : true
+      return ticket.status === 'approved' && dateOk && producerOk
     })
 
-    if (ticketsToExport.length === 0) {
-      alert('No approved tickets found for that producer/date range.')
+    const provingsToExport = getScopedProvings().filter((proving: any) => {
+      const dateValue = getProvingDate(proving)
+      const dateOk = dateValue ? new Date(dateValue) >= start && new Date(dateValue) <= end : true
+      const producerOk = pdfBundleProducerId ? getProvingProducerId(proving) === pdfBundleProducerId : true
+      return proving.status === 'approved' && dateOk && producerOk
+    })
+
+    if (ticketsToExport.length === 0 && provingsToExport.length === 0) {
+      alert('No approved tickets or provings found for that producer/date range.')
       return
     }
 
     const zip = new JSZip()
-    let addedCount = 0
+    let addedTicketCount = 0
+    let addedProvingCount = 0
+    const value = (v: any) => v === null || v === undefined || v === '' ? '—' : v
 
-    const makeTicketHtml = async (ticket: any) => {
-      const companyName = getCompanyDisplayName()
-      const companyLogoUrl = getCompanyLogoUrl()
-      const companyAccent = getCompanyAccentColor()
-      const companyLogoDataUrl = companyLogoUrl ? await getImageDataUrl(companyLogoUrl) : ''
-      const producer = producers.find((p) => p.id === ticket.producer_id)
-      const meter = meters.find((m) => m.id === ticket.meter_id)
-      const segment = segments.find((s) => s.id === ticket.segment_id)
-      const value = (v: any) => v === null || v === undefined || v === '' ? '—' : v
-
-      return `
-        <html>
-          <head>
-            <title>${ticket.ticket_number || 'Ticket'}</title>
-            <style>
-              @page { size: letter portrait; margin: 0.35in; }
-              * { box-sizing: border-box; }
-              body { margin: 0; padding: 0; background: #fff; color: #111; font-family: Arial, Helvetica, sans-serif; font-size: 10.5px; line-height: 1.15; }
-              .page { width: 100%; max-width: 7.8in; margin: 0 auto; }
-              .brand-header { border-bottom: 3px solid ${companyAccent}; padding-bottom: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-              .brand-name { font-size: 24px; font-weight: 900; color: ${companyAccent}; }
-              .brand-subtitle { font-size: 10.5px; color: #111; margin-top: 2px; }
-              .brand-logo { max-height: 42px; max-width: 140px; object-fit: contain; }
-              .ticket-title { text-align: center; font-size: 24px; font-weight: 900; margin: 8px 0 10px; letter-spacing: 0.4px; }
-              .section { border: 1.4px solid #111; margin-bottom: 10px; page-break-inside: avoid; }
-              .section-title { text-align: center; font-size: 14px; font-weight: 900; border-bottom: 1.2px solid #111; padding: 5px 8px; background: #fafafa; }
-              .grid-two { display: grid; grid-template-columns: 1fr 1fr; }
-              .row { display: grid; grid-template-columns: 48% 52%; min-height: 21px; border-bottom: 1px solid #d6d6d6; }
-              .grid-two > .row:nth-child(odd) { border-right: 1px solid #111; }
-              .label { font-weight: 900; padding: 5px 7px; }
-              .val { text-align: right; padding: 5px 7px; }
-              .footer { border-top: 1.4px solid #111; margin-top: 10px; padding-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-            </style>
-          </head>
-          <body>
-            <div class="page">
-              <div class="brand-header">
-                <div>
-                  <div class="brand-name">${getCompanyDisplayName()}</div>
-                  <div class="brand-subtitle">Custody Transfer Ticket</div>
-                </div>
-                ${companyLogoDataUrl ? `<img class="brand-logo" src="${companyLogoDataUrl}" />` : ''}
-              </div>
-
-              <div class="ticket-title">${ticket.ticket_number || 'Ticket'}</div>
-
-              <div class="section">
-                <div class="grid-two">
-                  <div class="row"><div class="label">Status:</div><div class="val">${value(ticket.status)}</div></div>
-                  <div class="row"><div class="label">Contract Profile:</div><div class="val">${value(ticket.observed_inputs?.contract_profile_name || ticket.calculation_profile_snapshot?.contract_profile?.name || 'Default')}</div></div>
-                  <div class="row"><div class="label">Type:</div><div class="val">${value(ticket.ticket_type)}</div></div>
-                  <div class="row"><div class="label">Calculation Method:</div><div class="val">${value(ticket.observed_inputs?.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL')}</div></div>
-                  <div class="row"><div class="label">Producer:</div><div class="val">${value(producer?.name)}</div></div>
-                  <div class="row"><div class="label">Ticket Created:</div><div class="val">${value(getTicketDate(ticket) ? new Date(getTicketDate(ticket)).toLocaleString() : '')}</div></div>
-                  <div class="row"><div class="label">Meter:</div><div class="val">${value(meter?.meter_number)}</div></div>
-                  <div class="row"><div class="label">Segment:</div><div class="val">${value(segment?.name)}</div></div>
-                </div>
-              </div>
-
-              <div class="section">
-                <div class="section-title">Observed Inputs</div>
-                <div class="grid-two">
-                  <div class="row"><div class="label">IV:</div><div class="val">${value(ticket.observed_inputs?.iv)}</div></div>
-                  <div class="row"><div class="label">Density @60 kg/m³:</div><div class="val">${value(ticket.observed_inputs?.density_60)}</div></div>
-                  <div class="row"><div class="label">CTL:</div><div class="val">${value(ticket.observed_inputs?.ctl)}</div></div>
-                  <div class="row"><div class="label">Avg Temp (°F):</div><div class="val">${value(ticket.observed_inputs?.average_temperature)}</div></div>
-                  <div class="row"><div class="label">CPL:</div><div class="val">${value(ticket.observed_inputs?.cpl)}</div></div>
-                  <div class="row"><div class="label">Avg Pressure (psi):</div><div class="val">${value(ticket.observed_inputs?.average_pressure)}</div></div>
-                  <div class="row"><div class="label">CTLP:</div><div class="val">${value(ticket.observed_inputs?.ctlp)}</div></div>
-                  <div class="row"><div class="label">BS&W %:</div><div class="val">${value(ticket.observed_inputs?.bsw_percent)}</div></div>
-                  <div class="row"><div class="label">CMF:</div><div class="val">${value(ticket.observed_inputs?.cmf)}</div></div>
-                  <div class="row"><div class="label">CSW:</div><div class="val">${value(ticket.observed_inputs?.csw)}</div></div>
-                  <div class="row"><div class="label">Observed API Gravity:</div><div class="val">${value(ticket.observed_inputs?.observed_api_gravity)}</div></div>
-                  <div class="row"><div class="label">API Gravity @60°F:</div><div class="val">${value(ticket.observed_inputs?.api_gravity_60 || ticket.observed_inputs?.corrected_api)}</div></div>
-                </div>
-              </div>
-
-              <div class="section">
-                <div class="section-title">Calculated Results</div>
-                <div class="grid-two">
-                  <div class="row"><div class="label">CCF:</div><div class="val">${value(ticket.calculation_results?.ccf)}</div></div>
-                  <div class="row"><div class="label">Flowing Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.flowing_volume || ticket.calculation_results?.gross_volume)}</div></div>
-                  <div class="row"><div class="label">GSV:</div><div class="val">${value(selectedTicket!.calculation_results?.gsv)}</div></div>
-                  <div class="row"><div class="label">Net Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.net_volume || selectedTicket!.calculation_results?.nsv)}</div></div>
-                  <div class="row"><div class="label">NSV:</div><div class="val">${value(selectedTicket!.calculation_results?.nsv)}</div></div>
-                  <div class="row"><div class="label">Water Volume (bbl):</div><div class="val">${value(ticket.calculation_results?.water_volume)}</div></div>
-                </div>
-              </div>
-
-              <div class="footer">
-                <div><strong>Notes:</strong><br />${value(ticket.notes)}</div>
-                <div>
-                  <div><strong>Approved By:</strong> ${value(ticket.approved_by_name || ticket.approved_by_email)}</div>
-                  <div style="margin-top: 10px;"><strong>Approved Date:</strong> ${value(ticket.approved_at ? new Date(ticket.approved_at).toLocaleString() : '')}</div>
-                </div>
-              </div>
-            </div>
-          </body>
-        </html>
-      `
+    const makeTicketHtml = (ticket: any) => {
+      const producer = producers.find((p: any) => p.id === getTicketProducerId(ticket))
+      const meter = meters.find((m: any) => m.id === ticket.meter_id)
+      const segment = segments.find((s: any) => s.id === ticket.segment_id)
+      const lease = leases.find((l: any) => l.id === ticket.lease_id || l.id === meter?.lease_id)
+      return `<!doctype html><html><head><meta charset="utf-8"><title>${value(ticket.ticket_number || 'Ticket')}</title>
+        <style>body{font-family:Arial,sans-serif;padding:24px;color:#111}.hdr{border-bottom:3px solid #c46a2b;margin-bottom:18px;padding-bottom:10px}h1{margin:0}.grid{display:grid;grid-template-columns:220px 1fr;border:1px solid #ddd}.grid div{padding:8px;border-bottom:1px solid #eee}.label{font-weight:700;background:#fafafa}</style>
+        </head><body><div class="hdr"><h1>${getCompanyDisplayName()}</h1><div>Custody Transfer Ticket</div></div>
+        <h2>${value(ticket.ticket_number || ticket.id)}</h2><div class="grid">
+        <div class="label">Producer</div><div>${value(producer?.name)}</div>
+        <div class="label">Segment</div><div>${value(segment?.name || segment?.segment_name)}</div>
+        <div class="label">Lease</div><div>${value(lease?.lease_name || lease?.name)}</div>
+        <div class="label">Meter</div><div>${value(meter?.meter_number)}</div>
+        <div class="label">Date</div><div>${value(getTicketDate(ticket))}</div>
+        <div class="label">IV</div><div>${value(ticket.observed_inputs?.iv)}</div>
+        <div class="label">CTL</div><div>${value(ticket.observed_inputs?.ctl)}</div>
+        <div class="label">CPL</div><div>${value(ticket.observed_inputs?.cpl)}</div>
+        <div class="label">GSV</div><div>${value(ticket.calculation_results?.gsv)}</div>
+        <div class="label">NSV</div><div>${value(ticket.calculation_results?.nsv || ticket.calculation_results?.net_volume)}</div>
+        </div></body></html>`
     }
 
     for (const ticket of ticketsToExport as any[]) {
+      const ticketLabel = ticket.ticket_number || ticket.ticket_no || ticket.id || `ticket-${ticketsToExport.indexOf(ticket) + 1}`
+      const safeLabel = sanitizeFileName(ticketLabel, 'ticket')
       const pdfUrl = ticket.pdf_url || ticket.pdfUrl
-      const ticketLabel =
-        ticket.ticket_number ||
-        ticket.ticket_no ||
-        ticket.id ||
-        `ticket-${ticketsToExport.indexOf(ticket) + 1}`
-
-      const safeLabel = String(ticketLabel).replace(/[^a-zA-Z0-9-_]/g, '_')
 
       if (pdfUrl) {
         try {
@@ -6807,35 +6897,70 @@ async function saveUserRole() {
           if (response.ok) {
             const blob = await response.blob()
             if (blob.size > 0) {
-              zip.file(`${safeLabel}.pdf`, blob)
-              addedCount += 1
+              zip.file(`Tickets/${safeLabel}.pdf`, blob)
+              addedTicketCount += 1
               continue
             }
           }
         } catch (error) {
-          console.error('PDF fetch failed, falling back to HTML:', error)
+          console.error('Ticket PDF fetch failed, falling back to HTML:', error)
         }
       }
 
-      const html = await makeTicketHtml(ticket)
-      zip.file(`${safeLabel}.html`, html)
-      addedCount += 1
+      zip.file(`Tickets/${safeLabel}.html`, makeTicketHtml(ticket))
+      addedTicketCount += 1
     }
 
-    if (addedCount === 0) {
-      alert('No files could be added to the ZIP.')
-      return
+    for (const proving of provingsToExport as any[]) {
+      const meter = meters.find((m: any) => String(m.id) === String(proving.meter_id || proving.meterId || ''))
+      const lease = leases.find((l: any) => String(l.id) === String(proving.lease_id || proving.leaseId || meter?.lease_id || ''))
+      const label = [lease?.lease_name || lease?.name || 'Proving', meter?.meter_number || proving.meter_id || proving.id, getProvingDate(proving) || proving.id].filter(Boolean).join('_')
+      const safeLabel = sanitizeFileName(label, 'proving')
+      const filePath = proving.pdf_url || proving.pdfUrl
+
+      if (filePath) {
+        try {
+          let blob: Blob | null = null
+          if (/^https?:\/\//i.test(filePath)) {
+            const response = await fetch(filePath)
+            if (response.ok) blob = await response.blob()
+          } else {
+            const { data, error } = await supabase.storage.from('proving-reports').download(filePath)
+            if (!error && data) blob = data
+          }
+          if (blob && blob.size > 0) {
+            zip.file(`Provings/${safeLabel}.pdf`, blob)
+            addedProvingCount += 1
+            continue
+          }
+        } catch (error) {
+          console.error('Proving PDF export failed:', error)
+        }
+      }
+
+      const summary = [
+        'Proving Report Summary',
+        `Lease: ${lease?.lease_name || lease?.name || ''}`,
+        `Meter: ${meter?.meter_number || ''}`,
+        `Date: ${getProvingDate(proving) || ''}`,
+        `Status: ${proving.status || ''}`,
+        `Accepted ${proving.factor_type || 'MF'}: ${proving.accepted_meter_factor || ''}`,
+        `Witness: ${proving.witness || ''}`,
+        `PDF: ${proving.pdf_file_name || proving.pdfFileName || 'Not stored'}`,
+      ].join('\n')
+      zip.file(`Provings/${safeLabel}.txt`, summary)
+      addedProvingCount += 1
     }
 
     zip.file(
       'README.txt',
-      `Producer PDF Bundle\nTickets exported: ${addedCount}\nIf PDF files were not stored yet, the app included printable HTML custody transfer tickets instead. Open the HTML files in your browser and save/print as PDF.\n`
+      `Producer Measurement Bundle\nTickets exported: ${addedTicketCount}\nProvings exported: ${addedProvingCount}\nDate range: ${pdfBundleStartDate} to ${pdfBundleEndDate}\n`
     )
 
     const blob = await zip.generateAsync({ type: 'blob' })
-    const producer = producers.find((p) => p.id === pdfBundleProducerId)
+    const producer = producers.find((p: any) => p.id === pdfBundleProducerId)
     const producerName = producer?.name || 'all-producers'
-    const fileName = `producer-tickets-${producerName.replace(/[^a-zA-Z0-9-_]/g, '_')}-${pdfBundleStartDate}-to-${pdfBundleEndDate}.zip`
+    const fileName = `producer-package-${sanitizeFileName(producerName)}-${pdfBundleStartDate}-to-${pdfBundleEndDate}.zip`
 
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -9370,7 +9495,38 @@ async function saveUserRole() {
               <input style={input} placeholder="Indicated Volume" value={provingIndicatedVolume} onChange={(e) => setProvingIndicatedVolume(e.target.value)} />
               <input style={input} placeholder="Accepted MF/CMF" value={acceptedMF} onChange={(e) => setAcceptedMF(e.target.value)} />
               <input style={input} placeholder="Witness" value={provingWitness} onChange={(e) => setProvingWitness(e.target.value)} />
-              <input style={input} type="file" accept="application/pdf" onChange={(e) => setProvingPdfFile(e.target.files?.[0] || null)} />
+              <div style={{ ...card, display: 'grid', gap: 10 }}>
+                <strong>Proving Report Capture</strong>
+                <div style={{ color: '#a8b3bd' }}>Take one or more photos in the field. The app will convert them into one PDF. Office users can still upload an existing PDF.</div>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span>📸 Take / Choose Proving Report Photos</span>
+                  <input
+                    style={input}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    capture="environment"
+                    onChange={(e) => {
+                      setProvingPhotoFiles(Array.from(e.target.files || []))
+                      if ((e.target.files || []).length > 0) setProvingPdfFile(null)
+                    }}
+                  />
+                </label>
+                {provingPhotoFiles.length > 0 && <div>{provingPhotoFiles.length} photo(s) selected. They will be merged into one proving PDF.</div>}
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span>📄 Or Upload Existing Proving PDF</span>
+                  <input
+                    style={input}
+                    type="file"
+                    accept="application/pdf"
+                    onChange={(e) => {
+                      setProvingPdfFile(e.target.files?.[0] || null)
+                      if (e.target.files?.[0]) setProvingPhotoFiles([])
+                    }}
+                  />
+                </label>
+                {provingPdfFile && <div>PDF selected: {provingPdfFile.name}</div>}
+              </div>
               <div style={card}>
                 Calculated {provingFactorType}:{' '}
                 {Number(proverVolume || 0) > 0 && Number(provingIndicatedVolume || 0) > 0

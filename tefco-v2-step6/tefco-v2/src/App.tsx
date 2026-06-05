@@ -5478,15 +5478,72 @@ async function createCompany() {
   }
 
   function getSegmentDisplayName(segment: any) {
-    return String(segment?.name || segment?.segment_name || segment?.segment || 'Segment')
+    // Your actual Supabase segments table uses `name`. Keep legacy aliases only as fallback.
+    return cleanExcelText(segment?.name || segment?.segment_name || segment?.segment || 'Segment')
+  }
+
+  function segmentIsInCurrentCompanyScope(segment: any) {
+    if (!segment || !segment.id) return false
+    if (segment.active === false) return false
+
+    // Super admin with a selected company should not export stale segments from other companies.
+    const activeCompanyId = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (activeCompanyId && segment.company_id && String(segment.company_id) !== String(activeCompanyId)) return false
+
+    // Operators/measurement users stay limited to their allowed area hierarchy.
+    if (!userIsSuperAdmin && !userIsCompanyAdmin) {
+      const { segmentIds } = buildScopedHierarchyIds()
+      if (!segmentIds.has(String(segment.id))) return false
+    }
+
+    return true
   }
 
   function getExportSegmentsForOverShort() {
-    const scoped = typeof getScopedSegments === 'function' ? getScopedSegments() : asArray(segments)
-    return asArray(scoped)
-      .filter((segment: any) => segment && segment.id)
-      .filter((segment: any) => segment.active !== false)
-      .filter((segment: any) => !overShortSegmentId || String(segment.id) === String(overShortSegmentId))
+    const allSegmentRows = asArray(segments).filter(segmentIsInCurrentCompanyScope)
+
+    if (overShortSegmentId) {
+      return allSegmentRows
+        .filter((segment: any) => String(segment.id || '') === String(overShortSegmentId))
+        .sort((a: any, b: any) => getSegmentDisplayName(a).localeCompare(getSegmentDisplayName(b)))
+    }
+
+    // Build the workbook from real segment records that actually have current-month balance activity.
+    // This avoids exporting old/stale segment rows or any placeholder/fallback list.
+    const activeSegmentIds = new Set<string>()
+
+    getScopedTickets()
+      .filter((ticket: any) => ticket.status === 'approved' && isTicketInOverShortRange(ticket))
+      .forEach((ticket: any) => {
+        const id = String(ticket.segment_id || ticket.observed_inputs?.segment_id || '')
+        if (id) activeSegmentIds.add(id)
+      })
+
+    asArray(balanceInventoryEntries).forEach((entry: any) => {
+      const id = String(entry.segment_id || '')
+      if (id) activeSegmentIds.add(id)
+    })
+
+    asArray(balanceCheckGroups).forEach((group: any) => {
+      if (group.active === false) return
+      const id = String(group.segment_id || '')
+      if (id) activeSegmentIds.add(id)
+    })
+
+    asArray(balanceEquations).forEach((equation: any) => {
+      if (equation.active === false) return
+      const id = String(equation.segment_id || '')
+      if (id) activeSegmentIds.add(id)
+    })
+
+    asArray(segmentBalanceSettings).forEach((setting: any) => {
+      const id = String(setting.segment_id || '')
+      if (id && (setting.enable_butane_blend || setting.enable_check_meters || setting.enable_tank_inventory || setting.enable_line_fill)) activeSegmentIds.add(id)
+    })
+
+    const activitySegments = allSegmentRows.filter((segment: any) => activeSegmentIds.has(String(segment.id || '')))
+
+    return (activitySegments.length ? activitySegments : allSegmentRows)
       .sort((a: any, b: any) => getSegmentDisplayName(a).localeCompare(getSegmentDisplayName(b)))
   }
 

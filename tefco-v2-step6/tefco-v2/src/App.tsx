@@ -714,6 +714,8 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [lineFills, setLineFills] = useState<any[]>([])
   const [balanceCheckGroups, setBalanceCheckGroups] = useState<any[]>([])
   const [balanceCheckGroupMeters, setBalanceCheckGroupMeters] = useState<any[]>([])
+  const [balanceEquations, setBalanceEquations] = useState<any[]>([])
+  const [balanceEquationItems, setBalanceEquationItems] = useState<any[]>([])
   const [balanceInventoryEntries, setBalanceInventoryEntries] = useState<any[]>([])
   const [balanceButaneAdjustments, setBalanceButaneAdjustments] = useState<any[]>([])
   const [segmentBalanceSettings, setSegmentBalanceSettings] = useState<any[]>([])
@@ -738,6 +740,14 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [newCheckGroupSegmentId, setNewCheckGroupSegmentId] = useState('')
   const [newCheckGroupCheckMeterId, setNewCheckGroupCheckMeterId] = useState('')
   const [newCheckGroupInputMeterIds, setNewCheckGroupInputMeterIds] = useState<string[]>([])
+  const [newBalanceEquationName, setNewBalanceEquationName] = useState('')
+  const [newBalanceEquationSegmentId, setNewBalanceEquationSegmentId] = useState('')
+  const [newEquationSideAMeterIds, setNewEquationSideAMeterIds] = useState<string[]>([])
+  const [newEquationSideBMeterIds, setNewEquationSideBMeterIds] = useState<string[]>([])
+  const [newEquationSideACheckGroupIds, setNewEquationSideACheckGroupIds] = useState<string[]>([])
+  const [newEquationSideBCheckGroupIds, setNewEquationSideBCheckGroupIds] = useState<string[]>([])
+  const [newEquationIncludeTankChange, setNewEquationIncludeTankChange] = useState(false)
+  const [newEquationIncludeLineFillChange, setNewEquationIncludeLineFillChange] = useState(false)
   const [meterMasterSegmentFilterId, setMeterMasterSegmentFilterId] = useState('')
   const [selectedMeterMasterId, setSelectedMeterMasterId] = useState('')
   const [companies, setCompanies] = useState<Company[]>([])
@@ -1207,11 +1217,13 @@ useEffect(() => {
     // Balance Center tables are optional. If the SQL has not been run yet, the app keeps working with empty balance setup.
     const { data: balanceCheckGroupData, error: balanceCheckGroupError } = await applyCompanyScope(supabase.from('balance_check_groups').select('*')).order('name')
     const { data: balanceCheckGroupMeterData, error: balanceCheckGroupMeterError } = await applyCompanyScope(supabase.from('balance_check_group_meters').select('*'))
+    const { data: balanceEquationData, error: balanceEquationError } = await applyCompanyScope(supabase.from('balance_equations').select('*')).order('name')
+    const { data: balanceEquationItemData, error: balanceEquationItemError } = await applyCompanyScope(supabase.from('balance_equation_items').select('*'))
     const { data: balanceInventoryEntryData, error: balanceInventoryEntryError } = await applyCompanyScope(supabase.from('balance_inventory_entries').select('*')).order('period_start', { ascending: false })
     const { data: balanceButaneAdjustmentData, error: balanceButaneAdjustmentError } = await applyCompanyScope(supabase.from('balance_butane_adjustments').select('*')).order('period_start', { ascending: false })
     const { data: segmentBalanceSettingData, error: segmentBalanceSettingError } = await applyCompanyScope(supabase.from('segment_balance_settings').select('*'))
-    if (balanceCheckGroupError || balanceCheckGroupMeterError || balanceInventoryEntryError || balanceButaneAdjustmentError || segmentBalanceSettingError) {
-      console.warn('Balance Center optional tables unavailable:', { balanceCheckGroupError, balanceCheckGroupMeterError, balanceInventoryEntryError, balanceButaneAdjustmentError, segmentBalanceSettingError })
+    if (balanceCheckGroupError || balanceCheckGroupMeterError || balanceInventoryEntryError || balanceButaneAdjustmentError || segmentBalanceSettingError || balanceEquationError || balanceEquationItemError) {
+      console.warn('Balance Center optional tables unavailable:', { balanceCheckGroupError, balanceCheckGroupMeterError, balanceInventoryEntryError, balanceButaneAdjustmentError, segmentBalanceSettingError, balanceEquationError, balanceEquationItemError })
     }
 
     setUserAreaAccess(resolvedAreaAccessData)
@@ -5321,6 +5333,44 @@ async function createCompany() {
       })
   }
 
+  function toggleStringSelection(setter: any, value: string, checked: boolean) {
+    setter((current: string[]) => checked ? Array.from(new Set([...current, value])) : current.filter((item) => item !== value))
+  }
+
+  function getCheckMeterGroupRollup(groupId: string) {
+    const row = balanceCheckGroups.find((group: any) => String(group.id) === String(groupId))
+    if (!row) return { inputTotal: 0, checkTotal: 0, difference: 0, differencePercent: 0 }
+    const segmentRows = getCheckMeterRowsForSegment(row.segment_id || '')
+    return segmentRows.find((item: any) => String(item.group.id) === String(groupId)) || { inputTotal: 0, checkTotal: 0, difference: 0, differencePercent: 0 }
+  }
+
+  function getBalanceEquationRowsForSegment(segmentId: string, contextRow?: any) {
+    return balanceEquations
+      .filter((equation: any) => equation.active !== false && String(equation.segment_id || '') === String(segmentId || ''))
+      .map((equation: any) => {
+        const items = balanceEquationItems.filter((item: any) => String(item.equation_id || '') === String(equation.id))
+        const itemTotal = (side: string) => items
+          .filter((item: any) => String(item.side || '').toUpperCase() === side)
+          .reduce((sum: number, item: any) => {
+            if (item.item_type === 'check_group') {
+              const rollup = getCheckMeterGroupRollup(item.item_id)
+              const valueMode = item.value_mode || 'check_total'
+              if (valueMode === 'input_total') return sum + Number(rollup.inputTotal || 0)
+              if (valueMode === 'variance') return sum + Number(rollup.difference || 0)
+              return sum + Number(rollup.checkTotal || 0)
+            }
+            return sum + getApprovedMeterVolume(item.item_id)
+          }, 0)
+        const tankChange = equation.include_tank_change && contextRow ? Number(contextRow.tankChange || 0) : 0
+        const lineFillChange = equation.include_line_fill_change && contextRow ? Number(contextRow.lineFillChange || 0) : 0
+        const sideA = itemTotal('A') + tankChange + lineFillChange
+        const sideB = itemTotal('B')
+        const difference = sideA - sideB
+        const differencePercent = sideB ? (difference / Math.abs(sideB)) * 100 : 0
+        return { equation, items, sideA, sideB, tankChange, lineFillChange, difference, differencePercent }
+      })
+  }
+
   function getOverShortRows() {
     return segments
       .filter((segment: any) => !overShortSegmentId || segment.id === overShortSegmentId)
@@ -5375,6 +5425,7 @@ async function createCompany() {
           : getActualTankInventoryForSegment(segment.id)
         const overShort = actualInventory - bookInventory
         const overShortPercent = bookInventory !== 0 ? (overShort / Math.abs(bookInventory)) * 100 : 0
+        const stationEquationRows = getBalanceEquationRowsForSegment(segment.id, { tankChange, lineFillChange })
 
         return {
           segment,
@@ -5391,6 +5442,7 @@ async function createCompany() {
           butaneAdjustment,
           checkMeterRows,
           checkMeterOverShort,
+          stationEquationRows,
           bookInventory,
           actualInventory,
           overShort,
@@ -5588,6 +5640,7 @@ async function createCompany() {
         'Blend %',
         'Shrinkage Adj',
         'Check Meter O/S',
+        'Station Equation O/S',
         'Book Inventory',
         'Actual Inventory',
         'Over / Short',
@@ -5604,6 +5657,7 @@ async function createCompany() {
         row.butaneEnabled ? row.butaneAdjustment.blendPercent.toFixed(4) : '',
         row.butaneEnabled ? row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2) : '',
         row.checkMeterOverShort.toFixed(2),
+        (row.stationEquationRows || []).reduce((sum: number, equation: any) => sum + Number(equation.difference || 0), 0).toFixed(2),
         row.bookInventory.toFixed(2),
         row.actualInventory.toFixed(2),
         row.overShort.toFixed(2),
@@ -5765,6 +5819,62 @@ async function createCompany() {
     setNewCheckGroupSegmentId('')
     setNewCheckGroupCheckMeterId('')
     setNewCheckGroupInputMeterIds([])
+    await loadAll()
+  }
+
+  async function saveBalanceEquation() {
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!activeCompanyID) {
+      alert('Select a company first.')
+      return
+    }
+    if (!newBalanceEquationName || !newBalanceEquationSegmentId) {
+      alert('Enter equation name and segment.')
+      return
+    }
+
+    const { data: equationRow, error: equationError } = await supabase
+      .from('balance_equations')
+      .insert({
+        company_id: activeCompanyID,
+        segment_id: newBalanceEquationSegmentId,
+        name: newBalanceEquationName,
+        equation_type: 'side_a_minus_side_b',
+        include_tank_change: newEquationIncludeTankChange,
+        include_line_fill_change: newEquationIncludeLineFillChange,
+        active: true,
+      })
+      .select('*')
+      .single()
+
+    if (equationError || !equationRow) {
+      alert(`Could not create balance equation: ${equationError?.message || 'unknown error'}`)
+      return
+    }
+
+    const memberRows = [
+      ...newEquationSideAMeterIds.map((id) => ({ company_id: activeCompanyID, equation_id: equationRow.id, side: 'A', item_type: 'meter', item_id: id, value_mode: 'meter_volume', active: true })),
+      ...newEquationSideBMeterIds.map((id) => ({ company_id: activeCompanyID, equation_id: equationRow.id, side: 'B', item_type: 'meter', item_id: id, value_mode: 'meter_volume', active: true })),
+      ...newEquationSideACheckGroupIds.map((id) => ({ company_id: activeCompanyID, equation_id: equationRow.id, side: 'A', item_type: 'check_group', item_id: id, value_mode: 'check_total', active: true })),
+      ...newEquationSideBCheckGroupIds.map((id) => ({ company_id: activeCompanyID, equation_id: equationRow.id, side: 'B', item_type: 'check_group', item_id: id, value_mode: 'check_total', active: true })),
+    ]
+
+    if (memberRows.length) {
+      const { error: itemError } = await supabase.from('balance_equation_items').insert(memberRows)
+      if (itemError) {
+        alert(`Equation created, but item assignment failed: ${itemError.message}`)
+        return
+      }
+    }
+
+    setNewBalanceEquationName('')
+    setNewBalanceEquationSegmentId('')
+    setNewEquationSideAMeterIds([])
+    setNewEquationSideBMeterIds([])
+    setNewEquationSideACheckGroupIds([])
+    setNewEquationSideBCheckGroupIds([])
+    setNewEquationIncludeTankChange(false)
+    setNewEquationIncludeLineFillChange(false)
     await loadAll()
   }
 
@@ -8112,6 +8222,61 @@ async function saveUserRole() {
                     </div>
 
                     <div style={{ ...card, gridColumn: '1 / -1' }}>
+                      <h3>Station / Balance Equations</h3>
+                      <p style={{ color: '#a8b3bd' }}>
+                        Build equations like Side A = gathering check meters + truck LACTs, Side B = outbound check meters. The app calculates Side A - Side B.
+                      </p>
+                      <input style={input} placeholder="Equation Name (example: BSRNG Station Outbound)" value={newBalanceEquationName} onChange={(e) => setNewBalanceEquationName(e.target.value)} />
+                      <select style={input} value={newBalanceEquationSegmentId} onChange={(e) => { setNewBalanceEquationSegmentId(e.target.value); setNewEquationSideAMeterIds([]); setNewEquationSideBMeterIds([]); setNewEquationSideACheckGroupIds([]); setNewEquationSideBCheckGroupIds([]) }}>
+                        <option value="">Select Segment</option>
+                        {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+                      </select>
+                      {newBalanceEquationSegmentId && (
+                        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          <div style={box}>
+                            <strong>Side A Adders</strong>
+                            <div style={{ color: '#a8b3bd', margin: '6px 0' }}>Meters</div>
+                            {meters.filter((meter: any) => String(meter.segment_id || '') === String(newBalanceEquationSegmentId)).map((meter: any) => (
+                              <label key={`a-meter-${meter.id}`} style={{ display: 'block', marginBottom: 6 }}>
+                                <input type="checkbox" checked={newEquationSideAMeterIds.includes(meter.id)} onChange={(e) => toggleStringSelection(setNewEquationSideAMeterIds, meter.id, e.target.checked)} /> {meter.meter_number || meter.meter_name}
+                              </label>
+                            ))}
+                            <div style={{ color: '#a8b3bd', margin: '8px 0 6px' }}>Check Groups (uses check meter total)</div>
+                            {balanceCheckGroups.filter((group: any) => String(group.segment_id || '') === String(newBalanceEquationSegmentId)).map((group: any) => (
+                              <label key={`a-group-${group.id}`} style={{ display: 'block', marginBottom: 6 }}>
+                                <input type="checkbox" checked={newEquationSideACheckGroupIds.includes(group.id)} onChange={(e) => toggleStringSelection(setNewEquationSideACheckGroupIds, group.id, e.target.checked)} /> {group.name}
+                              </label>
+                            ))}
+                            <label style={{ display: 'block', marginTop: 8 }}><input type="checkbox" checked={newEquationIncludeTankChange} onChange={(e) => setNewEquationIncludeTankChange(e.target.checked)} /> Add tank change to Side A</label>
+                            <label style={{ display: 'block', marginTop: 6 }}><input type="checkbox" checked={newEquationIncludeLineFillChange} onChange={(e) => setNewEquationIncludeLineFillChange(e.target.checked)} /> Add line fill change to Side A</label>
+                          </div>
+                          <div style={box}>
+                            <strong>Side B Subtractors</strong>
+                            <div style={{ color: '#a8b3bd', margin: '6px 0' }}>Meters</div>
+                            {meters.filter((meter: any) => String(meter.segment_id || '') === String(newBalanceEquationSegmentId)).map((meter: any) => (
+                              <label key={`b-meter-${meter.id}`} style={{ display: 'block', marginBottom: 6 }}>
+                                <input type="checkbox" checked={newEquationSideBMeterIds.includes(meter.id)} onChange={(e) => toggleStringSelection(setNewEquationSideBMeterIds, meter.id, e.target.checked)} /> {meter.meter_number || meter.meter_name}
+                              </label>
+                            ))}
+                            <div style={{ color: '#a8b3bd', margin: '8px 0 6px' }}>Check Groups (uses check meter total)</div>
+                            {balanceCheckGroups.filter((group: any) => String(group.segment_id || '') === String(newBalanceEquationSegmentId)).map((group: any) => (
+                              <label key={`b-group-${group.id}`} style={{ display: 'block', marginBottom: 6 }}>
+                                <input type="checkbox" checked={newEquationSideBCheckGroupIds.includes(group.id)} onChange={(e) => toggleStringSelection(setNewEquationSideBCheckGroupIds, group.id, e.target.checked)} /> {group.name}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <button style={button} onClick={() => runSafeAction('Saving balance equation', saveBalanceEquation)}>Save Balance Equation</button>
+                      <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
+                        {balanceEquations.map((equation: any) => {
+                          const segment = segments.find((s: any) => String(s.id) === String(equation.segment_id))
+                          return <div key={equation.id} style={{ color: '#a8b3bd' }}>{equation.name} • {segment?.name || 'Segment'} • Side A - Side B</div>
+                        })}
+                      </div>
+                    </div>
+
+                    <div style={{ ...card, gridColumn: '1 / -1' }}>
                       <h3>Flow-X Truck Ticket CSV Import</h3>
                       <p style={{ color: '#a8b3bd' }}>
                         Import Flow-X LACT truck CSV rows and split each load into up to 4 customer draft truck tickets.
@@ -8959,6 +9124,16 @@ async function saveUserRole() {
                         {row.checkMeterRows.map((check: any) => (
                           <div key={check.group.id} style={{ color: '#a8b3bd' }}>
                             {check.group.name}: Inputs {check.inputTotal.toFixed(2)} / Check {check.checkTotal.toFixed(2)} / Diff {check.difference.toFixed(2)} ({check.differencePercent.toFixed(4)}%)
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {row.stationEquationRows && row.stationEquationRows.length > 0 && (
+                      <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+                        <strong>Station / Balance Equations</strong>
+                        {row.stationEquationRows.map((equation: any) => (
+                          <div key={equation.equation.id} style={{ color: '#a8b3bd' }}>
+                            {equation.equation.name}: Side A {equation.sideA.toFixed(2)} / Side B {equation.sideB.toFixed(2)} / Diff {equation.difference.toFixed(2)} ({equation.differencePercent.toFixed(4)}%)
                           </div>
                         ))}
                       </div>

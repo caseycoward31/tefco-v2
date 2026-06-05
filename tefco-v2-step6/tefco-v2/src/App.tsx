@@ -5477,9 +5477,21 @@ async function createCompany() {
       })
   }
 
+  function getSegmentDisplayName(segment: any) {
+    return String(segment?.name || segment?.segment_name || segment?.segment || 'Segment')
+  }
+
+  function getExportSegmentsForOverShort() {
+    const scoped = typeof getScopedSegments === 'function' ? getScopedSegments() : asArray(segments)
+    return asArray(scoped)
+      .filter((segment: any) => segment && segment.id)
+      .filter((segment: any) => segment.active !== false)
+      .filter((segment: any) => !overShortSegmentId || String(segment.id) === String(overShortSegmentId))
+      .sort((a: any, b: any) => getSegmentDisplayName(a).localeCompare(getSegmentDisplayName(b)))
+  }
+
   function getOverShortRows() {
-    return segments
-      .filter((segment: any) => !overShortSegmentId || segment.id === overShortSegmentId)
+    return getExportSegmentsForOverShort()
       .map((segment: any) => {
         const segmentTickets = getScopedTickets().filter((ticket: any) =>
           ticket.status === 'approved' &&
@@ -5867,7 +5879,7 @@ async function createCompany() {
         const nsvOsPercent = nsvIn !== 0 ? (nsvOs / Math.abs(nsvIn)) * 100 : 0
 
         return [
-          row.segment.name,
+          getSegmentDisplayName(row.segment),
           ivIn.toFixed(2), ivOut.toFixed(2), (ivIn - ivOut).toFixed(2),
           gsvIn.toFixed(2), gsvOut.toFixed(2), (gsvIn - gsvOut).toFixed(2),
           nsvIn.toFixed(2), nsvOut.toFixed(2), nsvOs.toFixed(2), nsvOsPercent.toFixed(4),
@@ -5884,7 +5896,7 @@ async function createCompany() {
     const stationRows = [
       ['Segment', 'Equation', 'Side A Input NSV', 'Side B Output NSV', 'Station O/S NSV', 'Station O/S %'],
       ...rows.flatMap((row: any) => (row.stationEquationRows || []).map((equation: any) => [
-        row.segment.name,
+        getSegmentDisplayName(row.segment),
         equation.equation.name,
         Number(equation.sideA || 0).toFixed(2),
         Number(equation.sideB || 0).toFixed(2),
@@ -5896,7 +5908,7 @@ async function createCompany() {
     const checkRows = [
       ['Segment', 'Check Group', 'Assigned Meter Total NSV', 'Check Meter Total NSV', 'Difference NSV', 'Difference %'],
       ...rows.flatMap((row: any) => (row.checkMeterRows || []).map((check: any) => [
-        row.segment.name,
+        getSegmentDisplayName(row.segment),
         check.group.name,
         Number(check.inputTotal || 0).toFixed(2),
         Number(check.checkTotal || 0).toFixed(2),
@@ -5908,7 +5920,7 @@ async function createCompany() {
     const butaneRows = [
       ['Segment', 'Butane GSV', 'Crude/Blend GSV', 'Blend %', 'Shrinkage Factor', 'Shrinkage BBLs', 'O/S After Shrinkage'],
       ...rows.filter((row: any) => row.butaneEnabled).map((row: any) => [
-        row.segment.name,
+        getSegmentDisplayName(row.segment),
         Number(row.butaneAdjustment?.butaneGsv || 0).toFixed(2),
         Number(row.butaneAdjustment?.totalBlendGsv || row.butaneAdjustment?.crudeGsv || 0).toFixed(2),
         Number(row.butaneAdjustment?.blendPercent || 0).toFixed(4),
@@ -5923,7 +5935,7 @@ async function createCompany() {
         .sort((a: any, b: any) => String(getTicketDateForBalance(a)).localeCompare(String(getTicketDateForBalance(b))))
 
       return {
-        name: row.segment.name || 'Segment',
+        name: getSegmentDisplayName(row.segment) || 'Segment',
         numericIndexes: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
         rows: [
           [
@@ -6013,7 +6025,7 @@ async function createCompany() {
     ]
 
     const csvRows = rows.map((row: any) => [
-      row.segment.name,
+      getSegmentDisplayName(row.segment),
       row.receipts.toFixed(2),
       row.deliveries.toFixed(2),
       row.truckTickets.toFixed(2),

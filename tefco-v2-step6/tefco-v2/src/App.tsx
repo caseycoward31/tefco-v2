@@ -740,12 +740,14 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [newCheckGroupSegmentId, setNewCheckGroupSegmentId] = useState('')
   const [newCheckGroupCheckMeterId, setNewCheckGroupCheckMeterId] = useState('')
   const [newCheckGroupInputMeterIds, setNewCheckGroupInputMeterIds] = useState<string[]>([])
+  const [checkGroupMeterSearch, setCheckGroupMeterSearch] = useState('')
   const [newBalanceEquationName, setNewBalanceEquationName] = useState('')
   const [newBalanceEquationSegmentId, setNewBalanceEquationSegmentId] = useState('')
   const [newEquationSideAMeterIds, setNewEquationSideAMeterIds] = useState<string[]>([])
   const [newEquationSideBMeterIds, setNewEquationSideBMeterIds] = useState<string[]>([])
   const [newEquationSideACheckGroupIds, setNewEquationSideACheckGroupIds] = useState<string[]>([])
   const [newEquationSideBCheckGroupIds, setNewEquationSideBCheckGroupIds] = useState<string[]>([])
+  const [equationMeterSearch, setEquationMeterSearch] = useState('')
   const [newEquationIncludeTankChange, setNewEquationIncludeTankChange] = useState(false)
   const [newEquationIncludeLineFillChange, setNewEquationIncludeLineFillChange] = useState(false)
   const [meterMasterSegmentFilterId, setMeterMasterSegmentFilterId] = useState('')
@@ -5152,6 +5154,39 @@ async function createCompany() {
     return meters.find((m: any) => String(m.id) === String(meterId))
   }
 
+  function getLeaseById(leaseId: any) {
+    return leases.find((lease: any) => String(lease.id || '') === String(leaseId || ''))
+  }
+
+  function getMeterDisplayName(meter: any) {
+    const lease = getLeaseById(meter?.lease_id)
+    const leaseName = String(lease?.lease_name || lease?.name || '').trim()
+    const meterName = String(meter?.meter_name || '').trim()
+    const meterNumber = String(meter?.meter_number || '').trim()
+    const main = leaseName || meterName || meterNumber || 'Unnamed meter'
+    const secondary = meterNumber && meterNumber !== main ? meterNumber : ''
+    return { main, secondary }
+  }
+
+  function meterMatchesSearch(meter: any, searchText: string) {
+    const search = String(searchText || '').trim().toLowerCase()
+    if (!search) return true
+    const label = getMeterDisplayName(meter)
+    return [label.main, label.secondary, meter?.meter_name, meter?.meter_number]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(search))
+  }
+
+  function MeterChoiceLabel({ meter }: { meter: any }) {
+    const label = getMeterDisplayName(meter)
+    return (
+      <span style={{ display: 'grid', lineHeight: 1.2 }}>
+        <span style={{ fontWeight: 700 }}>{label.main}</span>
+        {label.secondary ? <span style={{ color: '#a8b3bd', fontSize: 11 }}>Meter: {label.secondary}</span> : null}
+      </span>
+    )
+  }
+
   function getMeterConfiguredRole(meter: any) {
     return normalizeMeterRole(meter?.meter_role || meter?.balance_role || meter?.meter_direction || meter?.direction)
   }
@@ -8190,24 +8225,25 @@ async function saveUserRole() {
                         Group receipt/delivery meters and compare them to a selected check meter inside the same segment.
                       </p>
                       <input style={input} placeholder="Group Name" value={newCheckGroupName} onChange={(e) => setNewCheckGroupName(e.target.value)} />
-                      <select style={input} value={newCheckGroupSegmentId} onChange={(e) => { setNewCheckGroupSegmentId(e.target.value); setNewCheckGroupCheckMeterId(''); setNewCheckGroupInputMeterIds([]) }}>
+                      <select style={input} value={newCheckGroupSegmentId} onChange={(e) => { setNewCheckGroupSegmentId(e.target.value); setNewCheckGroupCheckMeterId(''); setNewCheckGroupInputMeterIds([]); setCheckGroupMeterSearch('') }}>
                         <option value="">Select Segment</option>
                         {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
                       </select>
                       <select style={input} value={newCheckGroupCheckMeterId} onChange={(e) => setNewCheckGroupCheckMeterId(e.target.value)} disabled={!newCheckGroupSegmentId}>
                         <option value="">Select Check Meter</option>
-                        {meters.filter((meter: any) => String(meter.segment_id || '') === String(newCheckGroupSegmentId || '')).map((meter: any) => <option key={meter.id} value={meter.id}>{meter.meter_number || meter.meter_name}</option>)}
+                        {meters.filter((meter: any) => String(meter.segment_id || '') === String(newCheckGroupSegmentId || '')).map((meter: any) => { const label = getMeterDisplayName(meter); return <option key={meter.id} value={meter.id}>{label.main}{label.secondary ? ` (${label.secondary})` : ''}</option> })}
                       </select>
-                      <div style={{ margin: '10px 0', color: '#a8b3bd' }}>Included meters</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-                        {meters.filter((meter: any) => String(meter.segment_id || '') === String(newCheckGroupSegmentId || '') && String(meter.id) !== String(newCheckGroupCheckMeterId || '')).map((meter: any) => (
+                      <div style={{ margin: '10px 0', color: '#a8b3bd' }}>Included leases / meters</div>
+                      <input style={input} placeholder="Search lease or meter..." value={checkGroupMeterSearch} onChange={(e) => setCheckGroupMeterSearch(e.target.value)} disabled={!newCheckGroupSegmentId} />
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
+                        {meters.filter((meter: any) => String(meter.segment_id || '') === String(newCheckGroupSegmentId || '') && String(meter.id) !== String(newCheckGroupCheckMeterId || '') && meterMatchesSearch(meter, checkGroupMeterSearch)).map((meter: any) => (
                           <label key={meter.id} style={{ ...box, display: 'flex', gap: 8, alignItems: 'center' }}>
                             <input
                               type="checkbox"
                               checked={newCheckGroupInputMeterIds.includes(meter.id)}
                               onChange={(e) => setNewCheckGroupInputMeterIds((current) => e.target.checked ? [...current, meter.id] : current.filter((id) => id !== meter.id))}
                             />
-                            {meter.meter_number || meter.meter_name}
+                            <MeterChoiceLabel meter={meter} />
                           </label>
                         ))}
                       </div>
@@ -8216,7 +8252,7 @@ async function saveUserRole() {
                         {balanceCheckGroups.map((group: any) => {
                           const segment = segments.find((s: any) => String(s.id) === String(group.segment_id))
                           const checkMeter = meters.find((m: any) => String(m.id) === String(group.check_meter_id))
-                          return <div key={group.id} style={{ color: '#a8b3bd' }}>{group.name} • {segment?.name || 'Segment'} • Check: {checkMeter?.meter_number || '—'}</div>
+                          return <div key={group.id} style={{ color: '#a8b3bd' }}>{group.name} • {segment?.name || 'Segment'} • Check: {checkMeter ? getMeterDisplayName(checkMeter).main : '—'}{checkMeter && getMeterDisplayName(checkMeter).secondary ? ` (${getMeterDisplayName(checkMeter).secondary})` : ''}</div>
                         })}
                       </div>
                     </div>
@@ -8227,18 +8263,20 @@ async function saveUserRole() {
                         Build equations like Side A = gathering check meters + truck LACTs, Side B = outbound check meters. The app calculates Side A - Side B.
                       </p>
                       <input style={input} placeholder="Equation Name (example: BSRNG Station Outbound)" value={newBalanceEquationName} onChange={(e) => setNewBalanceEquationName(e.target.value)} />
-                      <select style={input} value={newBalanceEquationSegmentId} onChange={(e) => { setNewBalanceEquationSegmentId(e.target.value); setNewEquationSideAMeterIds([]); setNewEquationSideBMeterIds([]); setNewEquationSideACheckGroupIds([]); setNewEquationSideBCheckGroupIds([]) }}>
+                      <select style={input} value={newBalanceEquationSegmentId} onChange={(e) => { setNewBalanceEquationSegmentId(e.target.value); setNewEquationSideAMeterIds([]); setNewEquationSideBMeterIds([]); setNewEquationSideACheckGroupIds([]); setNewEquationSideBCheckGroupIds([]); setEquationMeterSearch('') }}>
                         <option value="">Select Segment</option>
                         {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
                       </select>
                       {newBalanceEquationSegmentId && (
+                        <>
+                        <input style={input} placeholder="Search lease or meter for equation..." value={equationMeterSearch} onChange={(e) => setEquationMeterSearch(e.target.value)} />
                         <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                           <div style={box}>
                             <strong>Side A Adders</strong>
                             <div style={{ color: '#a8b3bd', margin: '6px 0' }}>Meters</div>
-                            {meters.filter((meter: any) => String(meter.segment_id || '') === String(newBalanceEquationSegmentId)).map((meter: any) => (
-                              <label key={`a-meter-${meter.id}`} style={{ display: 'block', marginBottom: 6 }}>
-                                <input type="checkbox" checked={newEquationSideAMeterIds.includes(meter.id)} onChange={(e) => toggleStringSelection(setNewEquationSideAMeterIds, meter.id, e.target.checked)} /> {meter.meter_number || meter.meter_name}
+                            {meters.filter((meter: any) => String(meter.segment_id || '') === String(newBalanceEquationSegmentId) && meterMatchesSearch(meter, equationMeterSearch)).map((meter: any) => (
+                              <label key={`a-meter-${meter.id}`} style={{ ...box, display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                                <input type="checkbox" checked={newEquationSideAMeterIds.includes(meter.id)} onChange={(e) => toggleStringSelection(setNewEquationSideAMeterIds, meter.id, e.target.checked)} /> <MeterChoiceLabel meter={meter} />
                               </label>
                             ))}
                             <div style={{ color: '#a8b3bd', margin: '8px 0 6px' }}>Check Groups (uses check meter total)</div>
@@ -8253,9 +8291,9 @@ async function saveUserRole() {
                           <div style={box}>
                             <strong>Side B Subtractors</strong>
                             <div style={{ color: '#a8b3bd', margin: '6px 0' }}>Meters</div>
-                            {meters.filter((meter: any) => String(meter.segment_id || '') === String(newBalanceEquationSegmentId)).map((meter: any) => (
-                              <label key={`b-meter-${meter.id}`} style={{ display: 'block', marginBottom: 6 }}>
-                                <input type="checkbox" checked={newEquationSideBMeterIds.includes(meter.id)} onChange={(e) => toggleStringSelection(setNewEquationSideBMeterIds, meter.id, e.target.checked)} /> {meter.meter_number || meter.meter_name}
+                            {meters.filter((meter: any) => String(meter.segment_id || '') === String(newBalanceEquationSegmentId) && meterMatchesSearch(meter, equationMeterSearch)).map((meter: any) => (
+                              <label key={`b-meter-${meter.id}`} style={{ ...box, display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                                <input type="checkbox" checked={newEquationSideBMeterIds.includes(meter.id)} onChange={(e) => toggleStringSelection(setNewEquationSideBMeterIds, meter.id, e.target.checked)} /> <MeterChoiceLabel meter={meter} />
                               </label>
                             ))}
                             <div style={{ color: '#a8b3bd', margin: '8px 0 6px' }}>Check Groups (uses check meter total)</div>
@@ -8266,6 +8304,7 @@ async function saveUserRole() {
                             ))}
                           </div>
                         </div>
+                        </>
                       )}
                       <button style={button} onClick={() => runSafeAction('Saving balance equation', saveBalanceEquation)}>Save Balance Equation</button>
                       <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>

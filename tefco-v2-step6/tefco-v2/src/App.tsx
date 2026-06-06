@@ -1370,9 +1370,7 @@ const provingCompliancePercent =
   const selectedTicketLeaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(selectedLease))
   const selectedTicketProducerRow: any = asArray(producers).find((producer: any) => String(producer.id || '') === String(selectedTicketLeaseRow?.producer_id || ''))
 
-  const contractSegments = contractAreaId
-    ? asArray(segments).filter((segment: any) => String(segment.area_id || '') === String(contractAreaId) && segment.active !== false)
-    : []
+  const contractSegments = contractAreaId ? getVisibleSegments(contractAreaId) : []
   const contractLeases = contractSegmentId ? sortLeasesForDropdown(getVisibleLeases(contractSegmentId)) : []
   const selectedContractLeaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(contractLeaseId))
   const selectedContractProducerRow: any = asArray(producers).find((producer: any) => String(producer.id || '') === String(selectedContractLeaseRow?.producer_id || ''))
@@ -9422,8 +9420,8 @@ async function saveUserRole() {
                   }}
                 >
                   <option value="">Select Area</option>
-                  {areas.filter((area: any) => (area as any).active !== false).map((area: any) => (
-                    <option key={area.id} value={area.id}>{area.name}</option>
+                  {getVisibleAreas().map((area: any) => (
+                    <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
                   ))}
                 </select>
 

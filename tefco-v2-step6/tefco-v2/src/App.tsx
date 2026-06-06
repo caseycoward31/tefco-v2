@@ -743,8 +743,9 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [showActiveUsers, setShowActiveUsers] = useState(false)
   const [showCompanyBranding, setShowCompanyBranding] = useState(true)
   const [showUserManagement, setShowUserManagement] = useState(true)
-  const [showContractProfiles, setShowContractProfiles] = useState(false)
-  const [showCompanySetupHub, setShowCompanySetupHub] = useState(false)
+  const [showContractProfiles, setShowContractProfiles] = useState(true)
+  const [showCompanySetupHub, setShowCompanySetupHub] = useState(true)
+  const [adminSection, setAdminSection] = useState<'company' | 'users' | 'contracts' | 'hierarchy' | 'meters' | 'checks' | 'equations' | 'imports' | 'tanks'>('company')
   const [newCheckGroupName, setNewCheckGroupName] = useState('')
   const [newCheckGroupSegmentId, setNewCheckGroupSegmentId] = useState('')
   const [newCheckGroupCheckMeterId, setNewCheckGroupCheckMeterId] = useState('')
@@ -8224,10 +8225,15 @@ async function saveUserRole() {
               background: 'linear-gradient(135deg, rgba(15,23,42,.98), rgba(2,6,23,.98))'
             }}>
               {[
-                ['admin-company', 'Company', 'Branding / company setup'],
-                ['admin-users', 'Users', 'Roles / active users'],
-                ['admin-contracts', 'Contracts', 'Lease API profiles'],
-                ['admin-setup-hub', 'Hierarchy', 'Areas / segments / meters'],
+                ['company', 'Company', 'Branding / company setup'],
+                ['users', 'Users', 'Roles / active users'],
+                ['contracts', 'Contracts', 'Lease API profiles'],
+                ['hierarchy', 'Hierarchy', 'Areas / segments / leases'],
+                ['meters', 'Meters', 'Meter roles / product types'],
+                ['checks', 'Check Groups', 'Meter balancing groups'],
+                ['equations', 'Station Equations', 'Side A / Side B balances'],
+                ['imports', 'Imports', 'CSV / truck imports'],
+                ['tanks', 'Tanks / Line Fill', 'Inventory assets / strapping'],
               ].map(([targetId, title, desc]) => (
                 <button
                   key={targetId}
@@ -8238,7 +8244,7 @@ async function saveUserRole() {
                     background: 'rgba(15, 23, 42, .92)',
                     border: '1px solid rgba(148,163,184,.22)'
                   }}
-                  onClick={() => document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  onClick={() => setAdminSection(targetId as any)}
                 >
                   <div style={{ fontSize: 16, fontWeight: 800 }}>{title}</div>
                   <div style={{ fontSize: 12, opacity: .72, marginTop: 4 }}>{desc}</div>
@@ -8247,7 +8253,7 @@ async function saveUserRole() {
             </div>
 
             {userIsSuperAdmin && (
-              <div id="admin-company" style={box}>
+              <div id="admin-company" style={adminSection === 'company' ? box : { display: 'none' }}>
                 <h2>Super Admin: Companies</h2>
                 <p style={{ color: '#a8b3bd' }}>
                   Create customer companies and assign the first company admin.
@@ -8328,7 +8334,7 @@ async function saveUserRole() {
               </div>
             )}
 
-            <div id="admin-branding" style={box}>
+            <div id="admin-branding" style={adminSection === 'company' ? box : { display: 'none' }}>
               <button
                 style={sectionToggle}
                 onClick={() => setShowCompanyBranding(!showCompanyBranding)}
@@ -8417,7 +8423,7 @@ async function saveUserRole() {
               )}
             </div>
 
-            <div id="admin-users" style={box}>
+            <div id="admin-users" style={adminSection === 'users' ? box : { display: 'none' }}>
               <button
                 style={sectionToggle}
                 onClick={() => setShowUserManagement(!showUserManagement)}
@@ -8532,7 +8538,7 @@ async function saveUserRole() {
               )}
             </div>
 
-            <div id="admin-contracts" style={box}>
+            <div id="admin-contracts" style={adminSection === 'contracts' ? box : { display: 'none' }}>
               <button
                 style={sectionToggle}
                 onClick={() => setShowContractProfiles(!showContractProfiles)}
@@ -8707,13 +8713,13 @@ async function saveUserRole() {
               </div>
             )}
 
-<div id="admin-setup-hub" style={box}>
+<div id="admin-setup-hub" style={(['hierarchy', 'meters', 'checks', 'equations', 'imports', 'tanks'] as any[]).includes(adminSection) ? box : { display: 'none' }}>
               <button
                 style={sectionToggle}
                 onClick={() => setShowCompanySetupHub(!showCompanySetupHub)}
               >
-                <span>{showCompanySetupHub ? '▼' : '▶'} Company Setup Hub</span>
-                <span>Areas / Leases / Meters</span>
+                <span>{showCompanySetupHub ? '▼' : '▶'} {adminSection === 'hierarchy' ? 'Hierarchy Setup' : adminSection === 'meters' ? 'Meter Master Roles' : adminSection === 'checks' ? 'Check Meter Groups' : adminSection === 'equations' ? 'Station / Balance Equations' : adminSection === 'imports' ? 'Imports' : 'Tanks / Line Fill'}</span>
+                <span>Focused setup</span>
               </button>
 
               {showCompanySetupHub && (
@@ -8723,12 +8729,12 @@ async function saveUserRole() {
                   </p>
 
                   <div style={adminGrid}>
-                    <button style={button} onClick={() => setPage('areas')}>Manage Areas</button>
-                    <button style={button} onClick={() => setPage('segments')}>Manage Segments</button>
-                    <button style={button} onClick={() => setPage('leases')}>Manage Leases</button>
-                    <button style={button} onClick={() => setPage('producers')}>Manage Producers</button>
-                    <button style={button} onClick={() => setPage('meters')}>Manage Meters</button>
-                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                    <button style={adminSection === 'hierarchy' ? button : { display: 'none' }} onClick={() => setPage('areas')}>Manage Areas</button>
+                    <button style={adminSection === 'hierarchy' ? button : { display: 'none' }} onClick={() => setPage('segments')}>Manage Segments</button>
+                    <button style={adminSection === 'hierarchy' ? button : { display: 'none' }} onClick={() => setPage('leases')}>Manage Leases</button>
+                    <button style={adminSection === 'hierarchy' ? button : { display: 'none' }} onClick={() => setPage('producers')}>Manage Producers</button>
+                    <button style={adminSection === 'hierarchy' ? button : { display: 'none' }} onClick={() => setPage('meters')}>Manage Meters</button>
+                    <div style={{ ...(adminSection === 'imports' ? card : { display: 'none' }), gridColumn: '1 / -1' }}>
                       <h3>Import Meters CSV</h3>
                       <p style={{ color: '#a8b3bd' }}>
                         CSV headers supported: area, segment, producer, lease, meter_number.
@@ -8751,7 +8757,7 @@ async function saveUserRole() {
                       </p>
                     </div>
 
-                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                    <div style={{ ...(adminSection === 'meters' ? card : { display: 'none' }), gridColumn: '1 / -1' }}>
                       <h3>Balance Center V3 - Meter Master Roles</h3>
                       <p style={{ color: '#a8b3bd' }}>
                         Pick one meter, set its role/product, and save. This keeps the admin screen clean while readings and O/S still use Meter Master automatically.
@@ -8856,7 +8862,7 @@ async function saveUserRole() {
                       })()}
                     </div>
 
-                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                    <div style={{ ...(adminSection === 'checks' ? card : { display: 'none' }), gridColumn: '1 / -1' }}>
                       <h3>Check Meter Groups</h3>
                       <p style={{ color: '#a8b3bd' }}>
                         Group receipt/delivery meters and compare them to a selected check meter inside the same segment.
@@ -8894,7 +8900,7 @@ async function saveUserRole() {
                       </div>
                     </div>
 
-                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                    <div style={{ ...(adminSection === 'equations' ? card : { display: 'none' }), gridColumn: '1 / -1' }}>
                       <h3>Station / Balance Equations</h3>
                       <p style={{ color: '#a8b3bd' }}>
                         Build equations like Side A = gathering check meters + truck LACTs, Side B = outbound check meters. The app calculates Side A - Side B.
@@ -8952,7 +8958,7 @@ async function saveUserRole() {
                       </div>
                     </div>
 
-                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                    <div style={{ ...(adminSection === 'imports' ? card : { display: 'none' }), gridColumn: '1 / -1' }}>
                       <h3>Flow-X Truck Ticket CSV Import</h3>
                       <p style={{ color: '#a8b3bd' }}>
                         Import Flow-X LACT truck CSV rows and split each load into up to 4 customer draft truck tickets.
@@ -9081,7 +9087,7 @@ async function saveUserRole() {
                       </button>
                     </div>
 
-                    <div style={{ ...card, gridColumn: '1 / -1' }}>
+                    <div style={{ ...(adminSection === 'tanks' ? card : { display: 'none' }), gridColumn: '1 / -1' }}>
                       <h3>Tank / Line Fill Setup</h3>
                       <p style={{ color: '#a8b3bd' }}>
                         Tanks and line fills are company-specific assets. Strapping charts are uploaded per tank as calibration versions.

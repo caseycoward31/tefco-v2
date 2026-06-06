@@ -616,6 +616,10 @@ function App() {
   const [newContractMf, setNewContractMf] = useState('1')
   const [newContractApiVersion, setNewContractApiVersion] = useState('api_11_1_2021')
   const [newContractCorrectionSource, setNewContractCorrectionSource] = useState('app_calculated')
+  const [contractAreaId, setContractAreaId] = useState('')
+  const [contractSegmentId, setContractSegmentId] = useState('')
+  const [contractLeaseId, setContractLeaseId] = useState('')
+  const [contractProductGroup, setContractProductGroup] = useState('crude')
   const [apiTesterVersion, setApiTesterVersion] = useState('api_11_1_2021')
   const [apiTesterGravity, setApiTesterGravity] = useState('40')
   const [apiTesterTemp, setApiTesterTemp] = useState('80')
@@ -1365,6 +1369,13 @@ const provingCompliancePercent =
   const filteredMeters = sortMetersForDropdown(selectedTicketLeaseMeters)
   const selectedTicketLeaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(selectedLease))
   const selectedTicketProducerRow: any = asArray(producers).find((producer: any) => String(producer.id || '') === String(selectedTicketLeaseRow?.producer_id || ''))
+
+  const contractSegments = contractAreaId
+    ? asArray(segments).filter((segment: any) => String(segment.area_id || '') === String(contractAreaId) && segment.active !== false)
+    : []
+  const contractLeases = contractSegmentId ? sortLeasesForDropdown(getVisibleLeases(contractSegmentId)) : []
+  const selectedContractLeaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(contractLeaseId))
+  const selectedContractProducerRow: any = asArray(producers).find((producer: any) => String(producer.id || '') === String(selectedContractLeaseRow?.producer_id || ''))
 
   const selectedPotSegmentLeases = selectedPotSegment ? getVisibleLeases(selectedPotSegment) : []
   const filteredPotLeases = sortLeasesForDropdown(selectedPotSegmentLeases)
@@ -5081,22 +5092,54 @@ async function createCompany() {
   async function saveContractProfile() {
     const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
     if (!activeCompanyID) return alert('No company selected.')
-    if (!newContractName) return alert('Enter a contract name.')
-    const { error } = await supabase.from('contract_profiles').upsert({
+    if (!contractAreaId) return alert('Select an area.')
+    if (!contractSegmentId) return alert('Select a segment.')
+    if (!contractLeaseId) return alert('Select a lease.')
+
+    const leaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(contractLeaseId))
+    const producerRow: any = asArray(producers).find((producer: any) => String(producer.id || '') === String(leaseRow?.producer_id || ''))
+    const leaseLabel = String(leaseRow?.lease_name || leaseRow?.name || leaseRow?.lease_number || 'Lease Contract').trim()
+    const apiLabel = getApiVersionLabel(newContractApiVersion) || newContractApiVersion
+    const contractDisplayName = `${leaseLabel} — ${apiLabel}`
+
+    const payload: any = {
       company_id: activeCompanyID,
-      contract_name: newContractName.trim(),
-      transporter_name: newContractTransporter.trim() || newContractName.trim(),
+      area_id: contractAreaId,
+      segment_id: contractSegmentId,
+      lease_id: contractLeaseId,
+      producer_id: leaseRow?.producer_id || null,
+      contract_name: contractDisplayName,
+      name: contractDisplayName,
+      transporter_name: producerRow?.name || leaseLabel,
+      product_group: contractProductGroup,
       calculation_method: newContractMethod,
       meter_factor: Number(newContractMf || 1),
       api_version: newContractApiVersion,
+      standard: apiLabel,
       correction_source: newContractCorrectionSource,
+      active: true,
       is_active: true,
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'company_id,contract_name' })
-    if (error) return alert('Could not save contract profile: ' + error.message)
-    setNewContractName(''); setNewContractTransporter(''); setNewContractMf('1'); setNewContractMethod('chapter12_2021')
+    }
+
+    const existingProfile: any = asArray(contractProfiles).find((profile: any) =>
+      String(profile.lease_id || '') === String(contractLeaseId) && profile.active !== false && profile.is_active !== false
+    )
+
+    const result = existingProfile?.id
+      ? await supabase.from('contract_profiles').update(payload).eq('id', existingProfile.id)
+      : await supabase.from('contract_profiles').insert(payload)
+
+    if (result.error) return alert('Could not save lease contract profile: ' + result.error.message)
+
+    setContractLeaseId('')
+    setNewContractMf('1')
+    setNewContractMethod('chapter12_2021')
+    setNewContractApiVersion('api_11_1_2021')
+    setNewContractCorrectionSource('app_calculated')
+    setContractProductGroup('crude')
     await loadContractProfiles()
-    alert('Contract profile saved.')
+    alert('Lease contract profile saved.')
   }
 
   async function deleteContractProfile(profileId: string) {
@@ -9362,46 +9405,123 @@ async function saveUserRole() {
 
         {page === 'contracts' && (
           <>
-            <h1>Contract Profiles</h1>
+            <h1>Lease Contract Profiles</h1>
             <div style={box}>
-              <h2>Create / Update Contract Profile</h2>
-              <p style={{ color: '#a8b3bd' }}>API 11.1 routing: 2004 / 2007 / 2019 use IV × CCF; 2021 uses IV × CTL × CPL × MF. IV/GSV/NSV round to 1 decimal.</p>
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-                <input style={input} placeholder="Contract Name" value={newContractName} onChange={(e) => setNewContractName(e.target.value)} />
-                <input style={input} placeholder="Transporter Name" value={newContractTransporter} onChange={(e) => setNewContractTransporter(e.target.value)} />
+              <h2>Create / Update Lease API Profile</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Select the lease from the same Area → Segment → Lease workflow used throughout the app. Producer auto-fills from the lease, then the selected API profile controls ticket calculation routing.
+              </p>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }}>
+                <select
+                  style={input}
+                  value={contractAreaId}
+                  onChange={(e) => {
+                    setContractAreaId(e.target.value)
+                    setContractSegmentId('')
+                    setContractLeaseId('')
+                  }}
+                >
+                  <option value="">Select Area</option>
+                  {areas.filter((area: any) => (area as any).active !== false).map((area: any) => (
+                    <option key={area.id} value={area.id}>{area.name}</option>
+                  ))}
+                </select>
+
+                <select
+                  style={input}
+                  value={contractSegmentId}
+                  disabled={!contractAreaId}
+                  onChange={(e) => {
+                    setContractSegmentId(e.target.value)
+                    setContractLeaseId('')
+                  }}
+                >
+                  <option value="">{contractAreaId ? 'Select Segment' : 'Select area first'}</option>
+                  {contractSegments.map((segment: any) => (
+                    <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
+                  ))}
+                </select>
+
+                <select
+                  style={input}
+                  value={contractLeaseId}
+                  disabled={!contractSegmentId}
+                  onChange={(e) => setContractLeaseId(e.target.value)}
+                >
+                  <option value="">{contractSegmentId ? 'Select Lease' : 'Select segment first'}</option>
+                  {contractLeases.map((lease: any) => (
+                    <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                  ))}
+                </select>
+
+                <div style={card}>
+                  <strong>Producer:</strong> {selectedContractProducerRow?.name || 'Auto-fills after lease'}
+                </div>
+              </div>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12, marginTop: 14 }}>
+                <select style={input} value={contractProductGroup} onChange={(e) => setContractProductGroup(e.target.value)}>
+                  <option value="crude">Crude Oil</option>
+                  <option value="refined">Refined Product</option>
+                  <option value="butane">Butane</option>
+                </select>
+
                 <select style={input} value={newContractMethod} onChange={(e) => setNewContractMethod(e.target.value)}>
                   <option value="chapter12_2021">Chapter 12 / 2021</option>
+                  <option value="api_11_1">API 11.1</option>
                   <option value="flowx_summary">Flow-X Summary Volumes</option>
+                  <option value="manual_total">Manual Total / Imported Volume</option>
                 </select>
+
                 <select style={input} value={newContractApiVersion} onChange={(e) => setNewContractApiVersion(e.target.value)}>
-                  <option value="api_11_1_2004">API 11.1 Version: 2004</option>
-                  <option value="api_11_1_2007">API 11.1 Version: 2007</option>
-                  <option value="api_11_1_2019">API 11.1 Version: 2019</option>
-                  <option value="api_11_1_2021">API 11.1 Version: 2021</option>
+                  <option value="api_11_1_1980">Refined API 11.1 / 1980</option>
+                  <option value="api_11_1_2004">API 11.1 / 2004</option>
+                  <option value="api_11_1_2007">API 11.1 / 2007</option>
+                  <option value="api_11_1_2019">API 11.1 / 2019</option>
+                  <option value="api_11_1_2021">API 11.1 / 2021</option>
+                  <option value="chapter12_2021">API Chapter 12 / 2021</option>
+                  <option value="butane_api_2019">Butane API 2019 LPG Ticketing</option>
+                  <option value="butane_mpms_12_3">Butane MPMS 12.3 Shrinkage O/S</option>
                 </select>
+
                 <select style={input} value={newContractCorrectionSource} onChange={(e) => setNewContractCorrectionSource(e.target.value)}>
                   <option value="app_calculated">CTL/CPL: App Calculated</option>
                   <option value="imported_or_pot">CTL/CPL: Imported/POT</option>
                 </select>
-                <input style={input} placeholder="Meter Factor" value={newContractMf} onChange={(e) => setNewContractMf(e.target.value)} />
-                <button style={button} onClick={() => runSafeAction('Saving contract profile', saveContractProfile)}>Save</button>
+
+                <input style={input} placeholder="Default MF / factor" value={newContractMf} onChange={(e) => setNewContractMf(e.target.value)} />
               </div>
+
+              <button style={{ ...button, marginTop: 14 }} onClick={() => runSafeAction('Saving lease contract profile', saveContractProfile)}>
+                Save Lease API Profile
+              </button>
             </div>
+
             <div style={box}>
-              <h2>Saved Contract Profiles</h2>
-              {contractProfiles.length === 0 && <div style={card}>No contract profiles saved yet.</div>}
+              <h2>Saved Lease Contract Profiles</h2>
+              {contractProfiles.length === 0 && <div style={card}>No lease contract profiles saved yet.</div>}
               <div style={{ display: 'grid', gap: 10 }}>
-                {contractProfiles.map((profile: any) => (
-                  <div key={profile.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
-                    <div>
-                      <strong>{(profile as any).contract_name}</strong>
-                      <div style={{ color: '#a8b3bd', marginTop: 4 }}>
-                        Transporter: {(profile as any).transporter_name || '—'} • Method: {(profile as any).calculation_method || 'chapter12_2021'} • API: {(profile as any).api_version || 'api_11_1_2021'} • CTL/CPL: {(profile as any).correction_source || 'app_calculated'} • MF: {(profile as any).meter_factor || 1}
+                {contractProfiles.map((profile: any) => {
+                  const profileLease: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(profile.lease_id || ''))
+                  const profileSegment: any = asArray(segments).find((segment: any) => String(segment.id || '') === String(profile.segment_id || profileLease?.segment_id || ''))
+                  const profileArea: any = asArray(areas).find((area: any) => String(area.id || '') === String(profile.area_id || profileLease?.area_id || ''))
+                  const profileProducer: any = asArray(producers).find((producer: any) => String(producer.id || '') === String(profile.producer_id || profileLease?.producer_id || ''))
+
+                  return (
+                    <div key={profile.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                      <div>
+                        <strong>{profileLease?.lease_name || profileLease?.name || profile.contract_name || profile.name}</strong>
+                        <div style={{ color: '#a8b3bd', marginTop: 4 }}>
+                          {profileArea?.name || 'Area —'} • {profileSegment?.name || profileSegment?.segment_name || 'Segment —'} • Producer: {profileProducer?.name || profile.transporter_name || '—'}
+                        </div>
+                        <div style={{ color: '#a8b3bd', marginTop: 4 }}>
+                          Product: {profile.product_group || 'crude'} • Method: {profile.calculation_method || 'chapter12_2021'} • API: {profile.standard || getApiVersionLabel(profile.api_version || '') || profile.api_version || '—'} • CTL/CPL: {profile.correction_source || 'app_calculated'} • Factor: {profile.meter_factor || 1}
+                        </div>
                       </div>
+                      <button style={{ ...button, background: '#dc2626', width: 120 }} onClick={() => deleteContractProfile(profile.id)}>Delete</button>
                     </div>
-                    <button style={{ ...button, background: '#dc2626', width: 120 }} onClick={() => deleteContractProfile(profile.id)}>Delete</button>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           </>

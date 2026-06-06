@@ -787,6 +787,14 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
   const [openApprovedTicketMonths, setOpenApprovedTicketMonths] = useState<Record<string, boolean>>({})
   const [openWorkflowTicketGroups, setOpenWorkflowTicketGroups] = useState<Record<string, boolean>>({})
+  const [ticketWorkflowTab, setTicketWorkflowTab] = useState<'create' | 'drafts' | 'pending' | 'approved'>('create')
+  const [ticketOpenDate, setTicketOpenDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [ticketOpenTime, setTicketOpenTime] = useState('07:00')
+  const [ticketCloseDate, setTicketCloseDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [ticketCloseTime, setTicketCloseTime] = useState(() => {
+    const now = new Date()
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  })
 
   const [newArea, setNewArea] = useState('')
   const [newSegment, setNewSegment] = useState('')
@@ -2662,6 +2670,8 @@ function handleProvingAreaSelect(areaId: string) {
       : null
 
     const previousClosingReading = getPreviousClosingForLease(selectedLease, selectedMeter)
+    const ticketOpenDateTime = ticketOpenDate ? `${ticketOpenDate}T${ticketOpenTime || '00:00'}` : null
+    const ticketCloseDateTime = ticketCloseDate ? `${ticketCloseDate}T${ticketCloseTime || '00:00'}` : null
     const openingReading = Number(previousClosingReading || 0)
     const closingReading = Number(manualClosingReading || latestReading?.indicated_volume || 0)
 
@@ -2754,6 +2764,8 @@ function handleProvingAreaSelect(areaId: string) {
       line_fill_id: selectedLineFill || null,
       opening_reading: openingReading || null,
       closing_reading: closingReading || null,
+      open_datetime: ticketOpenDateTime,
+      close_datetime: ticketCloseDateTime,
       opening_gauge: tankTicketSnapshot?.openingGaugeDecimal ?? (openingGauge ? Number(openingGauge) : null),
       closing_gauge: tankTicketSnapshot?.closingGaugeDecimal ?? (closingGauge ? Number(closingGauge) : null),
       movement_direction: ticketType === 'tank' ? tankMovementDirection : null,
@@ -2785,6 +2797,12 @@ function handleProvingAreaSelect(areaId: string) {
         lease_id: selectedLease || null,
         opening_reading: openingReading || null,
         closing_reading: closingReading || null,
+        open_datetime: ticketOpenDateTime,
+        close_datetime: ticketCloseDateTime,
+        open_date: ticketOpenDate || null,
+        open_time: ticketOpenTime || null,
+        close_date: ticketCloseDate || null,
+        close_time: ticketCloseTime || null,
         previous_closing_source: previousClosingReading ? 'previous_approved_ticket_for_lease' : 'none',
         tank_id: selectedTank || null,
         line_fill_id: selectedLineFill || null,
@@ -7706,9 +7724,35 @@ async function saveUserRole() {
         }
         .ticket-workspace {
           display: grid;
-          grid-template-columns: minmax(360px, 0.85fr) minmax(0, 1.15fr);
+          grid-template-columns: 1fr;
           gap: 18px;
           align-items: start;
+        }
+        .ticket-tabs {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 10px;
+          margin: 0 0 18px 0;
+        }
+        .ticket-tab {
+          border: 1px solid rgba(255,255,255,0.10);
+          background: linear-gradient(145deg, rgba(20,25,28,0.95), rgba(9,13,16,0.95));
+          color: #f8fafc;
+          border-radius: 16px;
+          padding: 14px 16px;
+          cursor: pointer;
+          font-weight: 800;
+          text-align: center;
+        }
+        .ticket-tab.active {
+          background: linear-gradient(145deg, #f05f63, #8f2e34);
+          border-color: rgba(255,125,130,0.85);
+          box-shadow: 0 12px 32px rgba(240,95,99,0.22);
+        }
+        .ticket-create-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
         }
         .ticket-panel-sticky {
           position: sticky;
@@ -7752,6 +7796,8 @@ async function saveUserRole() {
           .ticket-command-header { align-items: stretch; flex-direction: column; }
           .ticket-kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
           .ticket-workspace { grid-template-columns: 1fr; }
+          .ticket-tabs { grid-template-columns: 1fr 1fr; }
+          .ticket-create-grid { grid-template-columns: 1fr; }
           .ticket-panel-sticky { position: static; }
           .ticket-queue-card { grid-template-columns: 1fr; }
           .ticket-action-bar { position: sticky; top: 72px; z-index: 70; }
@@ -10227,6 +10273,13 @@ async function saveUserRole() {
               <div className="ticket-kpi-card"><div className="ticket-muted">Draft NSV</div><strong>{getDraftWorkflowTickets().reduce((sum: number, ticket: any) => sum + Number((ticket.calculation_results || {}).nsv ?? (ticket.observed_inputs || {}).net_volume_bbl ?? 0), 0).toFixed(2)}</strong></div>
             </div>
 
+            <div className="ticket-tabs">
+              <button type="button" className={`ticket-tab ${ticketWorkflowTab === 'create' ? 'active' : ''}`} onClick={() => setTicketWorkflowTab('create')}>➕ Create Ticket</button>
+              <button type="button" className={`ticket-tab ${ticketWorkflowTab === 'drafts' ? 'active' : ''}`} onClick={() => setTicketWorkflowTab('drafts')}>📋 Drafts ({getDraftWorkflowTickets().filter((t: any) => (t.status || 'draft') === 'draft').length})</button>
+              <button type="button" className={`ticket-tab ${ticketWorkflowTab === 'pending' ? 'active' : ''}`} onClick={() => setTicketWorkflowTab('pending')}>⏳ Pending ({getDraftWorkflowTickets().filter((t: any) => (t.status || '') !== 'draft').length})</button>
+              <button type="button" className={`ticket-tab ${ticketWorkflowTab === 'approved' ? 'active' : ''}`} onClick={() => setTicketWorkflowTab('approved')}>✅ Approved ({getApprovedTickets().length})</button>
+            </div>
+
 {selectedTicket && (
               <div style={box}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -10341,7 +10394,8 @@ async function saveUserRole() {
 
 
             <div className="ticket-workspace">
-              <div className="ticket-panel-sticky">
+              {ticketWorkflowTab === 'create' && (
+              <div>
             {hasLocalTicketDraft && (
               <div style={card}>
                 <strong>Autosave is active</strong>
@@ -10354,7 +10408,7 @@ async function saveUserRole() {
               </div>
             )}
             <div style={box}>
-              <div className="ticket-section-title"><div><h2 style={{ margin: 0 }}>Create Ticket</h2><div className="ticket-muted">Segment → Lease → Meter. Producer and measurement data auto-fill.</div></div></div>
+              <div className="ticket-section-title"><div><h2 style={{ margin: 0 }}>Create Draft Ticket</h2><div className="ticket-muted">Segment → Lease → Meter. Producer and measurement data auto-fill. Dates stay with the ticket.</div></div><button style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => { setSelectedLease(''); setSelectedMeter(''); setManualClosingReading('') }}>Clear Form</button></div>
               {!shouldHideAreaSelector() ? (
                 <select style={input} value={selectedTicketArea} onChange={(e) => handleTicketAreaSelect(e.target.value)}>
                   <option value="">Select Area</option>
@@ -10382,6 +10436,29 @@ async function saveUserRole() {
               </select>
 
               <div style={card}>Producer: <strong>{selectedTicketProducerRow?.name || (selectedLease ? 'No producer linked' : 'Auto-fills after lease')}</strong></div>
+
+              <div style={card}>
+                <strong>Open / Close Date & Time</strong>
+                <div className="ticket-create-grid" style={{ marginTop: 10 }}>
+                  <label>
+                    <div className="ticket-muted" style={{ marginBottom: 6 }}>Open Date</div>
+                    <input style={input} type="date" value={ticketOpenDate} onChange={(e) => setTicketOpenDate(e.target.value)} />
+                  </label>
+                  <label>
+                    <div className="ticket-muted" style={{ marginBottom: 6 }}>Open Time</div>
+                    <input style={input} type="time" value={ticketOpenTime} onChange={(e) => setTicketOpenTime(e.target.value)} />
+                  </label>
+                  <label>
+                    <div className="ticket-muted" style={{ marginBottom: 6 }}>Close Date</div>
+                    <input style={input} type="date" value={ticketCloseDate} onChange={(e) => setTicketCloseDate(e.target.value)} />
+                  </label>
+                  <label>
+                    <div className="ticket-muted" style={{ marginBottom: 6 }}>Close Time</div>
+                    <input style={input} type="time" value={ticketCloseTime} onChange={(e) => setTicketCloseTime(e.target.value)} />
+                  </label>
+                </div>
+              </div>
+
               <select style={input} value={ticketType} onChange={(e) => setTicketType(e.target.value)}>
                 <option value="meter">Meter Ticket</option>
                 <option value="tank">Tank Ticket</option>
@@ -10495,22 +10572,21 @@ async function saveUserRole() {
                 <div>POT CSW: {autofillPreview?.pot?.csw ?? 'None'}</div>
               </div>
 
-              <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating ticket', async () => { await createTicket(); clearLocalTicketDraft() })}>Auto Build Draft Ticket</button>
+              <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating ticket', async () => { await createTicket(); clearLocalTicketDraft(); setTicketWorkflowTab('drafts') })}>Build Draft Ticket</button>
             </div>
-
-
               </div>
-              <div>
-            {/* All Pending Ticket Approval Queue */}
-            
-            <div style={box}>
-              <div className="ticket-section-title"><h2 style={{ margin: 0 }}>Workflow Queue</h2><span className="ticket-muted">Drafts and submitted tickets</span></div>
-
-              {getDraftWorkflowTickets().length === 0 && (
-                <div style={card}>No draft or submitted tickets waiting.</div>
               )}
 
-              {groupWorkflowTickets(getDraftWorkflowTickets()).map((group: any) => {
+              {(ticketWorkflowTab === 'drafts' || ticketWorkflowTab === 'pending') && (
+              <div>
+            <div style={box}>
+              <div className="ticket-section-title"><h2 style={{ margin: 0 }}>{ticketWorkflowTab === 'drafts' ? 'Draft Tickets' : 'Pending Approval'}</h2><span className="ticket-muted">{ticketWorkflowTab === 'drafts' ? 'Created tickets waiting to be submitted' : 'Submitted tickets waiting for approval'}</span></div>
+
+              {getDraftWorkflowTickets().filter((ticket: any) => ticketWorkflowTab === 'drafts' ? (ticket.status || 'draft') === 'draft' : (ticket.status || '') !== 'draft').length === 0 && (
+                <div style={card}>{ticketWorkflowTab === 'drafts' ? 'No draft tickets waiting.' : 'No tickets pending approval.'}</div>
+              )}
+
+              {groupWorkflowTickets(getDraftWorkflowTickets().filter((ticket: any) => ticketWorkflowTab === 'drafts' ? (ticket.status || 'draft') === 'draft' : (ticket.status || '') !== 'draft')).map((group: any) => {
                 const isOpen = openWorkflowTicketGroups[group.groupKey] ?? true
                 const totalNsv = group.tickets.reduce((sum: number, ticket: any) => {
                   const calc = ticket.calculation_results || {}
@@ -10550,8 +10626,11 @@ async function saveUserRole() {
               })}
             </div>
 
+            </div>
+              )}
 
-
+              {ticketWorkflowTab === 'approved' && (
+              <div>
             <div style={box}>
               <div className="ticket-section-title"><h2 style={{ margin: 0 }}>Approved Tickets</h2><span className="ticket-muted">Monthly archive</span></div>
 
@@ -10597,9 +10676,8 @@ async function saveUserRole() {
                 )
               })}
             </div>
-
-
               </div>
+              )}
             </div>
           </>
         )}

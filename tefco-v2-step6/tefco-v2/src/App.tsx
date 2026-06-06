@@ -7683,6 +7683,80 @@ async function saveUserRole() {
 `}</style>
 <style>{`
         input::placeholder { color: rgba(248,250,252,0.48); }
+
+        .ticket-command-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-end;
+          gap: 18px;
+          margin-bottom: 18px;
+        }
+        .ticket-kpi-row {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+          margin-bottom: 18px;
+        }
+        .ticket-kpi-card {
+          background: linear-gradient(145deg, rgba(20,25,28,1), rgba(9,13,16,1));
+          border: 1px solid rgba(255,255,255,0.10);
+          border-radius: 16px;
+          padding: 14px;
+          box-shadow: 0 10px 24px rgba(0,0,0,0.22);
+        }
+        .ticket-workspace {
+          display: grid;
+          grid-template-columns: minmax(360px, 0.85fr) minmax(0, 1.15fr);
+          gap: 18px;
+          align-items: start;
+        }
+        .ticket-panel-sticky {
+          position: sticky;
+          top: 14px;
+        }
+        .ticket-action-bar {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          align-items: center;
+          padding: 10px;
+          border: 1px solid rgba(255,255,255,0.10);
+          background: rgba(5,11,18,0.62);
+          border-radius: 14px;
+          margin-top: 14px;
+        }
+        .ticket-queue-card {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 12px;
+          align-items: center;
+          border: 1px solid rgba(255,255,255,0.10);
+          background: linear-gradient(145deg, rgba(15,20,23,1), rgba(8,12,15,1));
+          border-radius: 16px;
+          padding: 14px;
+          margin-bottom: 10px;
+        }
+        .ticket-title-tight {
+          overflow-wrap: anywhere;
+          line-height: 1.25;
+        }
+        .ticket-muted { color: #a8b3bd; }
+        .ticket-section-title {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          margin-bottom: 12px;
+        }
+        @media (max-width: 900px) {
+          .ticket-command-header { align-items: stretch; flex-direction: column; }
+          .ticket-kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .ticket-workspace { grid-template-columns: 1fr; }
+          .ticket-panel-sticky { position: static; }
+          .ticket-queue-card { grid-template-columns: 1fr; }
+          .ticket-action-bar { position: sticky; top: 72px; z-index: 70; }
+          .ticket-action-bar button { width: 100% !important; }
+        }
         select option { background: #0b1117; color: #f8fafc; }
         button:hover { filter: brightness(1.08); }
         h1, h2, h3 { color: #f8fafc; }
@@ -10138,62 +10212,20 @@ async function saveUserRole() {
 
         {page === 'tickets' && (
           <>
-            <h1>Ticket Workflow</h1>
-
-            {/* Ticket Debug Counts */}
-            <div style={{ ...card, marginBottom: 12 }}>
-              Total tickets loaded: {getScopedTickets().length} • Pending workflow tickets: {getDraftWorkflowTickets().length}<br /><button style={{ ...button, width: 'auto', marginTop: 8 }} onClick={loadAll}>Force Refresh Tickets</button>
+            <div className="ticket-command-header">
+              <div>
+                <h1 style={{ margin: 0 }}>Tickets</h1>
+                <div className="ticket-muted" style={{ marginTop: 6 }}>Professional ticket workflow. Build, review, approve, and export without touching the measurement calculations.</div>
+              </div>
+              <button style={{ ...button, width: 'auto', minWidth: 180 }} onClick={loadAll}>Refresh Tickets</button>
             </div>
 
-            {/* All Pending Ticket Approval Queue */}
-            
-            <div style={box}>
-              <h2>Workflow Queue</h2>
-
-              {getDraftWorkflowTickets().length === 0 && (
-                <div style={card}>No draft or submitted tickets waiting.</div>
-              )}
-
-              {groupWorkflowTickets(getDraftWorkflowTickets()).map((group: any) => {
-                const isOpen = openWorkflowTicketGroups[group.groupKey] ?? true
-                const totalNsv = group.tickets.reduce((sum: number, ticket: any) => {
-                  const calc = ticket.calculation_results || {}
-                  const observed = ticket.observed_inputs || {}
-                  return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
-                }, 0)
-
-                return (
-                  <div key={group.groupKey} style={{ ...card, marginBottom: 12 }}>
-                    <button
-                      style={{ ...button, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
-                      onClick={() => toggleWorkflowTicketGroup(group.groupKey)}
-                    >
-                      <span>{isOpen ? '▼' : '▶'} {group.label}</span>
-                      <span>{group.tickets.length} tickets • NSV {totalNsv.toFixed(2)}</span>
-                    </button>
-
-                    {isOpen && (
-                      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-                        {group.tickets.map((ticket: any) => (
-                          <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
-                            <div>
-                              <strong>{compactTicketTitle(ticket)}</strong>
-                              <span style={{ ...getTicketStatusStyle(ticket.status), marginLeft: 8 }}>{ticket.status || 'draft'}</span>
-                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
-                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
-                            </div>
-                            <button style={{ ...button, width: 150 }} onClick={() => setSelectedTicket(ticket)}>
-                              Open Ticket
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+            <div className="ticket-kpi-row">
+              <div className="ticket-kpi-card"><div className="ticket-muted">Loaded</div><strong>{getScopedTickets().length}</strong></div>
+              <div className="ticket-kpi-card"><div className="ticket-muted">Workflow</div><strong>{getDraftWorkflowTickets().length}</strong></div>
+              <div className="ticket-kpi-card"><div className="ticket-muted">Approved</div><strong>{getApprovedTickets().length}</strong></div>
+              <div className="ticket-kpi-card"><div className="ticket-muted">Draft NSV</div><strong>{getDraftWorkflowTickets().reduce((sum: number, ticket: any) => sum + Number((ticket.calculation_results || {}).nsv ?? (ticket.observed_inputs || {}).net_volume_bbl ?? 0), 0).toFixed(2)}</strong></div>
             </div>
-
 
 {selectedTicket && (
               <div style={box}>
@@ -10207,7 +10239,7 @@ async function saveUserRole() {
                   <span style={getTicketStatusStyle(selectedTicket!.status)}>{selectedTicket!.status || 'draft'}</span>
                 </div>
 
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
+                <div className="ticket-action-bar">
                   {selectedTicket!.status !== 'approved' && (
                     <button style={{ ...button, width: 'auto', background: '#16a34a' }} onClick={() => runSafeAction('Approving ticket', () => updateTicketStatus(selectedTicket!, 'approved'))}>
                       Approve Ticket
@@ -10306,6 +10338,10 @@ async function saveUserRole() {
                 )}
               </div>
             )}
+
+
+            <div className="ticket-workspace">
+              <div className="ticket-panel-sticky">
             {hasLocalTicketDraft && (
               <div style={card}>
                 <strong>Autosave is active</strong>
@@ -10318,7 +10354,7 @@ async function saveUserRole() {
               </div>
             )}
             <div style={box}>
-              <h3>Create Draft Ticket</h3>
+              <div className="ticket-section-title"><div><h2 style={{ margin: 0 }}>Create Ticket</h2><div className="ticket-muted">Segment → Lease → Meter. Producer and measurement data auto-fill.</div></div></div>
               {!shouldHideAreaSelector() ? (
                 <select style={input} value={selectedTicketArea} onChange={(e) => handleTicketAreaSelect(e.target.value)}>
                   <option value="">Select Area</option>
@@ -10462,8 +10498,62 @@ async function saveUserRole() {
               <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating ticket', async () => { await createTicket(); clearLocalTicketDraft() })}>Auto Build Draft Ticket</button>
             </div>
 
+
+              </div>
+              <div>
+            {/* All Pending Ticket Approval Queue */}
+            
             <div style={box}>
-              <h2>Approved Tickets by Month</h2>
+              <div className="ticket-section-title"><h2 style={{ margin: 0 }}>Workflow Queue</h2><span className="ticket-muted">Drafts and submitted tickets</span></div>
+
+              {getDraftWorkflowTickets().length === 0 && (
+                <div style={card}>No draft or submitted tickets waiting.</div>
+              )}
+
+              {groupWorkflowTickets(getDraftWorkflowTickets()).map((group: any) => {
+                const isOpen = openWorkflowTicketGroups[group.groupKey] ?? true
+                const totalNsv = group.tickets.reduce((sum: number, ticket: any) => {
+                  const calc = ticket.calculation_results || {}
+                  const observed = ticket.observed_inputs || {}
+                  return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                }, 0)
+
+                return (
+                  <div key={group.groupKey} style={{ ...card, marginBottom: 12 }}>
+                    <button
+                      style={{ ...button, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
+                      onClick={() => toggleWorkflowTicketGroup(group.groupKey)}
+                    >
+                      <span>{isOpen ? '▼' : '▶'} {group.label}</span>
+                      <span>{group.tickets.length} tickets • NSV {totalNsv.toFixed(2)}</span>
+                    </button>
+
+                    {isOpen && (
+                      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                        {group.tickets.map((ticket: any) => (
+                          <div key={ticket.id} className="ticket-queue-card">
+                            <div>
+                              <strong className="ticket-title-tight">{compactTicketTitle(ticket)}</strong>
+                              <span style={{ ...getTicketStatusStyle(ticket.status), marginLeft: 8 }}>{ticket.status || 'draft'}</span>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
+                            </div>
+                            <button style={{ ...button, width: 150 }} onClick={() => { setSelectedTicket(ticket); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
+                              Open Ticket
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+
+
+            <div style={box}>
+              <div className="ticket-section-title"><h2 style={{ margin: 0 }}>Approved Tickets</h2><span className="ticket-muted">Monthly archive</span></div>
 
               {getApprovedTickets().length === 0 && (
                 <div style={card}>No approved tickets yet.</div>
@@ -10490,13 +10580,13 @@ async function saveUserRole() {
                     {isOpen && (
                       <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
                         {group.tickets.map((ticket: any) => (
-                          <div key={ticket.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                          <div key={ticket.id} className="ticket-queue-card">
                             <div>
-                              <strong>{compactTicketTitle(ticket)}</strong>
+                              <strong className="ticket-title-tight">{compactTicketTitle(ticket)}</strong>
                               <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
                               <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
                             </div>
-                            <button style={{ ...button, width: 170 }} onClick={() => setSelectedTicket(ticket)}>
+                            <button style={{ ...button, width: 170 }} onClick={() => { setSelectedTicket(ticket); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
                               Open Approved Ticket
                             </button>
                           </div>
@@ -10508,136 +10598,9 @@ async function saveUserRole() {
               })}
             </div>
 
-{selectedTicket && canViewAudit && (
-              <div style={box}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <h2 style={{ margin: 0 }}>Ticket Detail</h2>
-                  <span style={getTicketStatusStyle(selectedTicket!.status)}>{selectedTicket!.status || 'draft'}</span>
-                </div>
-                <div><strong>Ticket:</strong> {selectedTicket!.ticket_number}</div>
-                <div><strong>Locked:</strong> {(selectedTicket as any).is_locked ? 'Yes' : 'No'}</div>
-                <div><strong>Locked At:</strong> {selectedTicket.locked_at || 'N/A'}</div>
-                <div><strong>Status:</strong> {selectedTicket!.status}</div>
-                <div><strong>Type:</strong> {selectedTicket!.ticket_type}</div>
-                <div><strong>Profile:</strong> {selectedTicket.calculation_profile_snapshot?.name || 'None'}</div>
-                <div><strong>Contract Profile:</strong> {selectedTicket!.observed_inputs?.contract_profile_name || selectedTicket.calculation_profile_snapshot?.contract_profile?.name || 'Default'}</div>
-                <div><strong>Calculation Method:</strong> {selectedTicket!.observed_inputs?.calculation_method || selectedTicket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL'}</div>
 
-                {selectedTicket.approved_at && (
-                  <div style={{ color: '#86efac', marginTop: 10 }}>
-                    Approved At: {new Date(selectedTicket.approved_at).toLocaleString()}
-                  </div>
-                )}
-
-                {selectedTicket!.status === 'approved' && (
-                  <div style={{ background: '#14532d', padding: 12, borderRadius: 8, marginTop: 12 }}>
-                    Approved ticket is locked for custody transfer.
-                  </div>
-                )}
-
-                <div style={card}>
-                  <h3>Observed Inputs</h3>
-                  <div>IV: {selectedTicket!.observed_inputs?.iv}</div>
-                  <div>CTL: {selectedTicket!.observed_inputs?.ctl}</div>
-                  <div>CPL: {selectedTicket!.observed_inputs?.cpl}</div>
-                  <div>CTLP: {selectedTicket!.observed_inputs?.ctlp}</div>
-                  <div>{selectedTicket!.observed_inputs?.factor_type || 'MF'}: {selectedTicket!.observed_inputs?.mf}</div>
-                  <div>API Gravity: {selectedTicket!.observed_inputs?.api_gravity}</div>
-                  <div>Temp: {selectedTicket!.observed_inputs?.temperature}</div>
-                  <div>Avg Temp: {selectedTicket!.observed_inputs?.average_temperature}</div>
-                  <div>Avg Pressure: {selectedTicket!.observed_inputs?.average_pressure}</div>
-                  <div>BS&W %: {selectedTicket!.observed_inputs?.bsw_percent}</div>
-                  <div>CSW: {selectedTicket!.observed_inputs?.csw}</div>
-                </div>
-
-                <div style={card}>
-                  <h3>Calculated Results</h3>
-                  <div>CCF: {selectedTicket!.calculation_results?.ccf}</div>
-                  <div>GSV: {selectedTicket!.calculation_results?.gsv}</div>
-                  <div>NSV: {selectedTicket!.calculation_results?.nsv}</div>
-                </div>
-
-                {(selectedTicket as any).is_locked && (
-                  <div
-                    style={{
-                      ...card,
-                      border: '1px solid rgba(234,179,8,0.45)',
-                      background: 'rgba(234,179,8,0.10)',
-                    }}
-                  >
-                    <strong>Locked Ticket</strong>
-                    <div style={{ color: '#fde68a', marginTop: 6 }}>
-                      This ticket is locked. Create a revision if changes are needed.
-                    </div>
-                  </div>
-                )}
-
-                {((selectedTicket as any).revision_number || (selectedTicket as any).is_superseded || (selectedTicket as any).original_ticket_id) && (
-                  <div style={card}>
-                    <h3>Revision Status</h3>
-                    <div>Revision #: {(selectedTicket as any).revision_number ?? 'Original'}</div>
-                    <div>Original Ticket: {(selectedTicket as any).original_ticket_id || 'None'}</div>
-                    <div>Superseded: {(selectedTicket as any).is_superseded ? 'Yes' : 'No'}</div>
-                    {(selectedTicket as any).revision_reason && (
-                      <div>Reason: {(selectedTicket as any).revision_reason}</div>
-                    )}
-                  </div>
-                )}
-
-                <div style={card}>
-                  <h3>Ticket Audit Timeline</h3>
-
-                  {getTicketAuditRows(selectedTicket!.id).length === 0 && (
-                    <div style={{ color: '#a8b3bd' }}>
-                      No audit events recorded yet.
-                    </div>
-                  )}
-
-                  <div style={{ display: 'grid', gap: 12 }}>
-                    {getTicketAuditRows(selectedTicket!.id).map((log: any) => (
-                      <div
-                        key={log.id}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '20px 1fr',
-                          gap: 10,
-                          alignItems: 'flex-start',
-                        }}
-                      >
-                        <div style={timelineDot} />
-                        <div
-                          style={{
-                            paddingBottom: 10,
-                            borderBottom: '1px solid rgba(255,255,255,0.08)',
-                          }}
-                        >
-                          <strong>{getAuditLabel(log)}</strong>
-                          <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                            {formatAuditDate(log.created_at || log.createdAt)}
-                          </div>
-                          {(log.user_email || log.user_id || log.userId) && (
-                            <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                              By: {log.user_email || log.user_id || log.userId}
-                            </div>
-                          )}
-                          {(log.notes || log.note || log.message) && (
-                            <div style={{ marginTop: 6 }}>
-                              {log.notes || log.note || log.message}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Submitting ticket', () => updateTicketStatus(selectedTicket, 'submitted'))}>Submit Ticket</button>
-                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Approving ticket', () => updateTicketStatus(selectedTicket, 'approved'))}>Approve Ticket</button>
-                <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Returning ticket to draft', () => updateTicketStatus(selectedTicket, 'draft'))}>Reject to Draft</button>
-                <button style={{ ...button, background: '#dc2626' }} disabled={isActionRunning} onClick={() => runSafeAction('Voiding ticket', () => updateTicketStatus(selectedTicket, 'voided'))}>Void Ticket</button>
-                <button style={{ ...button, background: '#16a34a' }} disabled={isActionRunning} onClick={() => runSafeAction('Generating PDF preview', () => generatePdfPreview(selectedTicket))}>Generate PDF Preview</button>
               </div>
-            )}
+            </div>
           </>
         )}
                 </>

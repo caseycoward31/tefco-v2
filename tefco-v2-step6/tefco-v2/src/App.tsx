@@ -5083,7 +5083,7 @@ async function createCompany() {
   async function loadContractProfiles() {
     const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
     if (!activeCompanyID) return
-    const { data, error } = await supabase.from('contract_profiles').select('*').eq('company_id', activeCompanyID).order('contract_name')
+    const { data, error } = await supabase.from('contract_profiles').select('*').eq('company_id', activeCompanyID).order('name')
     if (!error) setContractProfiles(data || [])
   }
 
@@ -5106,15 +5106,20 @@ async function createCompany() {
       segment_id: contractSegmentId,
       lease_id: contractLeaseId,
       producer_id: leaseRow?.producer_id || null,
-      contract_name: contractDisplayName,
       name: contractDisplayName,
-      transporter_name: producerRow?.name || leaseLabel,
       product_group: contractProductGroup,
       calculation_method: newContractMethod,
-      meter_factor: Number(newContractMf || 1),
+      factor_type: newContractMethod,
       api_version: newContractApiVersion,
       standard: apiLabel,
       correction_source: newContractCorrectionSource,
+      api_rounding: 1,
+      ctl_rounding: 6,
+      cpl_rounding: 6,
+      ctlp_rounding: 6,
+      volume_rounding: 2,
+      use_pressure: true,
+      use_shrink: contractProductGroup === 'Butane',
       active: true,
       is_active: true,
       updated_at: new Date().toISOString(),

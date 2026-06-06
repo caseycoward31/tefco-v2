@@ -8214,8 +8214,40 @@ async function saveUserRole() {
               </div>
             </div>
 
+            <div style={{
+              ...box,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 12,
+              marginBottom: 16,
+              border: `1px solid ${getCompanyAccentColor()}55`,
+              background: 'linear-gradient(135deg, rgba(15,23,42,.98), rgba(2,6,23,.98))'
+            }}>
+              {[
+                ['admin-company', 'Company', 'Branding / company setup'],
+                ['admin-users', 'Users', 'Roles / active users'],
+                ['admin-contracts', 'Contracts', 'Lease API profiles'],
+                ['admin-setup-hub', 'Hierarchy', 'Areas / segments / meters'],
+              ].map(([targetId, title, desc]) => (
+                <button
+                  key={targetId}
+                  style={{
+                    ...button,
+                    textAlign: 'left',
+                    minHeight: 72,
+                    background: 'rgba(15, 23, 42, .92)',
+                    border: '1px solid rgba(148,163,184,.22)'
+                  }}
+                  onClick={() => document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                >
+                  <div style={{ fontSize: 16, fontWeight: 800 }}>{title}</div>
+                  <div style={{ fontSize: 12, opacity: .72, marginTop: 4 }}>{desc}</div>
+                </button>
+              ))}
+            </div>
+
             {userIsSuperAdmin && (
-              <div style={box}>
+              <div id="admin-company" style={box}>
                 <h2>Super Admin: Companies</h2>
                 <p style={{ color: '#a8b3bd' }}>
                   Create customer companies and assign the first company admin.
@@ -8296,7 +8328,7 @@ async function saveUserRole() {
               </div>
             )}
 
-            <div style={box}>
+            <div id="admin-branding" style={box}>
               <button
                 style={sectionToggle}
                 onClick={() => setShowCompanyBranding(!showCompanyBranding)}
@@ -8385,7 +8417,7 @@ async function saveUserRole() {
               )}
             </div>
 
-            <div style={box}>
+            <div id="admin-users" style={box}>
               <button
                 style={sectionToggle}
                 onClick={() => setShowUserManagement(!showUserManagement)}
@@ -8500,7 +8532,7 @@ async function saveUserRole() {
               )}
             </div>
 
-            <div style={box}>
+            <div id="admin-contracts" style={box}>
               <button
                 style={sectionToggle}
                 onClick={() => setShowContractProfiles(!showContractProfiles)}
@@ -8675,7 +8707,7 @@ async function saveUserRole() {
               </div>
             )}
 
-<div style={box}>
+<div id="admin-setup-hub" style={box}>
               <button
                 style={sectionToggle}
                 onClick={() => setShowCompanySetupHub(!showCompanySetupHub)}

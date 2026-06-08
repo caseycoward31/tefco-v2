@@ -83,6 +83,9 @@ type Proving = {
   producer_id?: string | null
   observed_meter_factor?: number
   accepted_meter_factor?: number
+  mf?: number | null
+  cpl?: number | null
+  calculated_cmf?: number | null
   factor_type?: string
   status: string
   witness?: string
@@ -862,6 +865,7 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [proverVolume, setProverVolume] = useState('')
   const [provingIndicatedVolume, setProvingIndicatedVolume] = useState('')
   const [acceptedMF, setAcceptedMF] = useState('')
+  const [provingCpl, setProvingCpl] = useState('')
   const [provingWitness, setProvingWitness] = useState('')
   const [provingFactorType, setProvingFactorType] = useState('MF')
   const [provingPdfFile, setProvingPdfFile] = useState<File | null>(null)
@@ -2373,6 +2377,10 @@ function handleProvingAreaSelect(areaId: string) {
         : 0
 
     const finalAcceptedMF = roundFactor(Number(acceptedMF || observedMF || 0))
+    const finalCpl = Number(provingCpl || 1)
+    const calculatedCMF = roundFactor(finalAcceptedMF * finalCpl)
+    const finalAcceptedFactor = provingFactorType === 'CMF' ? calculatedCMF : finalAcceptedMF
+    const leaseProducerId = leases.find((l: any) => String(l.id) === String(selectedProvingLease))?.producer_id || meters.find((m: any) => String(m.id) === String(provingMeter))?.producer_id || null
 
     const { data: inserted, error } = await supabase
       .from('meter_provings')
@@ -2381,13 +2389,16 @@ function handleProvingAreaSelect(areaId: string) {
         area_id: selectedProvingArea || null,
         segment_id: selectedProvingSegment || null,
         lease_id: selectedProvingLease || null,
-        producer_id: leases.find((l: any) => String(l.id) === String(selectedProvingLease))?.producer_id || meters.find((m: any) => String(m.id) === String(provingMeter))?.producer_id || null,
+        producer_id: leaseProducerId,
         meter_id: provingMeter,
         proving_date: provingDate,
         prover_volume: Number(proverVolume || 0),
         indicated_volume: Number(provingIndicatedVolume || 0),
         observed_meter_factor: observedMF,
-        accepted_meter_factor: finalAcceptedMF,
+        accepted_meter_factor: finalAcceptedFactor,
+        mf: finalAcceptedMF,
+        cpl: provingFactorType === 'CMF' ? finalCpl : null,
+        calculated_cmf: provingFactorType === 'CMF' ? calculatedCMF : null,
         factor_type: provingFactorType,
         witness: provingWitness,
         status: 'draft',
@@ -2422,6 +2433,7 @@ function handleProvingAreaSelect(areaId: string) {
     setProverVolume('')
     setProvingIndicatedVolume('')
     setAcceptedMF('')
+    setProvingCpl('')
     setProvingWitness('')
     setProvingFactorType('MF')
     setProvingPdfFile(null)
@@ -9779,7 +9791,10 @@ async function saveUserRole() {
               <input style={input} type="date" value={provingDate} onChange={(e) => setProvingDate(e.target.value)} />
               <input style={input} placeholder="Prover Volume" value={proverVolume} onChange={(e) => setProverVolume(e.target.value)} />
               <input style={input} placeholder="Indicated Volume" value={provingIndicatedVolume} onChange={(e) => setProvingIndicatedVolume(e.target.value)} />
-              <input style={input} placeholder="Accepted MF/CMF" value={acceptedMF} onChange={(e) => setAcceptedMF(e.target.value)} />
+              <input style={input} placeholder={provingFactorType === 'CMF' ? 'Accepted MF' : 'Accepted MF'} value={acceptedMF} onChange={(e) => setAcceptedMF(e.target.value)} />
+              {provingFactorType === 'CMF' && (
+                <input style={input} placeholder="CPL for CMF" value={provingCpl} onChange={(e) => setProvingCpl(e.target.value)} />
+              )}
               <input style={input} placeholder="Witness" value={provingWitness} onChange={(e) => setProvingWitness(e.target.value)} />
               <div style={{ ...card, display: 'grid', gap: 10 }}>
                 <strong>Proving Report Capture</strong>
@@ -9814,10 +9829,18 @@ async function saveUserRole() {
                 {provingPdfFile && <div>PDF selected: {provingPdfFile.name}</div>}
               </div>
               <div style={card}>
-                Calculated {provingFactorType}:{' '}
-                {Number(proverVolume || 0) > 0 && Number(provingIndicatedVolume || 0) > 0
-                  ? roundFactor(Number(proverVolume) / Number(provingIndicatedVolume)).toFixed(4)
-                  : '0.0000'}
+                <strong>Calculated {provingFactorType}</strong>:{' '}
+                {(() => {
+                  const mfValue = roundFactor(Number(acceptedMF || (Number(proverVolume || 0) > 0 && Number(provingIndicatedVolume || 0) > 0 ? Number(proverVolume) / Number(provingIndicatedVolume) : 0)) || 0)
+                  const cplValue = Number(provingCpl || 1)
+                  const result = provingFactorType === 'CMF' ? roundFactor(mfValue * cplValue) : mfValue
+                  return result.toFixed(4)
+                })()}
+                {provingFactorType === 'CMF' && (
+                  <div style={{ marginTop: 8, color: '#9ca3af' }}>
+                    CMF = MF × CPL. MF {Number(acceptedMF || observedMF || 0).toFixed(4)} × CPL {Number(provingCpl || 1).toFixed(5)}
+                  </div>
+                )}
               </div>
               <button style={button} onClick={saveProving}>Save Draft Proving</button>
             </div>
@@ -9834,6 +9857,7 @@ async function saveUserRole() {
                     <div>Status: {p.status}</div>
                     <div>Type: {p.factor_type || 'MF'}</div>
                     <div>Accepted {p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>
+                    {p.factor_type === 'CMF' && <div>MF: {Number(p.mf || 0).toFixed(4)} × CPL: {Number(p.cpl || 1).toFixed(5)}</div>}
                     <div>Witness: {p.witness || ''}</div>
                     <div>PDF: {p.pdf_file_name || 'None'}</div>
                     {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}

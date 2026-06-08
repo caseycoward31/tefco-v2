@@ -9838,7 +9838,7 @@ async function saveUserRole() {
                 })()}
                 {provingFactorType === 'CMF' && (
                   <div style={{ marginTop: 8, color: '#9ca3af' }}>
-                    CMF = MF × CPL. MF {Number(acceptedMF || observedMF || 0).toFixed(4)} × CPL {Number(provingCpl || 1).toFixed(5)}
+                    CMF = MF × CPL. MF {Number(acceptedMF || (Number(proverVolume || 0) > 0 && Number(provingIndicatedVolume || 0) > 0 ? Number(proverVolume) / Number(provingIndicatedVolume) : 0) || 0).toFixed(4)} × CPL {Number(provingCpl || 1).toFixed(5)}
                   </div>
                 )}
               </div>

@@ -864,14 +864,13 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [provingDate, setProvingDate] = useState('')
   const [proverVolume, setProverVolume] = useState('')
   const [provingIndicatedVolume, setProvingIndicatedVolume] = useState('')
-  const [observedMFInput, setObservedMFInput] = useState('')
   const [acceptedMF, setAcceptedMF] = useState('')
   const [provingCpl, setProvingCpl] = useState('')
-  const [acceptedCMF, setAcceptedCMF] = useState('')
   const [provingWitness, setProvingWitness] = useState('')
   const [provingFactorType, setProvingFactorType] = useState('MF')
   const [provingPdfFile, setProvingPdfFile] = useState<File | null>(null)
   const [provingPhotoFiles, setProvingPhotoFiles] = useState<File[]>([])
+  const [provingCaptureResetKey, setProvingCaptureResetKey] = useState(0)
 
   const [potSegment, setPotSegment] = useState('')
   const [potProducer, setPotProducer] = useState('')
@@ -2172,11 +2171,31 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
         img.src = objectUrl
       })
 
-      const maxWidth = 1650
+      // Field Scan Mode: make proving report photos look like scanned paperwork.
+      // This keeps the original photo stored separately, but the official proving PDF
+      // gets a bright, high-contrast document image instead of a dark phone snapshot.
+      const pageRatio = 8.5 / 11
+      let sourceX = 0
+      let sourceY = 0
+      let sourceWidth = image.width
+      let sourceHeight = image.height
+      const imageRatio = image.width / image.height
+
+      // Center-crop toward letter paper ratio. This is intentionally conservative so
+      // it does not cut off report numbers if the operator takes the picture slightly angled.
+      if (imageRatio > pageRatio * 1.25) {
+        sourceWidth = Math.round(image.height * pageRatio * 1.15)
+        sourceX = Math.max(0, Math.round((image.width - sourceWidth) / 2))
+      } else if (imageRatio < pageRatio * 0.75) {
+        sourceHeight = Math.round(image.width / pageRatio / 1.05)
+        sourceY = Math.max(0, Math.round((image.height - sourceHeight) / 2))
+      }
+
+      const maxWidth = 1700
       const maxHeight = 2200
-      const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height)
-      const width = Math.max(1, Math.round(image.width * scale))
-      const height = Math.max(1, Math.round(image.height * scale))
+      const scale = Math.min(1, maxWidth / sourceWidth, maxHeight / sourceHeight)
+      const width = Math.max(1, Math.round(sourceWidth * scale))
+      const height = Math.max(1, Math.round(sourceHeight * scale))
       const canvas = document.createElement('canvas')
       canvas.width = width
       canvas.height = height
@@ -2184,8 +2203,30 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       if (!ctx) throw new Error('Could not create image canvas')
       ctx.fillStyle = '#ffffff'
       ctx.fillRect(0, 0, width, height)
-      ctx.drawImage(image, 0, 0, width, height)
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
+      ctx.filter = 'grayscale(1) contrast(1.35) brightness(1.12)'
+      ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, width, height)
+      ctx.filter = 'none'
+
+      // Push near-white pixels to true white and darken ink slightly for a scanner-style output.
+      try {
+        const imageData = ctx.getImageData(0, 0, width, height)
+        const data = imageData.data
+        for (let i = 0; i < data.length; i += 4) {
+          const gray = Math.round((data[i] + data[i + 1] + data[i + 2]) / 3)
+          let adjusted = gray
+          if (gray > 205) adjusted = 255
+          else if (gray < 95) adjusted = Math.max(0, gray - 20)
+          else adjusted = Math.max(0, Math.min(255, Math.round((gray - 128) * 1.18 + 128)))
+          data[i] = adjusted
+          data[i + 1] = adjusted
+          data[i + 2] = adjusted
+        }
+        ctx.putImageData(imageData, 0, 0)
+      } catch (scanError) {
+        console.warn('Scan enhancement skipped:', scanError)
+      }
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
       return { bytes: bytesFromBase64(dataUrl.split(',')[1] || ''), width, height }
     } finally {
       URL.revokeObjectURL(objectUrl)
@@ -2373,17 +2414,15 @@ function handleProvingAreaSelect(areaId: string) {
       return
     }
 
-    const calculatedObservedMF =
+    const observedMF =
       Number(proverVolume || 0) > 0 && Number(provingIndicatedVolume || 0) > 0
         ? roundFactor(Number(proverVolume) / Number(provingIndicatedVolume))
         : 0
 
-    const observedMF = roundFactor(Number(observedMFInput || calculatedObservedMF || 0))
     const finalAcceptedMF = roundFactor(Number(acceptedMF || observedMF || 0))
     const finalCpl = Number(provingCpl || 1)
-    const calculatedCMF = roundFactor(observedMF * finalCpl)
-    const finalAcceptedCMF = roundFactor(Number(acceptedCMF || calculatedCMF || 0))
-    const finalAcceptedFactor = provingFactorType === 'CMF' ? finalAcceptedCMF : finalAcceptedMF
+    const calculatedCMF = roundFactor(finalAcceptedMF * finalCpl)
+    const finalAcceptedFactor = provingFactorType === 'CMF' ? calculatedCMF : finalAcceptedMF
     const leaseProducerId = leases.find((l: any) => String(l.id) === String(selectedProvingLease))?.producer_id || meters.find((m: any) => String(m.id) === String(provingMeter))?.producer_id || null
 
     const { data: inserted, error } = await supabase
@@ -2432,6 +2471,8 @@ function handleProvingAreaSelect(areaId: string) {
       }
     }
 
+    setSelectedProvingSegment('')
+    setSelectedProvingLease('')
     setProvingMeter('')
     setProvingDate('')
     setProverVolume('')
@@ -2442,8 +2483,9 @@ function handleProvingAreaSelect(areaId: string) {
     setProvingFactorType('MF')
     setProvingPdfFile(null)
     setProvingPhotoFiles([])
+    setProvingCaptureResetKey((key) => key + 1)
 
-    alert('Proving saved.')
+    alert('Draft proving saved. Ready for next proving.')
     loadAll()
   }
 
@@ -2465,6 +2507,31 @@ function handleProvingAreaSelect(areaId: string) {
     }
 
     alert('Proving approved.')
+    loadAll()
+  }
+
+  async function deleteDraftProving(proving: Proving) {
+    if (proving.status === 'approved') {
+      alert('Approved provings cannot be deleted here.')
+      return
+    }
+
+    const meter = meters.find((m: any) => String(m.id) === String(proving.meter_id))
+    const ok = window.confirm(`Delete draft proving for ${meter?.meter_number || 'this meter'} on ${proving.proving_date || 'this date'}?`)
+    if (!ok) return
+
+    const { error } = await supabase
+      .from('meter_provings')
+      .delete()
+      .eq('id', proving.id)
+      .neq('status', 'approved')
+
+    if (error) {
+      alert('Could not delete draft proving: ' + error.message)
+      return
+    }
+
+    alert('Draft proving deleted.')
     loadAll()
   }
 
@@ -9795,28 +9862,18 @@ async function saveUserRole() {
               <input style={input} type="date" value={provingDate} onChange={(e) => setProvingDate(e.target.value)} />
               <input style={input} placeholder="Prover Volume" value={proverVolume} onChange={(e) => setProverVolume(e.target.value)} />
               <input style={input} placeholder="Indicated Volume" value={provingIndicatedVolume} onChange={(e) => setProvingIndicatedVolume(e.target.value)} />
-              <input
-                style={input}
-                placeholder="Observed MF (auto from prover / indicated, or type it)"
-                value={observedMFInput}
-                onChange={(e) => setObservedMFInput(e.target.value)}
-              />
-              {provingFactorType === 'MF' && (
-                <input style={input} placeholder="Accepted MF used on tickets" value={acceptedMF} onChange={(e) => setAcceptedMF(e.target.value)} />
-              )}
+              <input style={input} placeholder={provingFactorType === 'CMF' ? 'Accepted MF' : 'Accepted MF'} value={acceptedMF} onChange={(e) => setAcceptedMF(e.target.value)} />
               {provingFactorType === 'CMF' && (
-                <>
-                  <input style={input} placeholder="CPL for CMF" value={provingCpl} onChange={(e) => setProvingCpl(e.target.value)} />
-                  <input style={input} placeholder="Accepted CMF used on tickets" value={acceptedCMF} onChange={(e) => setAcceptedCMF(e.target.value)} />
-                </>
+                <input style={input} placeholder="CPL for CMF" value={provingCpl} onChange={(e) => setProvingCpl(e.target.value)} />
               )}
               <input style={input} placeholder="Witness" value={provingWitness} onChange={(e) => setProvingWitness(e.target.value)} />
               <div style={{ ...card, display: 'grid', gap: 10 }}>
                 <strong>Proving Report Capture</strong>
-                <div style={{ color: '#a8b3bd' }}>Take one or more photos in the field. The app will convert them into one PDF. Office users can still upload an existing PDF.</div>
+                <div style={{ color: '#a8b3bd' }}>Take one or more photos in the field. The app will enhance them into a scanned-style PDF. Office users can still upload an existing PDF.</div>
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span>📸 Take / Choose Proving Report Photos</span>
                   <input
+                    key={`proving-photos-${provingCaptureResetKey}`}
                     style={input}
                     type="file"
                     accept="image/*"
@@ -9828,10 +9885,11 @@ async function saveUserRole() {
                     }}
                   />
                 </label>
-                {provingPhotoFiles.length > 0 && <div>{provingPhotoFiles.length} photo(s) selected. They will be merged into one proving PDF.</div>}
+                {provingPhotoFiles.length > 0 && <div>{provingPhotoFiles.length} photo(s) selected. They will be enhanced and merged into one scanned proving PDF.</div>}
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span>📄 Or Upload Existing Proving PDF</span>
                   <input
+                    key={`proving-pdf-${provingCaptureResetKey}`}
                     style={input}
                     type="file"
                     accept="application/pdf"
@@ -9846,22 +9904,14 @@ async function saveUserRole() {
               <div style={card}>
                 <strong>Calculated {provingFactorType}</strong>:{' '}
                 {(() => {
-                  const autoObservedMF = Number(proverVolume || 0) > 0 && Number(provingIndicatedVolume || 0) > 0 ? roundFactor(Number(proverVolume) / Number(provingIndicatedVolume)) : 0
-                  const observed = roundFactor(Number(observedMFInput || autoObservedMF || 0))
+                  const mfValue = roundFactor(Number(acceptedMF || (Number(proverVolume || 0) > 0 && Number(provingIndicatedVolume || 0) > 0 ? Number(proverVolume) / Number(provingIndicatedVolume) : 0)) || 0)
                   const cplValue = Number(provingCpl || 1)
-                  const calculated = roundFactor(observed * cplValue)
-                  const accepted = provingFactorType === 'CMF'
-                    ? roundFactor(Number(acceptedCMF || calculated || 0))
-                    : roundFactor(Number(acceptedMF || observed || 0))
-                  return accepted.toFixed(4)
+                  const result = provingFactorType === 'CMF' ? roundFactor(mfValue * cplValue) : mfValue
+                  return result.toFixed(4)
                 })()}
                 {provingFactorType === 'CMF' && (
                   <div style={{ marginTop: 8, color: '#9ca3af' }}>
-                    Calculated CMF = Observed MF × CPL = {(() => {
-                      const autoObservedMF = Number(proverVolume || 0) > 0 && Number(provingIndicatedVolume || 0) > 0 ? roundFactor(Number(proverVolume) / Number(provingIndicatedVolume)) : 0
-                      const observed = roundFactor(Number(observedMFInput || autoObservedMF || 0))
-                      return `${observed.toFixed(4)} × ${Number(provingCpl || 1).toFixed(5)} = ${roundFactor(observed * Number(provingCpl || 1)).toFixed(4)}`
-                    })()}
+                    CMF = MF × CPL. MF {Number(acceptedMF || (Number(proverVolume || 0) > 0 && Number(provingIndicatedVolume || 0) > 0 ? Number(proverVolume) / Number(provingIndicatedVolume) : 0) || 0).toFixed(4)} × CPL {Number(provingCpl || 1).toFixed(5)}
                   </div>
                 )}
               </div>
@@ -9885,6 +9935,7 @@ async function saveUserRole() {
                     <div>PDF: {p.pdf_file_name || 'None'}</div>
                     {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
                     <button style={button} onClick={() => approveProving(p)}>Approve Proving</button>
+                    {p.status !== 'approved' && <button style={{ ...button, background: '#7f1d1d' }} onClick={() => deleteDraftProving(p)}>Delete Draft</button>}
                   </div>
                 )
               })}

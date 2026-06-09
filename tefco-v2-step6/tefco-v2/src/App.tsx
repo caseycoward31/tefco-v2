@@ -31,6 +31,8 @@ type Meter = {
   active?: boolean
   lease_id?: string
   producer_id?: string
+  area_id?: string | null
+  segment_id?: string | null
   proving_frequency_days?: number | null
   last_proving_date?: string | null
   next_proving_due?: string | null

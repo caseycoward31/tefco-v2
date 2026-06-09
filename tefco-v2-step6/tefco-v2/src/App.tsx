@@ -795,6 +795,8 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
   const [openApprovedTicketMonths, setOpenApprovedTicketMonths] = useState<Record<string, boolean>>({})
   const [openWorkflowTicketGroups, setOpenWorkflowTicketGroups] = useState<Record<string, boolean>>({})
+  const [openProvingDraftGroups, setOpenProvingDraftGroups] = useState<Record<string, boolean>>({ draft: true, submitted: true })
+  const [provingDraftSearch, setProvingDraftSearch] = useState('')
   const [ticketWorkflowTab, setTicketWorkflowTab] = useState<'create' | 'drafts' | 'pending' | 'approved'>('create')
   const [ticketOpenDate, setTicketOpenDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [ticketOpenTime, setTicketOpenTime] = useState('07:00')
@@ -7656,6 +7658,75 @@ async function saveUserRole() {
     }))
   }
 
+  function getProvingMeter(proving: any) {
+    return meters.find((m: any) => m.id === proving.meter_id)
+  }
+
+  function getProvingLease(proving: any) {
+    const meter = getProvingMeter(proving)
+    return leases.find((l: any) => l.id === (proving.lease_id || meter?.lease_id))
+  }
+
+  function getProvingSegment(proving: any) {
+    const meter = getProvingMeter(proving)
+    const lease = getProvingLease(proving)
+    return segments.find((s: any) => s.id === (proving.segment_id || lease?.segment_id || meter?.segment_id))
+  }
+
+  function getProvingLeaseLabel(proving: any) {
+    const lease = getProvingLease(proving)
+    const meter = getProvingMeter(proving)
+    return lease?.lease_name || lease?.name || meter?.meter_name || meter?.meter_number || 'Unknown Lease'
+  }
+
+  function getProvingMeterLabel(proving: any) {
+    const meter = getProvingMeter(proving)
+    return meter?.meter_number || meter?.meter_name || 'Meter'
+  }
+
+  function getProvingStatusKey(proving: any) {
+    const status = String(proving.status || 'draft').toLowerCase()
+    if (status === 'submitted' || status === 'pending') return 'submitted'
+    return 'draft'
+  }
+
+  function getFilteredPendingProvings() {
+    const search = provingDraftSearch.trim().toLowerCase()
+    return pendingProvings
+      .filter((proving: any) => {
+        if (!search) return true
+        const leaseLabel = getProvingLeaseLabel(proving).toLowerCase()
+        const meterLabel = getProvingMeterLabel(proving).toLowerCase()
+        const segmentLabel = ((getProvingSegment(proving) as any)?.segment_name || (getProvingSegment(proving) as any)?.name || '').toLowerCase()
+        return leaseLabel.includes(search) || meterLabel.includes(search) || segmentLabel.includes(search) || String(proving.proving_number || '').toLowerCase().includes(search)
+      })
+      .sort((a: any, b: any) => new Date(b.proving_date || b.created_at || 0).getTime() - new Date(a.proving_date || a.created_at || 0).getTime())
+  }
+
+  function groupPendingProvings() {
+    const grouped = getFilteredPendingProvings().reduce((acc: Record<string, any[]>, proving: any) => {
+      const key = getProvingStatusKey(proving)
+      if (!acc[key]) acc[key] = []
+      acc[key].push(proving)
+      return acc
+    }, {} as Record<string, any[]>)
+    const order = ['draft', 'submitted']
+    return (Object.entries(grouped) as [string, any[]][])
+      .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
+      .map(([groupKey, items]) => ({
+        groupKey,
+        label: groupKey === 'submitted' ? 'Submitted / Pending Approval' : 'Draft Provings',
+        items,
+      }))
+  }
+
+  function toggleProvingDraftGroup(groupKey: string) {
+    setOpenProvingDraftGroups((prev) => ({
+      ...prev,
+      [groupKey]: !(prev[groupKey] ?? true),
+    }))
+  }
+
   function groupTicketsByMonth(ticketList: any[]) {
     const grouped = ticketList.reduce((acc: Record<string, any[]>, ticket: any) => {
       const key = getTicketMonthKey(ticket)
@@ -9919,23 +9990,92 @@ async function saveUserRole() {
             </div>
 
             <div style={box}>
-              <h2>Needs Approval</h2>
-              {pendingProvings.length === 0 && <div style={card}>No pending provings.</div>}
-              {pendingProvings.map((p) => {
-                const meter = meters.find((m) => m.id === p.meter_id)
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div>
+                  <h2 style={{ margin: 0 }}>Drafts / Needs Approval</h2>
+                  <div style={{ color: '#a8b3bd', marginTop: 4 }}>Lease-name first, grouped by status. Open or delete drafts without scrolling through one long list.</div>
+                </div>
+                <div style={{ ...card, minWidth: 160, textAlign: 'center' }}>
+                  <div style={{ color: '#a8b3bd', fontSize: 12 }}>Open Provings</div>
+                  <strong style={{ fontSize: 24 }}>{pendingProvings.length}</strong>
+                </div>
+              </div>
+
+              <input
+                style={input}
+                placeholder="Search lease, meter, segment, or proving #"
+                value={provingDraftSearch}
+                onChange={(e) => setProvingDraftSearch(e.target.value)}
+              />
+
+              {getFilteredPendingProvings().length === 0 && <div style={card}>No draft or pending provings match this search.</div>}
+
+              {groupPendingProvings().map((group) => {
+                const isOpen = openProvingDraftGroups[group.groupKey] ?? true
                 return (
-                  <div key={p.id} style={card}>
-                    <strong>{meter?.meter_number || 'Meter'}</strong>
-                    <div>Date: {p.proving_date}</div>
-                    <div>Status: {p.status}</div>
-                    <div>Type: {p.factor_type || 'MF'}</div>
-                    <div>Accepted {p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>
-                    {p.factor_type === 'CMF' && <div>MF: {Number(p.mf || 0).toFixed(4)} × CPL: {Number(p.cpl || 1).toFixed(5)}</div>}
-                    <div>Witness: {p.witness || ''}</div>
-                    <div>PDF: {p.pdf_file_name || 'None'}</div>
-                    {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
-                    <button style={button} onClick={() => approveProving(p)}>Approve Proving</button>
-                    {p.status !== 'approved' && <button style={{ ...button, background: '#7f1d1d' }} onClick={() => deleteDraftProving(p)}>Delete Draft</button>}
+                  <div key={group.groupKey} style={{ ...card, padding: 0, overflow: 'hidden' }}>
+                    <button
+                      type="button"
+                      onClick={() => toggleProvingDraftGroup(group.groupKey)}
+                      style={{
+                        ...button,
+                        margin: 0,
+                        borderRadius: 0,
+                        width: '100%',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        background: '#111827',
+                        border: '0',
+                        borderBottom: '1px solid #243244',
+                      }}
+                    >
+                      <span>{isOpen ? '▾' : '▸'} {group.label}</span>
+                      <span>{group.items.length}</span>
+                    </button>
+
+                    {isOpen && (
+                      <div style={{ display: 'grid', gap: 10, padding: 12 }}>
+                        {group.items.map((p: any) => {
+                          const meter = getProvingMeter(p)
+                          const segment = getProvingSegment(p)
+                          const leaseLabel = getProvingLeaseLabel(p)
+                          const meterLabel = getProvingMeterLabel(p)
+                          const status = String(p.status || 'draft').toLowerCase()
+                          return (
+                            <div key={p.id} style={{ ...card, display: 'grid', gap: 8, borderLeft: status === 'draft' ? '4px solid #f59e0b' : '4px solid #38bdf8' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                                <div>
+                                  <strong style={{ fontSize: 17 }}>{leaseLabel}</strong>
+                                  <div style={{ color: '#a8b3bd', fontSize: 13 }}>
+                                    {(segment as any)?.segment_name || (segment as any)?.name || 'Segment'} • Meter {meterLabel}
+                                  </div>
+                                </div>
+                                <span style={{ alignSelf: 'flex-start', padding: '4px 10px', borderRadius: 999, background: status === 'draft' ? '#78350f' : '#0f3b57', color: '#f8fafc', fontSize: 12, fontWeight: 800, textTransform: 'uppercase' }}>
+                                  {p.status || 'draft'}
+                                </span>
+                              </div>
+
+                              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+                                <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Date</div><strong>{p.proving_date || '—'}</strong></div>
+                                <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Type</div><strong>{p.factor_type || 'MF'}</strong></div>
+                                <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Accepted</div><strong>{Number(p.accepted_meter_factor || 0).toFixed(4)}</strong></div>
+                                <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>PDF</div><strong>{p.pdf_url ? 'Ready' : 'Missing'}</strong></div>
+                              </div>
+
+                              {p.factor_type === 'CMF' && <div style={{ color: '#a8b3bd' }}>MF: {Number(p.mf || 0).toFixed(4)} × CPL: {Number(p.cpl || 1).toFixed(5)}</div>}
+                              {p.witness && <div style={{ color: '#a8b3bd' }}>Witness: {p.witness}</div>}
+
+                              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                {p.pdf_url && <button style={{ ...button, width: 'auto' }} onClick={() => viewProvingPdf(p.pdf_url)}>View PDF</button>}
+                                <button style={{ ...button, width: 'auto' }} onClick={() => approveProving(p)}>Approve</button>
+                                {p.status !== 'approved' && <button style={{ ...button, width: 'auto', background: '#7f1d1d' }} onClick={() => deleteDraftProving(p)}>Delete Draft</button>}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -9947,7 +10087,8 @@ async function saveUserRole() {
                 const meter = meters.find((m) => m.id === p.meter_id)
                 return (
                   <div key={p.id} style={card}>
-                    <strong>{meter?.meter_number || 'Meter'}</strong>
+                    <strong>{getProvingLeaseLabel(p)}</strong>
+                    <div style={{ color: '#a8b3bd', fontSize: 13 }}>Meter {getProvingMeterLabel(p)}</div>
                     <div>Date: {p.proving_date}</div>
                     <div>Approved: {p.approved_at ? new Date(p.approved_at).toLocaleString() : 'No'}</div>
                     <div>{p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>

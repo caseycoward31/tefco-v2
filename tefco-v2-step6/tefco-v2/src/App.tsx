@@ -31,8 +31,6 @@ type Meter = {
   active?: boolean
   lease_id?: string
   producer_id?: string
-  area_id?: string | null
-  segment_id?: string | null
   proving_frequency_days?: number | null
   last_proving_date?: string | null
   next_proving_due?: string | null
@@ -797,8 +795,6 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
   const [openApprovedTicketMonths, setOpenApprovedTicketMonths] = useState<Record<string, boolean>>({})
   const [openWorkflowTicketGroups, setOpenWorkflowTicketGroups] = useState<Record<string, boolean>>({})
-  const [openProvingDraftGroups, setOpenProvingDraftGroups] = useState<Record<string, boolean>>({ draft: true, submitted: true })
-  const [provingDraftSearch, setProvingDraftSearch] = useState('')
   const [ticketWorkflowTab, setTicketWorkflowTab] = useState<'create' | 'drafts' | 'pending' | 'approved'>('create')
   const [ticketOpenDate, setTicketOpenDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [ticketOpenTime, setTicketOpenTime] = useState('07:00')
@@ -874,7 +870,6 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [provingFactorType, setProvingFactorType] = useState('MF')
   const [provingPdfFile, setProvingPdfFile] = useState<File | null>(null)
   const [provingPhotoFiles, setProvingPhotoFiles] = useState<File[]>([])
-  const [provingCaptureResetKey, setProvingCaptureResetKey] = useState(0)
 
   const [potSegment, setPotSegment] = useState('')
   const [potProducer, setPotProducer] = useState('')
@@ -2175,62 +2170,126 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
         img.src = objectUrl
       })
 
-      // Field Scan Mode: make proving report photos look like scanned paperwork.
-      // This keeps the original photo stored separately, but the official proving PDF
-      // gets a bright, high-contrast document image instead of a dark phone snapshot.
-      const pageRatio = 8.5 / 11
-      let sourceX = 0
-      let sourceY = 0
-      let sourceWidth = image.width
-      let sourceHeight = image.height
-      const imageRatio = image.width / image.height
+      // Proving report scan mode:
+      // 1) downsize the photo for fast field/mobile processing
+      // 2) detect the bright paper area and crop out dashboard/hand/background
+      // 3) enhance into a scanner-style grayscale document
+      const maxSourceWidth = 1800
+      const maxSourceHeight = 2400
+      const sourceScale = Math.min(1, maxSourceWidth / image.width, maxSourceHeight / image.height)
+      const sourceWidth = Math.max(1, Math.round(image.width * sourceScale))
+      const sourceHeight = Math.max(1, Math.round(image.height * sourceScale))
+      const sourceCanvas = document.createElement('canvas')
+      sourceCanvas.width = sourceWidth
+      sourceCanvas.height = sourceHeight
+      const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true })
+      if (!sourceCtx) throw new Error('Could not create scan canvas')
+      sourceCtx.fillStyle = '#ffffff'
+      sourceCtx.fillRect(0, 0, sourceWidth, sourceHeight)
+      sourceCtx.drawImage(image, 0, 0, sourceWidth, sourceHeight)
 
-      // Center-crop toward letter paper ratio. This is intentionally conservative so
-      // it does not cut off report numbers if the operator takes the picture slightly angled.
-      if (imageRatio > pageRatio * 1.25) {
-        sourceWidth = Math.round(image.height * pageRatio * 1.15)
-        sourceX = Math.max(0, Math.round((image.width - sourceWidth) / 2))
-      } else if (imageRatio < pageRatio * 0.75) {
-        sourceHeight = Math.round(image.width / pageRatio / 1.05)
-        sourceY = Math.max(0, Math.round((image.height - sourceHeight) / 2))
-      }
-
-      const maxWidth = 1700
-      const maxHeight = 2200
-      const scale = Math.min(1, maxWidth / sourceWidth, maxHeight / sourceHeight)
-      const width = Math.max(1, Math.round(sourceWidth * scale))
-      const height = Math.max(1, Math.round(sourceHeight * scale))
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      const ctx = canvas.getContext('2d')
-      if (!ctx) throw new Error('Could not create image canvas')
-      ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, width, height)
-      ctx.filter = 'grayscale(1) contrast(1.35) brightness(1.12)'
-      ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, width, height)
-      ctx.filter = 'none'
-
-      // Push near-white pixels to true white and darken ink slightly for a scanner-style output.
-      try {
-        const imageData = ctx.getImageData(0, 0, width, height)
-        const data = imageData.data
-        for (let i = 0; i < data.length; i += 4) {
-          const gray = Math.round((data[i] + data[i + 1] + data[i + 2]) / 3)
-          let adjusted = gray
-          if (gray > 205) adjusted = 255
-          else if (gray < 95) adjusted = Math.max(0, gray - 20)
-          else adjusted = Math.max(0, Math.min(255, Math.round((gray - 128) * 1.18 + 128)))
-          data[i] = adjusted
-          data[i + 1] = adjusted
-          data[i + 2] = adjusted
+      const sourceData = sourceCtx.getImageData(0, 0, sourceWidth, sourceHeight)
+      const data = sourceData.data
+      const step = Math.max(1, Math.floor(Math.min(sourceWidth, sourceHeight) / 900))
+      let lumTotal = 0
+      let lumCount = 0
+      for (let y = 0; y < sourceHeight; y += step) {
+        for (let x = 0; x < sourceWidth; x += step) {
+          const i = (y * sourceWidth + x) * 4
+          const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+          lumTotal += lum
+          lumCount += 1
         }
-        ctx.putImageData(imageData, 0, 0)
-      } catch (scanError) {
-        console.warn('Scan enhancement skipped:', scanError)
+      }
+      const avgLum = lumCount ? lumTotal / lumCount : 140
+      const paperThreshold = Math.max(118, Math.min(205, avgLum + 28))
+      let minX = sourceWidth
+      let minY = sourceHeight
+      let maxX = 0
+      let maxY = 0
+      let hits = 0
+
+      for (let y = 0; y < sourceHeight; y += step) {
+        for (let x = 0; x < sourceWidth; x += step) {
+          const i = (y * sourceWidth + x) * 4
+          const r = data[i]
+          const g = data[i + 1]
+          const b = data[i + 2]
+          const lum = 0.299 * r + 0.587 * g + 0.114 * b
+          const max = Math.max(r, g, b)
+          const min = Math.min(r, g, b)
+          const saturation = max === 0 ? 0 : (max - min) / max
+          // Paper is usually bright and low saturation. Allow slightly darker paper when the cab creates shadows.
+          if ((lum >= paperThreshold && saturation < 0.42) || (lum >= 170 && saturation < 0.55)) {
+            minX = Math.min(minX, x)
+            minY = Math.min(minY, y)
+            maxX = Math.max(maxX, x)
+            maxY = Math.max(maxY, y)
+            hits += 1
+          }
+        }
       }
 
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+      const minPaperPixels = (sourceWidth * sourceHeight) / (step * step) * 0.03
+      if (hits < minPaperPixels || maxX <= minX || maxY <= minY) {
+        minX = 0
+        minY = 0
+        maxX = sourceWidth
+        maxY = sourceHeight
+      } else {
+        const padX = Math.round((maxX - minX) * 0.025)
+        const padY = Math.round((maxY - minY) * 0.025)
+        minX = Math.max(0, minX - padX)
+        minY = Math.max(0, minY - padY)
+        maxX = Math.min(sourceWidth, maxX + padX)
+        maxY = Math.min(sourceHeight, maxY + padY)
+      }
+
+      const cropWidth = Math.max(1, maxX - minX)
+      const cropHeight = Math.max(1, maxY - minY)
+      const scanCanvas = document.createElement('canvas')
+      scanCanvas.width = cropWidth
+      scanCanvas.height = cropHeight
+      const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true })
+      if (!scanCtx) throw new Error('Could not create enhanced scan canvas')
+      scanCtx.fillStyle = '#ffffff'
+      scanCtx.fillRect(0, 0, cropWidth, cropHeight)
+      scanCtx.drawImage(sourceCanvas, minX, minY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight)
+
+      const scanData = scanCtx.getImageData(0, 0, cropWidth, cropHeight)
+      const scan = scanData.data
+      for (let i = 0; i < scan.length; i += 4) {
+        const r = scan[i]
+        const g = scan[i + 1]
+        const b = scan[i + 2]
+        let gray = 0.299 * r + 0.587 * g + 0.114 * b
+        // Scanner-style enhancement: grayscale, brighten paper, darken ink, reduce shadows.
+        gray = (gray - 128) * 1.85 + 138
+        if (gray > 208) gray = 255
+        if (gray < 72) gray = Math.max(0, gray * 0.55)
+        const v = Math.max(0, Math.min(255, Math.round(gray)))
+        scan[i] = v
+        scan[i + 1] = v
+        scan[i + 2] = v
+        scan[i + 3] = 255
+      }
+      scanCtx.putImageData(scanData, 0, 0)
+
+      const outputMaxWidth = 1650
+      const outputMaxHeight = 2200
+      const outputScale = Math.min(1, outputMaxWidth / cropWidth, outputMaxHeight / cropHeight)
+      const width = Math.max(1, Math.round(cropWidth * outputScale))
+      const height = Math.max(1, Math.round(cropHeight * outputScale))
+      const outputCanvas = document.createElement('canvas')
+      outputCanvas.width = width
+      outputCanvas.height = height
+      const outputCtx = outputCanvas.getContext('2d')
+      if (!outputCtx) throw new Error('Could not create output scan canvas')
+      outputCtx.fillStyle = '#ffffff'
+      outputCtx.fillRect(0, 0, width, height)
+      outputCtx.imageSmoothingEnabled = true
+      outputCtx.drawImage(scanCanvas, 0, 0, width, height)
+      const dataUrl = outputCanvas.toDataURL('image/jpeg', 0.92)
       return { bytes: bytesFromBase64(dataUrl.split(',')[1] || ''), width, height }
     } finally {
       URL.revokeObjectURL(objectUrl)
@@ -2475,8 +2534,6 @@ function handleProvingAreaSelect(areaId: string) {
       }
     }
 
-    setSelectedProvingSegment('')
-    setSelectedProvingLease('')
     setProvingMeter('')
     setProvingDate('')
     setProverVolume('')
@@ -2487,9 +2544,8 @@ function handleProvingAreaSelect(areaId: string) {
     setProvingFactorType('MF')
     setProvingPdfFile(null)
     setProvingPhotoFiles([])
-    setProvingCaptureResetKey((key) => key + 1)
 
-    alert('Draft proving saved. Ready for next proving.')
+    alert('Proving saved.')
     loadAll()
   }
 
@@ -2511,31 +2567,6 @@ function handleProvingAreaSelect(areaId: string) {
     }
 
     alert('Proving approved.')
-    loadAll()
-  }
-
-  async function deleteDraftProving(proving: Proving) {
-    if (proving.status === 'approved') {
-      alert('Approved provings cannot be deleted here.')
-      return
-    }
-
-    const meter = meters.find((m: any) => String(m.id) === String(proving.meter_id))
-    const ok = window.confirm(`Delete draft proving for ${meter?.meter_number || 'this meter'} on ${proving.proving_date || 'this date'}?`)
-    if (!ok) return
-
-    const { error } = await supabase
-      .from('meter_provings')
-      .delete()
-      .eq('id', proving.id)
-      .neq('status', 'approved')
-
-    if (error) {
-      alert('Could not delete draft proving: ' + error.message)
-      return
-    }
-
-    alert('Draft proving deleted.')
     loadAll()
   }
 
@@ -7660,75 +7691,6 @@ async function saveUserRole() {
     }))
   }
 
-  function getProvingMeter(proving: any) {
-    return meters.find((m: any) => m.id === proving.meter_id)
-  }
-
-  function getProvingLease(proving: any) {
-    const meter = getProvingMeter(proving)
-    return leases.find((l: any) => l.id === (proving.lease_id || meter?.lease_id))
-  }
-
-  function getProvingSegment(proving: any) {
-    const meter = getProvingMeter(proving)
-    const lease = getProvingLease(proving)
-    return segments.find((s: any) => s.id === (proving.segment_id || lease?.segment_id || meter?.segment_id))
-  }
-
-  function getProvingLeaseLabel(proving: any) {
-    const lease = getProvingLease(proving)
-    const meter = getProvingMeter(proving)
-    return lease?.lease_name || lease?.name || meter?.meter_name || meter?.meter_number || 'Unknown Lease'
-  }
-
-  function getProvingMeterLabel(proving: any) {
-    const meter = getProvingMeter(proving)
-    return meter?.meter_number || meter?.meter_name || 'Meter'
-  }
-
-  function getProvingStatusKey(proving: any) {
-    const status = String(proving.status || 'draft').toLowerCase()
-    if (status === 'submitted' || status === 'pending') return 'submitted'
-    return 'draft'
-  }
-
-  function getFilteredPendingProvings() {
-    const search = provingDraftSearch.trim().toLowerCase()
-    return pendingProvings
-      .filter((proving: any) => {
-        if (!search) return true
-        const leaseLabel = getProvingLeaseLabel(proving).toLowerCase()
-        const meterLabel = getProvingMeterLabel(proving).toLowerCase()
-        const segmentLabel = ((getProvingSegment(proving) as any)?.segment_name || (getProvingSegment(proving) as any)?.name || '').toLowerCase()
-        return leaseLabel.includes(search) || meterLabel.includes(search) || segmentLabel.includes(search) || String(proving.proving_number || '').toLowerCase().includes(search)
-      })
-      .sort((a: any, b: any) => new Date(b.proving_date || b.created_at || 0).getTime() - new Date(a.proving_date || a.created_at || 0).getTime())
-  }
-
-  function groupPendingProvings() {
-    const grouped = getFilteredPendingProvings().reduce((acc: Record<string, any[]>, proving: any) => {
-      const key = getProvingStatusKey(proving)
-      if (!acc[key]) acc[key] = []
-      acc[key].push(proving)
-      return acc
-    }, {} as Record<string, any[]>)
-    const order = ['draft', 'submitted']
-    return (Object.entries(grouped) as [string, any[]][])
-      .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
-      .map(([groupKey, items]) => ({
-        groupKey,
-        label: groupKey === 'submitted' ? 'Submitted / Pending Approval' : 'Draft Provings',
-        items,
-      }))
-  }
-
-  function toggleProvingDraftGroup(groupKey: string) {
-    setOpenProvingDraftGroups((prev) => ({
-      ...prev,
-      [groupKey]: !(prev[groupKey] ?? true),
-    }))
-  }
-
   function groupTicketsByMonth(ticketList: any[]) {
     const grouped = ticketList.reduce((acc: Record<string, any[]>, ticket: any) => {
       const key = getTicketMonthKey(ticket)
@@ -9942,11 +9904,10 @@ async function saveUserRole() {
               <input style={input} placeholder="Witness" value={provingWitness} onChange={(e) => setProvingWitness(e.target.value)} />
               <div style={{ ...card, display: 'grid', gap: 10 }}>
                 <strong>Proving Report Capture</strong>
-                <div style={{ color: '#a8b3bd' }}>Take one or more photos in the field. The app will enhance them into a scanned-style PDF. Office users can still upload an existing PDF.</div>
+                <div style={{ color: '#a8b3bd' }}>Take one or more photos in the field. The app crops and enhances the paper into a scanned-style PDF. Office users can still upload an existing PDF.</div>
                 <label style={{ display: 'grid', gap: 6 }}>
-                  <span>📸 Take / Choose Proving Report Photos</span>
+                  <span>📸 Scan / Choose Proving Report Photos</span>
                   <input
-                    key={`proving-photos-${provingCaptureResetKey}`}
                     style={input}
                     type="file"
                     accept="image/*"
@@ -9958,11 +9919,10 @@ async function saveUserRole() {
                     }}
                   />
                 </label>
-                {provingPhotoFiles.length > 0 && <div>{provingPhotoFiles.length} photo(s) selected. They will be enhanced and merged into one scanned proving PDF.</div>}
+                {provingPhotoFiles.length > 0 && <div>{provingPhotoFiles.length} photo(s) selected. They will be cleaned up and merged into one scanned-style proving PDF.</div>}
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span>📄 Or Upload Existing Proving PDF</span>
                   <input
-                    key={`proving-pdf-${provingCaptureResetKey}`}
                     style={input}
                     type="file"
                     accept="application/pdf"
@@ -9992,92 +9952,22 @@ async function saveUserRole() {
             </div>
 
             <div style={box}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                <div>
-                  <h2 style={{ margin: 0 }}>Drafts / Needs Approval</h2>
-                  <div style={{ color: '#a8b3bd', marginTop: 4 }}>Lease-name first, grouped by status. Open or delete drafts without scrolling through one long list.</div>
-                </div>
-                <div style={{ ...card, minWidth: 160, textAlign: 'center' }}>
-                  <div style={{ color: '#a8b3bd', fontSize: 12 }}>Open Provings</div>
-                  <strong style={{ fontSize: 24 }}>{pendingProvings.length}</strong>
-                </div>
-              </div>
-
-              <input
-                style={input}
-                placeholder="Search lease, meter, segment, or proving #"
-                value={provingDraftSearch}
-                onChange={(e) => setProvingDraftSearch(e.target.value)}
-              />
-
-              {getFilteredPendingProvings().length === 0 && <div style={card}>No draft or pending provings match this search.</div>}
-
-              {groupPendingProvings().map((group) => {
-                const isOpen = openProvingDraftGroups[group.groupKey] ?? true
+              <h2>Needs Approval</h2>
+              {pendingProvings.length === 0 && <div style={card}>No pending provings.</div>}
+              {pendingProvings.map((p) => {
+                const meter = meters.find((m) => m.id === p.meter_id)
                 return (
-                  <div key={group.groupKey} style={{ ...card, padding: 0, overflow: 'hidden' }}>
-                    <button
-                      type="button"
-                      onClick={() => toggleProvingDraftGroup(group.groupKey)}
-                      style={{
-                        ...button,
-                        margin: 0,
-                        borderRadius: 0,
-                        width: '100%',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        background: '#111827',
-                        border: '0',
-                        borderBottom: '1px solid #243244',
-                      }}
-                    >
-                      <span>{isOpen ? '▾' : '▸'} {group.label}</span>
-                      <span>{group.items.length}</span>
-                    </button>
-
-                    {isOpen && (
-                      <div style={{ display: 'grid', gap: 10, padding: 12 }}>
-                        {group.items.map((p: any) => {
-                          const meter = getProvingMeter(p)
-                          const segment = getProvingSegment(p)
-                          const leaseLabel = getProvingLeaseLabel(p)
-                          const meterLabel = getProvingMeterLabel(p)
-                          const status = String(p.status || 'draft').toLowerCase()
-                          return (
-                            <div key={p.id} style={{ ...card, display: 'grid', gap: 8, borderLeft: status === 'draft' ? '4px solid #f59e0b' : '4px solid #38bdf8' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                                <div>
-                                  <strong style={{ fontSize: 17 }}>{leaseLabel}</strong>
-                                  <div style={{ color: '#a8b3bd', fontSize: 13 }}>
-                                    {(segment as any)?.segment_name || (segment as any)?.name || 'Segment'} • Meter {meterLabel}
-                                  </div>
-                                </div>
-                                <span style={{ alignSelf: 'flex-start', padding: '4px 10px', borderRadius: 999, background: status === 'draft' ? '#78350f' : '#0f3b57', color: '#f8fafc', fontSize: 12, fontWeight: 800, textTransform: 'uppercase' }}>
-                                  {p.status || 'draft'}
-                                </span>
-                              </div>
-
-                              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
-                                <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Date</div><strong>{p.proving_date || '—'}</strong></div>
-                                <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Type</div><strong>{p.factor_type || 'MF'}</strong></div>
-                                <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Accepted</div><strong>{Number(p.accepted_meter_factor || 0).toFixed(4)}</strong></div>
-                                <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>PDF</div><strong>{p.pdf_url ? 'Ready' : 'Missing'}</strong></div>
-                              </div>
-
-                              {p.factor_type === 'CMF' && <div style={{ color: '#a8b3bd' }}>MF: {Number(p.mf || 0).toFixed(4)} × CPL: {Number(p.cpl || 1).toFixed(5)}</div>}
-                              {p.witness && <div style={{ color: '#a8b3bd' }}>Witness: {p.witness}</div>}
-
-                              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                                {p.pdf_url && <button style={{ ...button, width: 'auto' }} onClick={() => viewProvingPdf(p.pdf_url)}>View PDF</button>}
-                                <button style={{ ...button, width: 'auto' }} onClick={() => approveProving(p)}>Approve</button>
-                                {p.status !== 'approved' && <button style={{ ...button, width: 'auto', background: '#7f1d1d' }} onClick={() => deleteDraftProving(p)}>Delete Draft</button>}
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
+                  <div key={p.id} style={card}>
+                    <strong>{meter?.meter_number || 'Meter'}</strong>
+                    <div>Date: {p.proving_date}</div>
+                    <div>Status: {p.status}</div>
+                    <div>Type: {p.factor_type || 'MF'}</div>
+                    <div>Accepted {p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>
+                    {p.factor_type === 'CMF' && <div>MF: {Number(p.mf || 0).toFixed(4)} × CPL: {Number(p.cpl || 1).toFixed(5)}</div>}
+                    <div>Witness: {p.witness || ''}</div>
+                    <div>PDF: {p.pdf_file_name || 'None'}</div>
+                    {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
+                    <button style={button} onClick={() => approveProving(p)}>Approve Proving</button>
                   </div>
                 )
               })}
@@ -10089,8 +9979,7 @@ async function saveUserRole() {
                 const meter = meters.find((m) => m.id === p.meter_id)
                 return (
                   <div key={p.id} style={card}>
-                    <strong>{getProvingLeaseLabel(p)}</strong>
-                    <div style={{ color: '#a8b3bd', fontSize: 13 }}>Meter {getProvingMeterLabel(p)}</div>
+                    <strong>{meter?.meter_number || 'Meter'}</strong>
                     <div>Date: {p.proving_date}</div>
                     <div>Approved: {p.approved_at ? new Date(p.approved_at).toLocaleString() : 'No'}</div>
                     <div>{p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>

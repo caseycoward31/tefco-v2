@@ -30,6 +30,7 @@ type Meter = {
   meter_name?: string
   active?: boolean
   lease_id?: string
+  segment_id?: string | null
   producer_id?: string
   proving_frequency_days?: number | null
   last_proving_date?: string | null
@@ -2170,127 +2171,106 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
         img.src = objectUrl
       })
 
-      // Proving report scan mode:
-      // 1) downsize the photo for fast field/mobile processing
-      // 2) detect the bright paper area and crop out dashboard/hand/background
-      // 3) enhance into a scanner-style grayscale document
-      const maxSourceWidth = 1800
-      const maxSourceHeight = 2400
-      const sourceScale = Math.min(1, maxSourceWidth / image.width, maxSourceHeight / image.height)
-      const sourceWidth = Math.max(1, Math.round(image.width * sourceScale))
-      const sourceHeight = Math.max(1, Math.round(image.height * sourceScale))
+      // Browser-only document scan approximation: find the bright report page,
+      // crop away background, then enhance to a high-contrast grayscale image.
+      // This keeps proving reports looking like scanned pages without adding new dependencies.
+      const maxWidth = 1800
+      const maxHeight = 2400
+      const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height)
+      const width = Math.max(1, Math.round(image.width * scale))
+      const height = Math.max(1, Math.round(image.height * scale))
+
       const sourceCanvas = document.createElement('canvas')
-      sourceCanvas.width = sourceWidth
-      sourceCanvas.height = sourceHeight
-      const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true })
+      sourceCanvas.width = width
+      sourceCanvas.height = height
+      const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true } as any) as CanvasRenderingContext2D | null
       if (!sourceCtx) throw new Error('Could not create scan canvas')
       sourceCtx.fillStyle = '#ffffff'
-      sourceCtx.fillRect(0, 0, sourceWidth, sourceHeight)
-      sourceCtx.drawImage(image, 0, 0, sourceWidth, sourceHeight)
+      sourceCtx.fillRect(0, 0, width, height)
+      sourceCtx.drawImage(image, 0, 0, width, height)
 
-      const sourceData = sourceCtx.getImageData(0, 0, sourceWidth, sourceHeight)
-      const data = sourceData.data
-      const step = Math.max(1, Math.floor(Math.min(sourceWidth, sourceHeight) / 900))
-      let lumTotal = 0
-      let lumCount = 0
-      for (let y = 0; y < sourceHeight; y += step) {
-        for (let x = 0; x < sourceWidth; x += step) {
-          const i = (y * sourceWidth + x) * 4
-          const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
-          lumTotal += lum
-          lumCount += 1
-        }
-      }
-      const avgLum = lumCount ? lumTotal / lumCount : 140
-      const paperThreshold = Math.max(118, Math.min(205, avgLum + 28))
-      let minX = sourceWidth
-      let minY = sourceHeight
-      let maxX = 0
-      let maxY = 0
-      let hits = 0
+      let cropX = 0
+      let cropY = 0
+      let cropW = width
+      let cropH = height
 
-      for (let y = 0; y < sourceHeight; y += step) {
-        for (let x = 0; x < sourceWidth; x += step) {
-          const i = (y * sourceWidth + x) * 4
-          const r = data[i]
-          const g = data[i + 1]
-          const b = data[i + 2]
-          const lum = 0.299 * r + 0.587 * g + 0.114 * b
-          const max = Math.max(r, g, b)
-          const min = Math.min(r, g, b)
-          const saturation = max === 0 ? 0 : (max - min) / max
-          // Paper is usually bright and low saturation. Allow slightly darker paper when the cab creates shadows.
-          if ((lum >= paperThreshold && saturation < 0.42) || (lum >= 170 && saturation < 0.55)) {
-            minX = Math.min(minX, x)
-            minY = Math.min(minY, y)
-            maxX = Math.max(maxX, x)
-            maxY = Math.max(maxY, y)
-            hits += 1
+      try {
+        const sourceData = sourceCtx.getImageData(0, 0, width, height)
+        const data = sourceData.data
+        const rowCounts = new Array(height).fill(0)
+        const colCounts = new Array(width).fill(0)
+
+        for (let y = 0; y < height; y += 2) {
+          for (let x = 0; x < width; x += 2) {
+            const i = (y * width + x) * 4
+            const r = data[i]
+            const g = data[i + 1]
+            const b = data[i + 2]
+            const max = Math.max(r, g, b)
+            const min = Math.min(r, g, b)
+            const brightness = (r + g + b) / 3
+            const looksLikePaper = brightness > 118 && max - min < 70
+            if (looksLikePaper) {
+              rowCounts[y] += 1
+              colCounts[x] += 1
+            }
           }
         }
+
+        const rowThreshold = Math.max(6, Math.floor(width * 0.025))
+        const colThreshold = Math.max(6, Math.floor(height * 0.025))
+        let top = 0
+        let bottom = height - 1
+        let left = 0
+        let right = width - 1
+
+        while (top < height - 1 && rowCounts[top] < rowThreshold) top += 1
+        while (bottom > 0 && rowCounts[bottom] < rowThreshold) bottom -= 1
+        while (left < width - 1 && colCounts[left] < colThreshold) left += 1
+        while (right > 0 && colCounts[right] < colThreshold) right -= 1
+
+        const pad = Math.round(Math.min(width, height) * 0.018)
+        const detectedW = right - left
+        const detectedH = bottom - top
+        if (detectedW > width * 0.35 && detectedH > height * 0.35) {
+          cropX = Math.max(0, left - pad)
+          cropY = Math.max(0, top - pad)
+          cropW = Math.min(width - cropX, detectedW + pad * 2)
+          cropH = Math.min(height - cropY, detectedH + pad * 2)
+        }
+      } catch (scanError) {
+        console.warn('Scan crop fallback used:', scanError)
       }
 
-      const minPaperPixels = (sourceWidth * sourceHeight) / (step * step) * 0.03
-      if (hits < minPaperPixels || maxX <= minX || maxY <= minY) {
-        minX = 0
-        minY = 0
-        maxX = sourceWidth
-        maxY = sourceHeight
-      } else {
-        const padX = Math.round((maxX - minX) * 0.025)
-        const padY = Math.round((maxY - minY) * 0.025)
-        minX = Math.max(0, minX - padX)
-        minY = Math.max(0, minY - padY)
-        maxX = Math.min(sourceWidth, maxX + padX)
-        maxY = Math.min(sourceHeight, maxY + padY)
+      const outCanvas = document.createElement('canvas')
+      const targetW = 1650
+      const targetH = Math.max(1, Math.round((cropH / cropW) * targetW))
+      outCanvas.width = targetW
+      outCanvas.height = targetH
+      const outCtx = outCanvas.getContext('2d', { willReadFrequently: true } as any) as CanvasRenderingContext2D | null
+      if (!outCtx) throw new Error('Could not create scanned output canvas')
+      outCtx.fillStyle = '#ffffff'
+      outCtx.fillRect(0, 0, targetW, targetH)
+      outCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH)
+
+      const imageData = outCtx.getImageData(0, 0, targetW, targetH)
+      const d = imageData.data
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
+        // push paper toward white and text toward dark, while preserving fine print
+        let enhanced = (gray - 128) * 1.85 + 150
+        if (enhanced > 218) enhanced = 255
+        if (enhanced < 52) enhanced = 0
+        enhanced = Math.max(0, Math.min(255, enhanced))
+        d[i] = enhanced
+        d[i + 1] = enhanced
+        d[i + 2] = enhanced
+        d[i + 3] = 255
       }
+      outCtx.putImageData(imageData, 0, 0)
 
-      const cropWidth = Math.max(1, maxX - minX)
-      const cropHeight = Math.max(1, maxY - minY)
-      const scanCanvas = document.createElement('canvas')
-      scanCanvas.width = cropWidth
-      scanCanvas.height = cropHeight
-      const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true })
-      if (!scanCtx) throw new Error('Could not create enhanced scan canvas')
-      scanCtx.fillStyle = '#ffffff'
-      scanCtx.fillRect(0, 0, cropWidth, cropHeight)
-      scanCtx.drawImage(sourceCanvas, minX, minY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight)
-
-      const scanData = scanCtx.getImageData(0, 0, cropWidth, cropHeight)
-      const scan = scanData.data
-      for (let i = 0; i < scan.length; i += 4) {
-        const r = scan[i]
-        const g = scan[i + 1]
-        const b = scan[i + 2]
-        let gray = 0.299 * r + 0.587 * g + 0.114 * b
-        // Scanner-style enhancement: grayscale, brighten paper, darken ink, reduce shadows.
-        gray = (gray - 128) * 1.85 + 138
-        if (gray > 208) gray = 255
-        if (gray < 72) gray = Math.max(0, gray * 0.55)
-        const v = Math.max(0, Math.min(255, Math.round(gray)))
-        scan[i] = v
-        scan[i + 1] = v
-        scan[i + 2] = v
-        scan[i + 3] = 255
-      }
-      scanCtx.putImageData(scanData, 0, 0)
-
-      const outputMaxWidth = 1650
-      const outputMaxHeight = 2200
-      const outputScale = Math.min(1, outputMaxWidth / cropWidth, outputMaxHeight / cropHeight)
-      const width = Math.max(1, Math.round(cropWidth * outputScale))
-      const height = Math.max(1, Math.round(cropHeight * outputScale))
-      const outputCanvas = document.createElement('canvas')
-      outputCanvas.width = width
-      outputCanvas.height = height
-      const outputCtx = outputCanvas.getContext('2d')
-      if (!outputCtx) throw new Error('Could not create output scan canvas')
-      outputCtx.fillStyle = '#ffffff'
-      outputCtx.fillRect(0, 0, width, height)
-      outputCtx.imageSmoothingEnabled = true
-      outputCtx.drawImage(scanCanvas, 0, 0, width, height)
-      const dataUrl = outputCanvas.toDataURL('image/jpeg', 0.92)
-      return { bytes: bytesFromBase64(dataUrl.split(',')[1] || ''), width, height }
+      const dataUrl = outCanvas.toDataURL('image/jpeg', 0.92)
+      return { bytes: bytesFromBase64(dataUrl.split(',')[1] || ''), width: targetW, height: targetH }
     } finally {
       URL.revokeObjectURL(objectUrl)
     }
@@ -5598,6 +5578,37 @@ async function createCompany() {
     const main = leaseName || meterName || meterNumber || 'Unnamed meter'
     const secondary = meterNumber && meterNumber !== main ? meterNumber : ''
     return { main, secondary }
+  }
+
+
+  function getProvingDisplayName(proving: any) {
+    const meter = getMeterById(proving?.meter_id || proving?.meterId || '')
+    const lease = getLeaseById(proving?.lease_id || proving?.leaseId || meter?.lease_id || '')
+    const leaseName = String(lease?.lease_name || lease?.name || '').trim()
+    const meterName = String(meter?.meter_name || '').trim()
+    const meterNumber = String(meter?.meter_number || '').trim()
+    const main = leaseName || meterName || meterNumber || 'Proving'
+    const secondary = [meterNumber && meterNumber !== main ? `Meter: ${meterNumber}` : '', meterName && meterName !== main ? meterName : '']
+      .filter(Boolean)
+      .join(' • ')
+    return { main, secondary }
+  }
+
+  function getProvingMonthLabel(proving: any) {
+    const dateValue = proving?.approved_at || proving?.proving_date || proving?.created_at
+    if (!dateValue) return 'Undated'
+    const date = new Date(dateValue)
+    if (Number.isNaN(date.getTime())) return 'Undated'
+    return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  }
+
+  function groupProvingsByMonth(rows: any[]) {
+    return rows.reduce((groups: Record<string, any[]>, proving: any) => {
+      const key = getProvingMonthLabel(proving)
+      if (!groups[key]) groups[key] = []
+      groups[key].push(proving)
+      return groups
+    }, {})
   }
 
   function meterMatchesSearch(meter: any, searchText: string) {
@@ -9904,9 +9915,9 @@ async function saveUserRole() {
               <input style={input} placeholder="Witness" value={provingWitness} onChange={(e) => setProvingWitness(e.target.value)} />
               <div style={{ ...card, display: 'grid', gap: 10 }}>
                 <strong>Proving Report Capture</strong>
-                <div style={{ color: '#a8b3bd' }}>Take one or more photos in the field. The app crops and enhances the paper into a scanned-style PDF. Office users can still upload an existing PDF.</div>
+                <div style={{ color: '#a8b3bd' }}>Take one or more photos in the field. The app will convert them into one PDF. Office users can still upload an existing PDF.</div>
                 <label style={{ display: 'grid', gap: 6 }}>
-                  <span>📸 Scan / Choose Proving Report Photos</span>
+                  <span>📸 Take / Choose Proving Report Photos</span>
                   <input
                     style={input}
                     type="file"
@@ -9919,7 +9930,7 @@ async function saveUserRole() {
                     }}
                   />
                 </label>
-                {provingPhotoFiles.length > 0 && <div>{provingPhotoFiles.length} photo(s) selected. They will be cleaned up and merged into one scanned-style proving PDF.</div>}
+                {provingPhotoFiles.length > 0 && <div>{provingPhotoFiles.length} photo(s) selected. They will be merged into one proving PDF.</div>}
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span>📄 Or Upload Existing Proving PDF</span>
                   <input
@@ -9955,10 +9966,11 @@ async function saveUserRole() {
               <h2>Needs Approval</h2>
               {pendingProvings.length === 0 && <div style={card}>No pending provings.</div>}
               {pendingProvings.map((p) => {
-                const meter = meters.find((m) => m.id === p.meter_id)
+                const label = getProvingDisplayName(p)
                 return (
                   <div key={p.id} style={card}>
-                    <strong>{meter?.meter_number || 'Meter'}</strong>
+                    <strong>{label.main}</strong>
+                    {label.secondary && <div style={{ color: '#a8b3bd' }}>{label.secondary}</div>}
                     <div>Date: {p.proving_date}</div>
                     <div>Status: {p.status}</div>
                     <div>Type: {p.factor_type || 'MF'}</div>
@@ -9975,18 +9987,29 @@ async function saveUserRole() {
 
             <div style={box}>
               <h2>Approved History</h2>
-              {approvedProvings.map((p) => {
-                const meter = meters.find((m) => m.id === p.meter_id)
-                return (
-                  <div key={p.id} style={card}>
-                    <strong>{meter?.meter_number || 'Meter'}</strong>
-                    <div>Date: {p.proving_date}</div>
-                    <div>Approved: {p.approved_at ? new Date(p.approved_at).toLocaleString() : 'No'}</div>
-                    <div>{p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>
-                    {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
+              {approvedProvings.length === 0 && <div style={card}>No approved provings yet.</div>}
+              {Object.entries(groupProvingsByMonth(approvedProvings) as Record<string, any[]>).map(([month, rows]) => (
+                <details key={month} open style={{ ...card, padding: 0, overflow: 'hidden' }}>
+                  <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 800, background: 'rgba(239,68,68,0.12)' }}>
+                    {month} • {rows.length} approved proving{rows.length === 1 ? '' : 's'}
+                  </summary>
+                  <div style={{ display: 'grid', gap: 10, padding: 12 }}>
+                    {rows.map((p: any) => {
+                      const label = getProvingDisplayName(p)
+                      return (
+                        <div key={p.id} style={{ ...card, margin: 0 }}>
+                          <strong>{label.main}</strong>
+                          {label.secondary && <div style={{ color: '#a8b3bd' }}>{label.secondary}</div>}
+                          <div>Date: {p.proving_date}</div>
+                          <div>Approved: {p.approved_at ? new Date(p.approved_at).toLocaleString() : 'No'}</div>
+                          <div>{p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>
+                          {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
+                        </div>
+                      )
+                    })}
                   </div>
-                )
-              })}
+                </details>
+              ))}
             </div>
           </>
         )}

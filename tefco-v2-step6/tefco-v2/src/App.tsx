@@ -11,7 +11,7 @@ type Company = {
 }
 
 type Area = { id: string; name: string }
-type Segment = { id: string; name: string; segment_name?: string; area_id?: string | null; active?: boolean | null }
+type Segment = { id: string; name: string; segment_name?: string; area_id?: string | null; company_id?: string | null; active?: boolean | null }
 
 type Lease = {
   id: string
@@ -2504,7 +2504,7 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       return
     }
 
-    await loadData()
+    await loadAll()
   }
 
 function handleProvingAreaSelect(areaId: string) {

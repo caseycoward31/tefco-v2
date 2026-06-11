@@ -732,6 +732,8 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [balanceInventoryEntries, setBalanceInventoryEntries] = useState<any[]>([])
   const [balanceButaneAdjustments, setBalanceButaneAdjustments] = useState<any[]>([])
   const [segmentBalanceSettings, setSegmentBalanceSettings] = useState<any[]>([])
+  const [segmentProvingSettings, setSegmentProvingSettings] = useState<any[]>([])
+  const [provingKpiMonth, setProvingKpiMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [meterAssetConfigs, setMeterAssetConfigs] = useState<any[]>([])
   const [tankCalibrationVersions, setTankCalibrationVersions] = useState<any[]>([])
   const [tankStrappingRows, setTankStrappingRows] = useState<any[]>([])
@@ -1255,8 +1257,9 @@ useEffect(() => {
     const { data: balanceInventoryEntryData, error: balanceInventoryEntryError } = await applyCompanyScope(supabase.from('balance_inventory_entries').select('*')).order('period_start', { ascending: false })
     const { data: balanceButaneAdjustmentData, error: balanceButaneAdjustmentError } = await applyCompanyScope(supabase.from('balance_butane_adjustments').select('*')).order('period_start', { ascending: false })
     const { data: segmentBalanceSettingData, error: segmentBalanceSettingError } = await applyCompanyScope(supabase.from('segment_balance_settings').select('*'))
-    if (balanceCheckGroupError || balanceCheckGroupMeterError || balanceInventoryEntryError || balanceButaneAdjustmentError || segmentBalanceSettingError || balanceEquationError || balanceEquationItemError) {
-      console.warn('Balance Center optional tables unavailable:', { balanceCheckGroupError, balanceCheckGroupMeterError, balanceInventoryEntryError, balanceButaneAdjustmentError, segmentBalanceSettingError, balanceEquationError, balanceEquationItemError })
+    const { data: segmentProvingSettingData, error: segmentProvingSettingError } = await applyCompanyScope(supabase.from('segment_proving_settings').select('*'))
+    if (balanceCheckGroupError || balanceCheckGroupMeterError || balanceInventoryEntryError || balanceButaneAdjustmentError || segmentBalanceSettingError || segmentProvingSettingError || balanceEquationError || balanceEquationItemError) {
+      console.warn('Balance Center optional tables unavailable:', { balanceCheckGroupError, balanceCheckGroupMeterError, balanceInventoryEntryError, balanceButaneAdjustmentError, segmentBalanceSettingError, segmentProvingSettingError, balanceEquationError, balanceEquationItemError })
     }
 
     setUserAreaAccess(resolvedAreaAccessData)
@@ -1289,6 +1292,7 @@ useEffect(() => {
     if (balanceInventoryEntryData) setBalanceInventoryEntries(balanceInventoryEntryData)
     if (balanceButaneAdjustmentData) setBalanceButaneAdjustments(balanceButaneAdjustmentData)
     if (segmentBalanceSettingData) setSegmentBalanceSettings(segmentBalanceSettingData)
+    if (segmentProvingSettingData) setSegmentProvingSettings(segmentProvingSettingData)
 
     const { data: contractProfileData } = await supabase
       .from('contract_profiles')
@@ -2426,6 +2430,83 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
     window.open(data.signedUrl, '_blank')
   }
+
+  function getSegmentProvingSetting(segmentId: string) {
+    return segmentProvingSettings.find((setting: any) => String(setting.segment_id) === String(segmentId)) || null
+  }
+
+  function isSegmentIncludedInProvingKpi(segmentId: string) {
+    const setting = getSegmentProvingSetting(segmentId)
+    return !!setting?.include_in_kpi
+  }
+
+  function getMeterSegmentId(meter: any) {
+    if (meter?.segment_id) return meter.segment_id
+    const lease = leases.find((l: any) => String(l.id) === String(meter?.lease_id))
+    return lease?.segment_id || null
+  }
+
+  function getProvingKpiMonthRange(monthKey: string) {
+    const fallback = new Date().toISOString().slice(0, 7)
+    const key = monthKey || fallback
+    const start = new Date(`${key}-01T00:00:00`)
+    const end = new Date(start)
+    end.setMonth(end.getMonth() + 1)
+    return { start, end, key }
+  }
+
+  function isProvingInKpiMonth(proving: any, monthKey: string) {
+    const { start, end } = getProvingKpiMonthRange(monthKey)
+    const value = proving?.approved_at || proving?.proving_date || proving?.created_at
+    if (!value) return false
+    const date = new Date(value)
+    return !Number.isNaN(date.getTime()) && date >= start && date < end
+  }
+
+  function getSegmentProvingKpiRows(monthKey = provingKpiMonth) {
+    return segments
+      .filter((segment: any) => isSegmentIncludedInProvingKpi(segment.id))
+      .map((segment: any) => {
+        const segmentMeters = meters.filter((meter: any) => meter.active !== false && String(getMeterSegmentId(meter)) === String(segment.id))
+        const scheduledMeterIds = new Set(segmentMeters.map((meter: any) => meter.id))
+        const completedMeterIds = new Set(
+          provings
+            .filter((proving: any) => proving.status === 'approved' && scheduledMeterIds.has(proving.meter_id) && isProvingInKpiMonth(proving, monthKey))
+            .map((proving: any) => proving.meter_id)
+        )
+        const scheduled = segmentMeters.length
+        const completed = completedMeterIds.size
+        const remaining = Math.max(scheduled - completed, 0)
+        const compliance = scheduled > 0 ? (completed / scheduled) * 100 : 0
+        return { segment, scheduled, completed, remaining, compliance }
+      })
+  }
+
+  async function saveSegmentProvingSetting(segmentId: string, includeInKpi: boolean) {
+    const segment = segments.find((s: any) => String(s.id) === String(segmentId))
+    const payload: any = {
+      company_id: companyId || segment?.company_id || null,
+      area_id: segment?.area_id || null,
+      segment_id: segmentId,
+      include_in_kpi: includeInKpi,
+      required_frequency: 'monthly',
+      meter_scope: 'all_active',
+      active: true,
+      updated_at: new Date().toISOString(),
+    }
+
+    const { error } = await supabase
+      .from('segment_proving_settings')
+      .upsert(payload, { onConflict: 'company_id,segment_id' })
+
+    if (error) {
+      alert('Could not save proving KPI setting: ' + error.message)
+      return
+    }
+
+    await loadData()
+  }
+
 function handleProvingAreaSelect(areaId: string) {
     setSelectedProvingArea(areaId)
     setSelectedProvingSegment('')
@@ -9863,6 +9944,74 @@ async function saveUserRole() {
                 <div style={card}>Proved This Month<h2>{provedThisMonthCount}</h2></div>
                 <div style={card}>Remaining<h2>{remainingProvingCount}</h2></div>
                 <div style={card}>Compliance<h2>{provingCompliance}%</h2></div>
+              </div>
+            </div>
+
+            <div style={box}>
+              <h2>Segment Proving Schedule / KPI</h2>
+              <p style={{ color: '#a8b3bd' }}>Choose which segments are included in monthly proving compliance. Completed means an active meter has an approved proving in the selected month.</p>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 12, alignItems: 'center' }}>
+                <label>
+                  <div style={{ color: '#a8b3bd', marginBottom: 6 }}>KPI Month</div>
+                  <input style={input} type="month" value={provingKpiMonth} onChange={(e) => setProvingKpiMonth(e.target.value)} />
+                </label>
+                <div style={card}>
+                  <strong>Included Segments:</strong> {getSegmentProvingKpiRows().length || 0}
+                  <span style={{ marginLeft: 12, color: '#a8b3bd' }}>Frequency: Monthly • Scope: All active meters in selected segments</span>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+                {getVisibleAreas().map((area: any) => {
+                  const areaSegments = getVisibleSegments(area.id)
+                  if (!areaSegments.length) return null
+                  return (
+                    <details key={area.id} open style={card}>
+                      <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{area.area_name || area.name}</summary>
+                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginTop: 10 }}>
+                        {areaSegments.map((segment: any) => (
+                          <label key={segment.id} style={{ ...card, display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <input
+                              type="checkbox"
+                              checked={isSegmentIncludedInProvingKpi(segment.id)}
+                              onChange={(e) => saveSegmentProvingSetting(segment.id, e.target.checked)}
+                            />
+                            <span>
+                              <strong>{segment.segment_name || segment.name}</strong>
+                              <div style={{ color: '#a8b3bd', fontSize: 12 }}>Include in monthly proving KPI</div>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </details>
+                  )
+                })}
+              </div>
+
+              <div style={{ overflowX: 'auto', marginTop: 16 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      {['Segment', 'Scheduled', 'Completed', 'Remaining', 'Compliance'].map((h) => (
+                        <th key={h} style={{ textAlign: 'left', borderBottom: '1px solid #374151', padding: 8 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getSegmentProvingKpiRows().map((row: any) => (
+                      <tr key={row.segment.id}>
+                        <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.segment.segment_name || row.segment.name}</td>
+                        <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.scheduled}</td>
+                        <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.completed}</td>
+                        <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.remaining}</td>
+                        <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}><strong>{row.compliance.toFixed(1)}%</strong></td>
+                      </tr>
+                    ))}
+                    {!getSegmentProvingKpiRows().length && (
+                      <tr><td colSpan={5} style={{ padding: 12, color: '#a8b3bd' }}>No segments selected for Proving KPI yet.</td></tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
 

@@ -1308,7 +1308,7 @@ useEffect(() => {
   const approvedThisMonth = provings.filter((p) => p.status === 'approved' && isThisMonth(p.proving_date))
   const provedMeterIds = new Set(approvedThisMonth.map((p) => p.meter_id))
   const provedThisMonthCount = activeMeters.filter((m) => provedMeterIds.has(m.id)).length
-  const remainingProvingCount = Math.max(activeMeters.length - provedThisMonthCount, 0)
+  const reingProvingCount = Math.max(activeMeters.length - provedThisMonthCount, 0)
   const provingCompliance = activeMeters.length > 0 ? Math.round((provedThisMonthCount / activeMeters.length) * 100) : 0
   const pendingProvings = provings.filter((p) => p.status !== 'approved')
   const draftProvings = provings.filter((p) => String(p.status || '').toLowerCase() === 'draft')
@@ -11224,7 +11224,7 @@ async function saveUserRole() {
             </div>
           </>
         )}
-                </>
+                
         )}
       </main>
     </div>

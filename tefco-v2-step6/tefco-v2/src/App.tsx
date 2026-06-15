@@ -605,6 +605,8 @@ function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
   const [provingTab, setProvingTab] = useState<'create' | 'drafts' | 'pending' | 'approved' | 'kpi'>('create')
+  const [potTab, setPotTab] = useState<'create' | 'history' | 'export'>('create')
+  const [readingTab, setReadingTab] = useState<'new' | 'history' | 'photos'>('new')
   const [hierarchySegmentId, setHierarchySegmentId] = useState('')
   const [hierarchyAreaId, setHierarchyAreaId] = useState('')
   const [hierarchyLeaseId, setHierarchyLeaseId] = useState('')
@@ -5695,6 +5697,46 @@ async function createCompany() {
     }, {})
   }
 
+
+  function getMonthLabelFromRow(row: any, fields: string[] = []) {
+    const value = fields.map((field) => row?.[field]).find(Boolean) || row?.sample_date || row?.reading_date || row?.created_at || row?.date
+    if (!value) return 'Undated'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return 'Undated'
+    return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  }
+
+  function groupRowsByMonth(rows: any[], fields: string[] = []) {
+    return rows.reduce((groups: Record<string, any[]>, row: any) => {
+      const key = getMonthLabelFromRow(row, fields)
+      if (!groups[key]) groups[key] = []
+      groups[key].push(row)
+      return groups
+    }, {})
+  }
+
+  function getReadingDisplayName(row: any) {
+    const meter = getMeterById(row?.meter_id || row?.meterId || '')
+    const lease = getLeaseById(row?.lease_id || row?.leaseId || meter?.lease_id || '')
+    const leaseName = String(lease?.lease_name || lease?.name || '').trim()
+    const meterNumber = String(meter?.meter_number || row?.meter_number || '').trim()
+    return {
+      main: leaseName || meterNumber || 'Reading',
+      secondary: meterNumber && meterNumber !== leaseName ? `Meter: ${meterNumber}` : ''
+    }
+  }
+
+  function getPotDisplayName(row: any) {
+    const meter = getMeterById(row?.meter_id || row?.meterId || '')
+    const lease = getLeaseById(row?.lease_id || row?.leaseId || meter?.lease_id || '')
+    const leaseName = String(lease?.lease_name || lease?.name || '').trim()
+    const segment = segments.find((s: any) => s.id === row?.segment_id)
+    return {
+      main: leaseName || row?.pot_number || row?.sample_id || 'POT Quality',
+      secondary: segment ? `Segment: ${(segment as any).segment_name || (segment as any).name}` : ''
+    }
+  }
+
   function meterMatchesSearch(meter: any, searchText: string) {
     const search = String(searchText || '').trim().toLowerCase()
     if (!search) return true
@@ -9505,92 +9547,162 @@ async function saveUserRole() {
         {page === 'readings' && (
           <>
             <h1>Operator Readings</h1>
-            <div style={box}>
-              {!shouldHideAreaSelector() ? (
-                <select style={input} value={selectedReadingArea} onChange={(e) => handleReadingAreaSelect(e.target.value)}>
-                  <option value="">Select Area</option>
-                  {getVisibleAreas().map((area: any) => (
-                    <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+            <div style={{ ...box, padding: 0, overflow: 'hidden', marginBottom: 16 }}>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0 }}>
+                {[
+                  ['new', 'New Reading', 'Enter meter reading'],
+                  ['history', `Monthly History (${readings.length})`, 'Grouped by month'],
+                  ['photos', 'Photos / Review', 'Lease photo history'],
+                ].map(([key, label, sub]) => (
+                  <button
+                    key={key}
+                    style={{
+                      ...button,
+                      borderRadius: 0,
+                      background: readingTab === key ? 'linear-gradient(135deg,#ef4444,#7f1d1d)' : 'rgba(15,23,42,0.92)',
+                      border: readingTab === key ? '1px solid #ef4444' : '1px solid #22303c',
+                      boxShadow: readingTab === key ? '0 0 18px rgba(239,68,68,0.28)' : 'none',
+                    }}
+                    onClick={() => setReadingTab(key as any)}
+                  >
+                    <div style={{ fontWeight: 800 }}>{label}</div>
+                    <div style={{ fontSize: 11, color: '#cbd5e1' }}>{sub}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {readingTab === 'new' && (
+              <div style={box}>
+                <h3>New Operator Reading</h3>
+                {!shouldHideAreaSelector() ? (
+                  <select style={input} value={selectedReadingArea} onChange={(e) => handleReadingAreaSelect(e.target.value)}>
+                    <option value="">Select Area</option>
+                    {getVisibleAreas().map((area: any) => (
+                      <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div style={card}>Area: <strong>{getVisibleAreas()[0]?.area_name || getVisibleAreas()[0]?.name || 'Assigned Area'}</strong></div>
+                )}
+
+                <select style={input} value={selectedReadingSegment} onChange={(e) => handleReadingSegmentSelect(e.target.value)} disabled={!selectedReadingArea}>
+                  <option value="">{selectedReadingArea ? 'Select Segment' : 'Select area first'}</option>
+                  {getVisibleSegments(selectedReadingArea).map((segment: any) => (
+                    <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                   ))}
                 </select>
-              ) : (
-                <div style={card}>Area: <strong>{getVisibleAreas()[0]?.area_name || getVisibleAreas()[0]?.name || 'Assigned Area'}</strong></div>
-              )}
 
-              <select style={input} value={selectedReadingSegment} onChange={(e) => handleReadingSegmentSelect(e.target.value)} disabled={!selectedReadingArea}>
-                <option value="">{selectedReadingArea ? 'Select Segment' : 'Select area first'}</option>
-                {getVisibleSegments(selectedReadingArea).map((segment: any) => (
-                  <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
-                ))}
-              </select>
+                <select style={input} value={selectedReadingLease} onChange={(e) => handleReadingLeaseSelect(e.target.value)} disabled={!selectedReadingSegment}>
+                  <option value="">{selectedReadingSegment ? 'Select Lease' : 'Select segment first'}</option>
+                  {getVisibleLeases(selectedReadingSegment).map((lease: any) => (
+                    <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                  ))}
+                </select>
 
-              <select style={input} value={selectedReadingLease} onChange={(e) => handleReadingLeaseSelect(e.target.value)} disabled={!selectedReadingSegment}>
-                <option value="">{selectedReadingSegment ? 'Select Lease' : 'Select segment first'}</option>
-                {getVisibleLeases(selectedReadingSegment).map((lease: any) => (
-                  <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
-                ))}
-              </select>
+                <select style={input} value={selectedReadingMeter} onChange={(e) => { setSelectedReadingMeter(e.target.value); autofillOpeningReadingForLease(selectedReadingLease, e.target.value) }} disabled={!selectedReadingLease}>
+                  <option value="">{selectedReadingLease ? 'Select Meter' : 'Select lease first'}</option>
+                  {getVisibleMeters(selectedReadingLease).map((meter: any) => (
+                    <option key={meter.id} value={meter.id}>
+                      {meter.meter_number || meter.meter_name} {meter.meter_name && meter.meter_number ? `- ${meter.meter_name}` : ''}
+                    </option>
+                  ))}
+                </select>
 
-              <select style={input} value={selectedReadingMeter} onChange={(e) => { setSelectedReadingMeter(e.target.value); autofillOpeningReadingForLease(selectedReadingLease, e.target.value) }} disabled={!selectedReadingLease}>
-                <option value="">{selectedReadingLease ? 'Select Meter' : 'Select lease first'}</option>
-                {getVisibleMeters(selectedReadingLease).map((meter: any) => (
-                  <option key={meter.id} value={meter.id}>
-                    {meter.meter_number || meter.meter_name} {meter.meter_name && meter.meter_number ? `- ${meter.meter_name}` : ''}
-                  </option>
-                ))}
-              </select>
-
-              {selectedReadingMeter && (
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>
-                  Auto-selected meter: <strong>{getSelectedReadingMeterNumber()}</strong> • Movement from Meter Master: <strong>{getSelectedReadingMovementType() === 'receipt' ? 'Receipt / Inbound' : 'Delivery / Outbound'}</strong>
-                </div>
-              )}
-              <input style={input} placeholder="Opening Reading" value={readingOpen} onChange={(e) => setReadingOpen(e.target.value)} />
-              <input style={input} placeholder="Closing Reading" value={readingClose} onChange={(e) => setReadingClose(e.target.value)} />
-              <input style={input} placeholder="Average Temperature" value={readingAvgTemp} onChange={(e) => setReadingAvgTemp(e.target.value)} />
-              <input style={input} placeholder="Average Pressure" value={readingAvgPressure} onChange={(e) => setReadingAvgPressure(e.target.value)} />
-              <input style={input} placeholder="Fallback Meter Factor" value={readingMF} onChange={(e) => setReadingMF(e.target.value)} />
-
-              <div style={{ ...card, border: '1px dashed rgba(148,163,184,0.35)' }}>
-                <strong>Meter / Flow Computer Photos</strong>
-                <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 4 }}>
-                  Upload multiple photos for this lease. Use this for meter displays, flow computer totals, seals, or screen checks.
-                </div>
-                <input
-                  style={{ ...input, marginTop: 10 }}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(e) => setReadingPhotoFiles(Array.from(e.target.files || []))}
-                />
-                {readingPhotoFiles.length > 0 && (
-                  <div style={{ color: '#bbf7d0', fontSize: 12 }}>{readingPhotoFiles.length} photo(s) ready to upload with this reading.</div>
+                {selectedReadingMeter && (
+                  <div style={{ color: '#a8b3bd', fontSize: 13 }}>
+                    Auto-selected meter: <strong>{getSelectedReadingMeterNumber()}</strong> • Movement from Meter Master: <strong>{getSelectedReadingMovementType() === 'receipt' ? 'Receipt / Inbound' : 'Delivery / Outbound'}</strong>
+                  </div>
                 )}
-              </div>
+                <input style={input} placeholder="Opening Reading" value={readingOpen} onChange={(e) => setReadingOpen(e.target.value)} />
+                <input style={input} placeholder="Closing Reading" value={readingClose} onChange={(e) => setReadingClose(e.target.value)} />
+                <input style={input} placeholder="Average Temperature" value={readingAvgTemp} onChange={(e) => setReadingAvgTemp(e.target.value)} />
+                <input style={input} placeholder="Average Pressure" value={readingAvgPressure} onChange={(e) => setReadingAvgPressure(e.target.value)} />
+                <input style={input} placeholder="Fallback Meter Factor" value={readingMF} onChange={(e) => setReadingMF(e.target.value)} />
 
-              {selectedReadingLease && getReadingPhotosForLease(selectedReadingLease).length > 0 && (
-                <div style={card}>
-                  <strong>Recent Photos for Selected Lease</strong>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginTop: 10 }}>
+                <div style={{ ...card, border: '1px dashed rgba(148,163,184,0.35)' }}>
+                  <strong>Meter / Flow Computer Photos</strong>
+                  <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 4 }}>
+                    Upload multiple photos for this lease. Use this for meter displays, flow computer totals, seals, or screen checks.
+                  </div>
+                  <input
+                    style={{ ...input, marginTop: 10 }}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => setReadingPhotoFiles(Array.from(e.target.files || []))}
+                  />
+                  {readingPhotoFiles.length > 0 && (
+                    <div style={{ color: '#bbf7d0', fontSize: 12 }}>{readingPhotoFiles.length} photo(s) ready to upload with this reading.</div>
+                  )}
+                </div>
+
+                {selectedReadingLease && getReadingPhotosForLease(selectedReadingLease).length > 0 && (
+                  <div style={card}>
+                    <strong>Recent Photos for Selected Lease</strong>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginTop: 10 }}>
+                      {getReadingPhotosForLease(selectedReadingLease).map((photo: any) => (
+                        <a key={photo.id || photo.file_path} href={photo.public_url || '#'} target="_blank" rel="noreferrer" style={{ color: '#e5e7eb', textDecoration: 'none' }}>
+                          <img src={photo.public_url} alt={photo.file_name || 'reading photo'} style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 10, border: '1px solid rgba(148,163,184,0.25)' }} />
+                          <div style={{ fontSize: 11, color: '#a8b3bd', marginTop: 4 }}>{new Date(photo.created_at || Date.now()).toLocaleString()}</div>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ marginTop: 15 }}>IV: {(Number(readingClose || 0) - Number(readingOpen || 0)).toFixed(2)}</div>
+                <button style={button} onClick={saveReading} disabled={readingPhotoUploading}>{readingPhotoUploading ? 'Saving Photos...' : 'Save Reading'}</button>
+              </div>
+            )}
+
+            {readingTab === 'history' && (
+              <div style={box}>
+                <h3>Operator Readings by Month</h3>
+                {Object.entries(groupRowsByMonth(readings, ['reading_date', 'created_at']) as Record<string, any[]>).map(([month, rows]) => (
+                  <details key={month} open={month === getMonthLabelFromRow({}, [])} style={card}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{month} • {rows.length} reading(s)</summary>
+                    <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                      {rows.map((row: any) => {
+                        const display = getReadingDisplayName(row)
+                        return (
+                          <div key={row.id} style={{ ...card, margin: 0 }}>
+                            <strong>{display.main}</strong>
+                            {display.secondary && <div style={{ color: '#a8b3bd' }}>{display.secondary}</div>}
+                            <div style={{ color: '#a8b3bd' }}>Date: {new Date(row.reading_date || row.created_at || Date.now()).toLocaleString()}</div>
+                            <div>Open: {row.opening_reading ?? row.opening_meter_reading ?? row.open_reading ?? '—'} • Close: {row.closing_reading ?? row.closing_meter_reading ?? row.close_reading ?? '—'}</div>
+                            <div>Avg Temp: {row.avg_temp ?? row.average_temperature ?? '—'} • Avg Pressure: {row.avg_pressure ?? row.average_pressure ?? '—'}</div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </details>
+                ))}
+                {readings.length === 0 && <div style={card}>No readings saved yet.</div>}
+              </div>
+            )}
+
+            {readingTab === 'photos' && (
+              <div style={box}>
+                <h3>Reading Photo Review</h3>
+                <p style={{ color: '#a8b3bd' }}>Select a lease on the New Reading tab to view its recent meter and flow computer photos, or review saved reading history by month.</p>
+                {selectedReadingLease && getReadingPhotosForLease(selectedReadingLease).length > 0 ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
                     {getReadingPhotosForLease(selectedReadingLease).map((photo: any) => (
                       <a key={photo.id || photo.file_path} href={photo.public_url || '#'} target="_blank" rel="noreferrer" style={{ color: '#e5e7eb', textDecoration: 'none' }}>
-                        <img src={photo.public_url} alt={photo.file_name || 'reading photo'} style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 10, border: '1px solid rgba(148,163,184,0.25)' }} />
+                        <img src={photo.public_url} alt={photo.file_name || 'reading photo'} style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 12, border: '1px solid rgba(148,163,184,0.25)' }} />
                         <div style={{ fontSize: 11, color: '#a8b3bd', marginTop: 4 }}>{new Date(photo.created_at || Date.now()).toLocaleString()}</div>
                       </a>
                     ))}
                   </div>
-                </div>
-              )}
-
-              <div style={{ marginTop: 15 }}>IV: {(Number(readingClose || 0) - Number(readingOpen || 0)).toFixed(2)}</div>
-              <button style={button} onClick={saveReading} disabled={readingPhotoUploading}>{readingPhotoUploading ? 'Saving Photos...' : 'Save Reading'}</button>
-            </div>
+                ) : (
+                  <div style={card}>No lease photo selection active. Choose a lease on New Reading first.</div>
+                )}
+              </div>
+            )}
           </>
         )}
 
-        
-        
-        
         {page === 'api_engine' && (
           <>
             <h1>API 11.1 Engine Tester</h1>
@@ -9846,94 +9958,134 @@ async function saveUserRole() {
         {page === 'pot' && (
           <>
             <h1>POT Quality</h1>
-            <div style={box}>
-              <h3>POT Workings CSV Export</h3>
-              <p style={{ color: '#a8b3bd' }}>
-                Export POT workings into the GQ liquid import header CSV layout.
-              </p>
-              <select style={input} value={potCsvProducerId} onChange={(e) => setPotCsvProducerId(e.target.value)}>
-                <option value="">All Producers</option>
-                {producers.map((producer) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
-              </select>
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <input style={input} type="date" value={potCsvStartDate} onChange={(e) => setPotCsvStartDate(e.target.value)} />
-                <input style={input} type="date" value={potCsvEndDate} onChange={(e) => setPotCsvEndDate(e.target.value)} />
+            <div style={{ ...box, padding: 0, overflow: 'hidden', marginBottom: 16 }}>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0 }}>
+                {[
+                  ['create', 'Create POT', 'New quality record'],
+                  ['history', `Monthly History (${potQuality.length})`, 'Grouped by month'],
+                  ['export', 'Monthly Export', 'POT workings CSV'],
+                ].map(([key, label, sub]) => (
+                  <button
+                    key={key}
+                    style={{
+                      ...button,
+                      borderRadius: 0,
+                      background: potTab === key ? 'linear-gradient(135deg,#ef4444,#7f1d1d)' : 'rgba(15,23,42,0.92)',
+                      border: potTab === key ? '1px solid #ef4444' : '1px solid #22303c',
+                      boxShadow: potTab === key ? '0 0 18px rgba(239,68,68,0.28)' : 'none',
+                    }}
+                    onClick={() => setPotTab(key as any)}
+                  >
+                    <div style={{ fontWeight: 800 }}>{label}</div>
+                    <div style={{ fontSize: 11, color: '#cbd5e1' }}>{sub}</div>
+                  </button>
+                ))}
               </div>
-              <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Exporting POT workings CSV', exportPotWorkingsCsv)}>
-                Export POT Workings CSV
-              </button>
             </div>
-            <div style={box}>
-              <h3>New POT Quality</h3>
-              {!shouldHideAreaSelector() ? (
-                <select style={input} value={selectedPotArea} onChange={(e) => handlePotAreaSelect(e.target.value)}>
-                  <option value="">Select Area</option>
-                  {getVisibleAreas().map((area: any) => (
-                    <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+
+            {potTab === 'export' && (
+              <div style={box}>
+                <h3>POT Workings CSV Export</h3>
+                <p style={{ color: '#a8b3bd' }}>
+                  Export POT workings into the GQ liquid import header CSV layout.
+                </p>
+                <select style={input} value={potCsvProducerId} onChange={(e) => setPotCsvProducerId(e.target.value)}>
+                  <option value="">All Producers</option>
+                  {producers.map((producer) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
+                </select>
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <input style={input} type="date" value={potCsvStartDate} onChange={(e) => setPotCsvStartDate(e.target.value)} />
+                  <input style={input} type="date" value={potCsvEndDate} onChange={(e) => setPotCsvEndDate(e.target.value)} />
+                </div>
+                <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Exporting POT workings CSV', exportPotWorkingsCsv)}>
+                  Export POT Workings CSV
+                </button>
+              </div>
+            )}
+
+            {potTab === 'create' && (
+              <div style={box}>
+                <h3>New POT Quality</h3>
+                {!shouldHideAreaSelector() ? (
+                  <select style={input} value={selectedPotArea} onChange={(e) => handlePotAreaSelect(e.target.value)}>
+                    <option value="">Select Area</option>
+                    {getVisibleAreas().map((area: any) => (
+                      <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div style={card}>Area: <strong>{getVisibleAreas()[0]?.area_name || getVisibleAreas()[0]?.name || 'Assigned Area'}</strong></div>
+                )}
+
+                <select style={input} value={selectedPotSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
+                  <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
+                  {getVisibleSegments(selectedPotArea).map((segment: any) => (
+                    <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                   ))}
                 </select>
-              ) : (
-                <div style={card}>Area: <strong>{getVisibleAreas()[0]?.area_name || getVisibleAreas()[0]?.name || 'Assigned Area'}</strong></div>
-              )}
 
-              <select style={input} value={selectedPotSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
-                <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
-                {getVisibleSegments(selectedPotArea).map((segment: any) => (
-                  <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
-                ))}
-              </select>
+                <select style={input} value={selectedPotLease} onChange={(e) => handlePotLeaseSelect(e.target.value)} disabled={!selectedPotSegment}>
+                  <option value="">{selectedPotSegment ? 'Select Lease' : 'Select segment first'}</option>
+                  {filteredPotLeases.map((lease: any) => (
+                    <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                  ))}
+                </select>
 
-              <select style={input} value={selectedPotLease} onChange={(e) => handlePotLeaseSelect(e.target.value)} disabled={!selectedPotSegment}>
-                <option value="">{selectedPotSegment ? 'Select Lease' : 'Select segment first'}</option>
-                {filteredPotLeases.map((lease: any) => (
-                  <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
-                ))}
-              </select>
-
-              <div style={card}>
-                Meter Number: <strong>{selectedPotMeterRow?.meter_number || selectedPotMeterRow?.meter_name || (selectedPotLease ? 'No meter linked' : 'Select lease first')}</strong>
+                <div style={card}>
+                  Meter Number: <strong>{selectedPotMeterRow?.meter_number || selectedPotMeterRow?.meter_name || (selectedPotLease ? 'No meter linked' : 'Select lease first')}</strong>
+                </div>
+                <input style={input} type="date" value={potDate} onChange={(e) => setPotDate(e.target.value)} />
+                <input style={input} placeholder="Observed API Gravity" value={potGravity} onChange={(e) => setPotGravity(e.target.value)} />
+                <input style={input} placeholder="Observed Temperature" value={potTemp} onChange={(e) => setPotTemp(e.target.value)} />
+                <div style={card}>
+                  Calculated API Gravity @60:{' '}
+                  {calculateApi11Corrections({
+                    productGroup: 'crude',
+                    observedApiGravity: Number(potGravity || 0),
+                    observedTemperature: Number(potTemp || 60),
+                    observedPressure: 0,
+                    averageTemperature: Number(potTemp || 60),
+                    averagePressure: 0,
+                  }).api_gravity_60}
+                </div>
+                <input style={input} placeholder="BS&W %" value={potBSW} onChange={(e) => setPotBSW(e.target.value)} />
+                <input style={input} placeholder="Notes" value={potNotes} onChange={(e) => setPotNotes(e.target.value)} />
+                <div style={card}>CSW: {(1 - Number(potBSW || 0) / 100).toFixed(6)}</div>
+                <button style={button} onClick={savePotQuality}>Save POT Quality</button>
               </div>
-              <input style={input} type="date" value={potDate} onChange={(e) => setPotDate(e.target.value)} />
-              <input style={input} placeholder="Observed API Gravity" value={potGravity} onChange={(e) => setPotGravity(e.target.value)} />
-              <input style={input} placeholder="Observed Temperature" value={potTemp} onChange={(e) => setPotTemp(e.target.value)} />
-              <div style={card}>
-                Calculated API Gravity @60:{' '}
-                {calculateApi11Corrections({
-                  productGroup: 'crude',
-                  observedApiGravity: Number(potGravity || 0),
-                  observedTemperature: Number(potTemp || 60),
-                  observedPressure: 0,
-                  averageTemperature: Number(potTemp || 60),
-                  averagePressure: 0,
-                }).api_gravity_60}
+            )}
+
+            {potTab === 'history' && (
+              <div style={box}>
+                <h3>POT Quality by Month</h3>
+                {Object.entries(groupRowsByMonth(potQuality, ['sample_date', 'created_at']) as Record<string, any[]>).map(([month, rows]) => (
+                  <details key={month} open style={card}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{month} • {rows.length} POT record(s)</summary>
+                    <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                      {rows.map((p: any) => {
+                        const prod = producers.find((x) => x.id === p.producer_id)
+                        const display = getPotDisplayName(p)
+                        return (
+                          <div key={p.id} style={{ ...card, margin: 0 }}>
+                            <strong>{display.main}</strong>
+                            {display.secondary && <div style={{ color: '#a8b3bd' }}>{display.secondary}</div>}
+                            <div>Producer: {prod?.name || '—'}</div>
+                            <div>Date: {p.sample_date || '—'}</div>
+                            <div>Observed API Gravity: {p.observed_api_gravity ?? p.api_gravity}</div>
+                            <div>Observed Temp: {p.observed_temperature ?? p.sample_temperature}</div>
+                            <div>API Gravity @60: {p.api_gravity_60 ?? p.api_gravity}</div>
+                            <div>BS&W: {p.bsw}</div>
+                            <div>CSW: {p.csw}</div>
+                            <div>Notes: {p.notes || ''}</div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </details>
+                ))}
+                {potQuality.length === 0 && <div style={card}>No POT quality records saved yet.</div>}
               </div>
-              <input style={input} placeholder="BS&W %" value={potBSW} onChange={(e) => setPotBSW(e.target.value)} />
-              <input style={input} placeholder="Notes" value={potNotes} onChange={(e) => setPotNotes(e.target.value)} />
-              <div style={card}>CSW: {(1 - Number(potBSW || 0) / 100).toFixed(6)}</div>
-              <button style={button} onClick={savePotQuality}>Save POT Quality</button>
-            </div>
-            <div style={box}>
-              <h3>Recent POT Quality</h3>
-              {potQuality.map((p) => {
-                const seg = segments.find((s) => s.id === p.segment_id)
-                const prod = producers.find((x) => x.id === p.producer_id)
-                const lease = leases.find((l) => l.id === p.lease_id)
-                return (
-                  <div key={p.id} style={card}>
-                    <strong>{lease?.lease_name || 'Lease'}</strong>
-                    <div>Segment: {seg?.name || ''}</div>
-                    <div>Producer: {prod?.name || ''}</div>
-                    <div>Date: {p.sample_date}</div>
-                    <div>Observed API Gravity: {p.observed_api_gravity ?? p.api_gravity}</div>
-                    <div>Observed Temp: {p.observed_temperature ?? p.sample_temperature}</div>
-                    <div>API Gravity @60: {p.api_gravity_60 ?? p.api_gravity}</div>
-                    <div>BS&W: {p.bsw}</div>
-                    <div>CSW: {p.csw}</div>
-                    <div>Notes: {p.notes || ''}</div>
-                  </div>
-                )
-              })}
-            </div>
+            )}
           </>
         )}
 

@@ -1308,7 +1308,7 @@ useEffect(() => {
   const approvedThisMonth = provings.filter((p) => p.status === 'approved' && isThisMonth(p.proving_date))
   const provedMeterIds = new Set(approvedThisMonth.map((p) => p.meter_id))
   const provedThisMonthCount = activeMeters.filter((m) => provedMeterIds.has(m.id)).length
-  const reingProvingCount = Math.max(activeMeters.length - provedThisMonthCount, 0)
+  const remainingProvingCount = Math.max(activeMeters.length - provedThisMonthCount, 0)
   const provingCompliance = activeMeters.length > 0 ? Math.round((provedThisMonthCount / activeMeters.length) * 100) : 0
   const pendingProvings = provings.filter((p) => p.status !== 'approved')
   const draftProvings = provings.filter((p) => String(p.status || '').toLowerCase() === 'draft')
@@ -9940,7 +9940,7 @@ async function saveUserRole() {
         {page === 'provings' && (
           <>
             <h1>Meter Provings</h1>
-            <div style={{ ...box, padding: 0, overflow: 'hidden' }}>
+            <div style={{ ...box, padding: 0, overflow: 'hidden', marginBottom: 16 }}>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 0 }}>
                 {[
                   ['create', 'Create Proving', 'New proving entry'],
@@ -9951,6 +9951,7 @@ async function saveUserRole() {
                 ].map(([key, label, sub]) => (
                   <button
                     key={key}
+                    type="button"
                     style={{
                       ...button,
                       borderRadius: 0,
@@ -9962,7 +9963,6 @@ async function saveUserRole() {
                       textAlign: 'left',
                     }}
                     onClick={() => setProvingTab(key as any)}
-                    type="button"
                   >
                     <div style={{ fontWeight: 900 }}>{label}</div>
                     <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 4 }}>{sub}</div>
@@ -9970,10 +9970,8 @@ async function saveUserRole() {
                 ))}
               </div>
             </div>
-
             {provingTab === 'kpi' && (
               <>
-
             <div style={box}>
               <h2>Monthly Proving KPI</h2>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginTop: 20 }}>
@@ -10051,13 +10049,12 @@ async function saveUserRole() {
                 </table>
               </div>
             </div>
-
-                          </>
+              </>
             )}
 
             {provingTab === 'create' && (
               <>
-<div style={box}>
+            <div style={box}>
               <h2>New Proving</h2>
               {!shouldHideAreaSelector() ? (
                 <select style={input} value={selectedProvingArea} onChange={(e) => handleProvingAreaSelect(e.target.value)}>
@@ -10152,13 +10149,12 @@ async function saveUserRole() {
               </div>
               <button style={button} onClick={saveProving}>Save Draft Proving</button>
             </div>
-
-                          </>
+              </>
             )}
 
             {provingTab === 'drafts' && (
               <>
-<div style={box}>
+            <div style={box}>
               <h2>Draft Provings</h2>
               {draftProvings.length === 0 && <div style={card}>No draft provings.</div>}
               {draftProvings.map((p) => {
@@ -10180,13 +10176,12 @@ async function saveUserRole() {
                 )
               })}
             </div>
-
-                          </>
+              </>
             )}
 
             {provingTab === 'pending' && (
               <>
-<div style={box}>
+            <div style={box}>
               <h2>Needs Approval</h2>
               {approvalProvings.length === 0 && <div style={card}>No provings pending approval.</div>}
               {approvalProvings.map((p) => {
@@ -10208,13 +10203,12 @@ async function saveUserRole() {
                 )
               })}
             </div>
-
-                          </>
+              </>
             )}
 
             {provingTab === 'approved' && (
               <>
-<div style={box}>
+            <div style={box}>
               <h2>Approved History</h2>
               {approvedProvings.length === 0 && <div style={card}>No approved provings yet.</div>}
               {Object.entries(groupProvingsByMonth(approvedProvings) as Record<string, any[]>).map(([month, rows]) => (
@@ -10240,6 +10234,8 @@ async function saveUserRole() {
                 </details>
               ))}
             </div>
+              </>
+            )}
           </>
         )}
 
@@ -11224,7 +11220,8 @@ async function saveUserRole() {
             </div>
           </>
         )}
-          </>   
+                </>
+        )}
       </main>
     </div>
     </>

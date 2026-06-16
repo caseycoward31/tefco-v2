@@ -607,7 +607,7 @@ function App() {
   const [provingTab, setProvingTab] = useState<'create' | 'drafts' | 'pending' | 'approved' | 'kpi'>('create')
   const [potTab, setPotTab] = useState<'create' | 'history' | 'export'>('create')
   const [readingTab, setReadingTab] = useState<'new' | 'history' | 'photos'>('new')
-  const [operationsTab, setOperationsTab] = useState<'overview' | 'provings' | 'readings'>('overview')
+  const [operationsTab, setOperationsTab] = useState<'overview' | 'provings' | 'readings' | 'balance'>('overview')
   const [hierarchySegmentId, setHierarchySegmentId] = useState('')
   const [hierarchyAreaId, setHierarchyAreaId] = useState('')
   const [hierarchyLeaseId, setHierarchyLeaseId] = useState('')
@@ -3147,6 +3147,36 @@ function handleProvingAreaSelect(areaId: string) {
 
     setSelectedTicket({ ...ticket, ...updateData })
     loadAll()
+  }
+
+
+  async function deleteDraftTicket(ticket: any) {
+    const status = String(ticket?.status || 'draft').toLowerCase()
+    if (status !== 'draft') {
+      alert('Only draft tickets can be deleted.')
+      return
+    }
+
+    const ticketLabel = ticket?.ticket_number || ticket?.id || 'this draft ticket'
+    const ok = window.confirm(`Delete draft ticket ${ticketLabel}?
+
+This only removes the draft. Approved tickets cannot be deleted here.`)
+    if (!ok) return
+
+    const { error } = await supabase
+      .from('tickets')
+      .delete()
+      .eq('id', ticket.id)
+      .eq('status', 'draft')
+
+    if (error) {
+      console.error('Delete draft ticket failed:', error)
+      alert(`Could not delete draft ticket: ${error.message}`)
+      return
+    }
+
+    if (selectedTicket?.id === ticket.id) setSelectedTicket(null)
+    await loadAll()
   }
 
 
@@ -10396,7 +10426,7 @@ async function saveUserRole() {
           <>
             <h1>Operations Intelligence</h1>
             <p style={{ color: '#a8b3bd', marginTop: -8 }}>
-              One clean command center for proving compliance and reading freshness.
+              One clean command center for proving compliance, reading freshness, and segment over/short.
             </p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 16 }}>
@@ -10404,6 +10434,7 @@ async function saveUserRole() {
                 { key: 'overview', label: 'Overview' },
                 { key: 'provings', label: 'Proving Watchlist' },
                 { key: 'readings', label: 'Reading Freshness' },
+                { key: 'balance', label: 'Segment O/S' },
               ].map((tab: any) => (
                 <button
                   key={tab.key}
@@ -10457,6 +10488,7 @@ async function saveUserRole() {
                     <h2>Quick Actions</h2>
                     <button style={button} onClick={() => setOperationsTab('provings')}>Review Proving Watchlist</button>
                     <button style={button} onClick={() => setOperationsTab('readings')}>Review Reading Freshness</button>
+                    <button style={button} onClick={() => setOperationsTab('balance')}>Open Segment O/S</button>
                   </div>
                 </div>
               </>
@@ -10544,6 +10576,92 @@ async function saveUserRole() {
               </div>
             )}
 
+            {operationsTab === 'balance' && (
+              <div style={box}>
+                <h2>Segment-Based Over / Short Detail Engine</h2>
+                <p style={{ color: '#a8b3bd' }}>
+                  Approved tickets only. Uses meter roles, tank/line fill entries, truck tickets, check meter groups, and butane shrinkage adjustments.
+                </p>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  <input style={input} type="date" value={overShortStartDate} onChange={(e) => setOverShortStartDate(e.target.value)} />
+                  <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
+                  <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
+                    <option value="">All Segments</option>
+                    {segments.map((segment: any) => (
+                      <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+                  <button style={button} onClick={exportOverShortCsv}>Export CSV</button>
+                  <button style={button} onClick={exportOverShortExcel}>Export Excel Spreadsheet</button>
+                </div>
+
+                {userCanManageCompanySetup && (
+                  <details style={{ ...card, padding: 0, overflow: 'hidden', marginTop: 12 }}>
+                    <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 900 }}>Segment Balance Modules</summary>
+                    <div style={{ display: 'grid', gap: 8, padding: 12 }}>
+                      {segments.map((segment: any) => {
+                        const enabled = segmentHasButaneBlendEnabled(segment.id)
+                        return (
+                          <label key={segment.id} style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#e5e7eb' }}>
+                            <input type="checkbox" checked={enabled} onChange={(e) => toggleSegmentButaneBlend(segment.id, e.target.checked)} />
+                            <strong>{segment.name || segment.segment_name}</strong>
+                            <span style={{ color: '#a8b3bd' }}>Butane Blend / API MPMS 12.3 Shrinkage</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </details>
+                )}
+
+                <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+                  {getOverShortRows().map((row: any) => (
+                    <div key={row.segment.id} style={card}>
+                      <h3>{row.segment.name || row.segment.segment_name}</h3>
+                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+                        <div>Receipts: <strong>{row.receipts.toFixed(2)}</strong></div>
+                        <div>Deliveries: <strong>{row.deliveries.toFixed(2)}</strong></div>
+                        <div>Truck Tickets: <strong>{row.truckTickets.toFixed(2)}</strong></div>
+                        <div>Tank Change: <strong>{row.tankChange.toFixed(2)}</strong></div>
+                        <div>Line Fill: <strong>{row.lineFillChange.toFixed(2)}</strong></div>
+                        {row.butaneEnabled && <div>Blend %: <strong>{row.butaneBlendPercent.toFixed(4)}%</strong></div>}
+                        {row.butaneEnabled && <div>Shrinkage: <strong>{row.butaneShrinkageBbl.toFixed(2)}</strong></div>}
+                        <div><strong>O/S: {row.overShort.toFixed(2)}</strong></div>
+                      </div>
+
+                      {row.checkGroupRows?.length > 0 && (
+                        <details style={{ marginTop: 10 }}>
+                          <summary style={{ cursor: 'pointer', fontWeight: 800 }}>Check Meter Groups</summary>
+                          <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                            {row.checkGroupRows.map((group: any) => (
+                              <div key={group.group.id} style={{ color: '#a8b3bd' }}>
+                                {group.group.name}: Assigned {group.assignedTotal.toFixed(2)} / Check {group.checkTotal.toFixed(2)} / Diff {group.difference.toFixed(2)} ({group.differencePercent.toFixed(4)}%)
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+
+                      {row.stationEquationRows?.length > 0 && (
+                        <details style={{ marginTop: 10 }}>
+                          <summary style={{ cursor: 'pointer', fontWeight: 800 }}>Station / Balance Equations</summary>
+                          <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                            {row.stationEquationRows.map((equation: any) => (
+                              <div key={equation.equation.id} style={{ color: '#a8b3bd' }}>
+                                {equation.equation.name}: Side A {equation.sideA.toFixed(2)} / Side B {equation.sideB.toFixed(2)} / Diff {equation.difference.toFixed(2)} ({equation.differencePercent.toFixed(4)}%)
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -10890,6 +11008,11 @@ async function saveUserRole() {
                       Submit Ticket
                     </button>
                   )}
+                  {selectedTicket!.status === 'draft' && (
+                    <button style={{ ...button, width: 'auto', background: '#7f1d1d', borderColor: '#991b1b' }} onClick={() => runSafeAction('Deleting draft ticket', () => deleteDraftTicket(selectedTicket!))}>
+                      Delete Draft
+                    </button>
+                  )}
                   <button style={{ ...button, width: 'auto' }} onClick={() => generatePdfPreview(selectedTicket)}>
                     Generate Customer PDF
                   </button>
@@ -11200,9 +11323,19 @@ async function saveUserRole() {
                               <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
                               <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
                             </div>
-                            <button style={{ ...button, width: 150 }} onClick={() => { setSelectedTicket(ticket); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
-                              Open Ticket
-                            </button>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              <button style={{ ...button, width: 130 }} onClick={() => { setSelectedTicket(ticket); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
+                                Open Ticket
+                              </button>
+                              {String(ticket.status || 'draft').toLowerCase() === 'draft' && (
+                                <button
+                                  style={{ ...button, width: 130, background: '#7f1d1d', borderColor: '#991b1b' }}
+                                  onClick={() => runSafeAction('Deleting draft ticket', () => deleteDraftTicket(ticket))}
+                                >
+                                  Delete Draft
+                                </button>
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>

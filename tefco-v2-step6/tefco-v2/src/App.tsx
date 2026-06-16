@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
 import JSZip from 'jszip'
+import jsPDF from 'jspdf'
 
 type Company = {
   id: string
@@ -738,6 +739,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [segmentBalanceSettings, setSegmentBalanceSettings] = useState<any[]>([])
   const [segmentProvingSettings, setSegmentProvingSettings] = useState<any[]>([])
   const [provingScheduleExclusions, setProvingScheduleExclusions] = useState<any[]>([])
+  const [provingScheduleEntries, setProvingScheduleEntries] = useState<any[]>([])
   const [provingKpiMonth, setProvingKpiMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [provingScheduleSegmentId, setProvingScheduleSegmentId] = useState('')
   const [meterAssetConfigs, setMeterAssetConfigs] = useState<any[]>([])
@@ -1265,8 +1267,9 @@ useEffect(() => {
     const { data: segmentBalanceSettingData, error: segmentBalanceSettingError } = await applyCompanyScope(supabase.from('segment_balance_settings').select('*'))
     const { data: segmentProvingSettingData, error: segmentProvingSettingError } = await applyCompanyScope(supabase.from('segment_proving_settings').select('*'))
     const { data: provingScheduleExclusionData, error: provingScheduleExclusionError } = await applyCompanyScope(supabase.from('proving_schedule_exclusions').select('*')).eq('active', true)
-    if (balanceCheckGroupError || balanceCheckGroupMeterError || balanceInventoryEntryError || balanceButaneAdjustmentError || segmentBalanceSettingError || segmentProvingSettingError || provingScheduleExclusionError || balanceEquationError || balanceEquationItemError) {
-      console.warn('Balance Center optional tables unavailable:', { balanceCheckGroupError, balanceCheckGroupMeterError, balanceInventoryEntryError, balanceButaneAdjustmentError, segmentBalanceSettingError, segmentProvingSettingError, provingScheduleExclusionError, balanceEquationError, balanceEquationItemError })
+    const { data: provingScheduleEntryData, error: provingScheduleEntryError } = await applyCompanyScope(supabase.from('proving_schedule_entries').select('*')).eq('active', true)
+    if (balanceCheckGroupError || balanceCheckGroupMeterError || balanceInventoryEntryError || balanceButaneAdjustmentError || segmentBalanceSettingError || segmentProvingSettingError || provingScheduleExclusionError || provingScheduleEntryError || balanceEquationError || balanceEquationItemError) {
+      console.warn('Balance Center optional tables unavailable:', { balanceCheckGroupError, balanceCheckGroupMeterError, balanceInventoryEntryError, balanceButaneAdjustmentError, segmentBalanceSettingError, segmentProvingSettingError, provingScheduleExclusionError, provingScheduleEntryError, balanceEquationError, balanceEquationItemError })
     }
 
     setUserAreaAccess(resolvedAreaAccessData)
@@ -1301,6 +1304,7 @@ useEffect(() => {
     if (segmentBalanceSettingData) setSegmentBalanceSettings(segmentBalanceSettingData)
     if (segmentProvingSettingData) setSegmentProvingSettings(segmentProvingSettingData)
     if (provingScheduleExclusionData) setProvingScheduleExclusions(provingScheduleExclusionData)
+    if (provingScheduleEntryData) setProvingScheduleEntries(provingScheduleEntryData)
 
     const { data: contractProfileData } = await supabase
       .from('contract_profiles')
@@ -2456,6 +2460,13 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     return lease?.segment_id || null
   }
 
+  function formatMonthKey(monthKey: string) {
+    if (!monthKey) return ''
+    const date = new Date(`${monthKey}-01T00:00:00`)
+    if (Number.isNaN(date.getTime())) return monthKey
+    return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  }
+
   function getProvingKpiMonthRange(monthKey: string) {
     const fallback = new Date().toISOString().slice(0, 7)
     const key = monthKey || fallback
@@ -2479,6 +2490,138 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       String(item.month_key || '') === String(monthKey || '') &&
       item.active !== false
     ) || null
+  }
+
+  function getProvingScheduleEntry(meterId: string, monthKey = provingKpiMonth) {
+    return provingScheduleEntries.find((item: any) =>
+      String(item.meter_id || '') === String(meterId || '') &&
+      String(item.month_key || '') === String(monthKey || '') &&
+      item.active !== false
+    ) || null
+  }
+
+  async function saveProvingScheduleEntry(meter: any, updates: any) {
+    const segmentId = getMeterSegmentId(meter)
+    const lease = getLeaseById(meter?.lease_id)
+    const segment = segments.find((s: any) => String(s.id) === String(segmentId || ''))
+    const existing = getProvingScheduleEntry(meter.id, provingKpiMonth)
+    const payload: any = {
+      company_id: companyId || null,
+      area_id: segment?.area_id || meter?.area_id || lease?.area_id || null,
+      segment_id: segmentId || null,
+      lease_id: meter?.lease_id || null,
+      meter_id: meter?.id,
+      month_key: provingKpiMonth,
+      scheduled_date: existing?.scheduled_date || null,
+      assigned_to: existing?.assigned_to || '',
+      notes: existing?.notes || '',
+      active: true,
+      updated_at: new Date().toISOString(),
+      ...updates,
+    }
+
+    const { error } = await supabase
+      .from('proving_schedule_entries')
+      .upsert(payload, { onConflict: 'company_id,meter_id,month_key' })
+
+    if (error) {
+      alert('Could not save proving schedule item: ' + error.message)
+      return
+    }
+
+    setProvingScheduleEntries((items: any[]) => {
+      const next = items.filter((item: any) => !(String(item.meter_id) === String(meter.id) && String(item.month_key) === String(provingKpiMonth)))
+      return [...next, payload]
+    })
+  }
+
+  function generateProvingSchedulePdf(segmentId?: string) {
+    const selectedSegments = segmentId
+      ? segments.filter((s: any) => String(s.id) === String(segmentId))
+      : segments.filter((s: any) => isSegmentIncludedInProvingKpi(s.id))
+
+    if (!selectedSegments.length) {
+      alert('Select a segment or include segments in the Proving KPI first.')
+      return
+    }
+
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' })
+    const monthLabel = formatMonthKey(provingKpiMonth)
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const margin = 36
+    let y = 42
+
+    const writeHeader = (title: string) => {
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(18)
+      doc.text('Monthly Proving Schedule', margin, y)
+      doc.setFontSize(11)
+      doc.setFont('helvetica', 'normal')
+      doc.text(monthLabel, pageWidth - margin, y, { align: 'right' })
+      y += 24
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(13)
+      doc.text(title, margin, y)
+      y += 18
+    }
+
+    selectedSegments.forEach((segment: any, index: number) => {
+      if (index > 0) {
+        doc.addPage()
+        y = 42
+      }
+      const segmentName = segment.segment_name || segment.name || 'Segment'
+      writeHeader(`Segment: ${segmentName}`)
+      const rows = getSegmentMetersForProvingKpi(segment.id)
+      const headers = ['Date', 'Lease', 'Meter', 'Required', 'Reason', 'Assigned To', 'Notes']
+      const widths = [70, 175, 85, 60, 95, 95, 190]
+      let x = margin
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'bold')
+      headers.forEach((h, i) => {
+        doc.text(h, x, y)
+        x += widths[i]
+      })
+      y += 8
+      doc.setDrawColor(180)
+      doc.line(margin, y, pageWidth - margin, y)
+      y += 14
+      doc.setFont('helvetica', 'normal')
+
+      rows.forEach((meter: any) => {
+        if (y > 560) {
+          doc.addPage()
+          y = 42
+          writeHeader(`Segment: ${segmentName}`)
+        }
+        const display = getMeterDisplayName(meter)
+        const exclusion = getProvingScheduleExclusion(meter.id)
+        const entry = getProvingScheduleEntry(meter.id)
+        const values = [
+          entry?.scheduled_date || '',
+          display.main || '',
+          display.secondary || meter.meter_number || '',
+          exclusion ? 'No' : 'Yes',
+          exclusion?.reason || '',
+          entry?.assigned_to || '',
+          entry?.notes || exclusion?.notes || '',
+        ]
+        x = margin
+        values.forEach((value, i) => {
+          const text = String(value || '')
+          const clipped = text.length > (i === 6 ? 42 : i === 1 ? 28 : 16) ? text.slice(0, i === 6 ? 42 : i === 1 ? 28 : 16) + '…' : text
+          doc.text(clipped, x, y)
+          x += widths[i]
+        })
+        y += 16
+      })
+
+      if (!rows.length) {
+        doc.text('No active meters found for this segment.', margin, y)
+      }
+    })
+
+    doc.save(`Proving_Schedule_${monthLabel.replace(/\s+/g, '_')}.pdf`)
   }
 
   function getSegmentMetersForProvingKpi(segmentId: string) {
@@ -10257,7 +10400,7 @@ async function saveUserRole() {
                 <div style={box}>
                   <h2>Monthly Proving Schedule</h2>
                   <p style={{ color: '#a8b3bd' }}>Choose which segments count in the KPI, then exclude individual lease meters for this month only if they did not run, were out of service, bypassed, or under maintenance.</p>
-                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 12, alignItems: 'end' }}>
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '220px 1fr auto auto', gap: 12, alignItems: 'end' }}>
                     <label>
                       <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Schedule Month</div>
                       <input style={input} type="month" value={provingKpiMonth} onChange={(e) => setProvingKpiMonth(e.target.value)} />
@@ -10271,6 +10414,8 @@ async function saveUserRole() {
                         ))}
                       </select>
                     </label>
+                    <button style={secondaryButton} type="button" onClick={() => generateProvingSchedulePdf(provingScheduleSegmentId || undefined)}>Export PDF</button>
+                    <button style={secondaryButton} type="button" onClick={() => generateProvingSchedulePdf()}>Full Month PDF</button>
                   </div>
                 </div>
 
@@ -10315,11 +10460,17 @@ async function saveUserRole() {
                         const display = getMeterDisplayName(meter)
                         const exclusion = getProvingScheduleExclusion(meter.id)
                         return (
-                          <div key={meter.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1.3fr 160px 220px', gap: 12, alignItems: 'center' }}>
+                          <div key={meter.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1.25fr 150px 130px 190px 150px 1fr', gap: 10, alignItems: 'center' }}>
                             <div>
                               <strong>{display.main}</strong>
                               <div style={{ color: '#a8b3bd', fontSize: 12 }}>{display.secondary ? `Meter: ${display.secondary}` : `Meter: ${meter.meter_number || ''}`}</div>
                             </div>
+                            <input
+                              style={input}
+                              type="date"
+                              value={getProvingScheduleEntry(meter.id)?.scheduled_date || ''}
+                              onChange={(e) => saveProvingScheduleEntry(meter, { scheduled_date: e.target.value || null })}
+                            />
                             <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <input
                                 type="checkbox"
@@ -10342,6 +10493,18 @@ async function saveUserRole() {
                               <option value="Temporary Meter">Temporary Meter</option>
                               <option value="Other">Other</option>
                             </select>
+                            <input
+                              style={input}
+                              placeholder="Assigned tech"
+                              value={getProvingScheduleEntry(meter.id)?.assigned_to || ''}
+                              onChange={(e) => saveProvingScheduleEntry(meter, { assigned_to: e.target.value })}
+                            />
+                            <input
+                              style={input}
+                              placeholder="Schedule notes"
+                              value={getProvingScheduleEntry(meter.id)?.notes || ''}
+                              onChange={(e) => saveProvingScheduleEntry(meter, { notes: e.target.value })}
+                            />
                           </div>
                         )
                       })}

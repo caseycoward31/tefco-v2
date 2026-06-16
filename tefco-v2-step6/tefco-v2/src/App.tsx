@@ -877,6 +877,7 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [provingFactorType, setProvingFactorType] = useState('MF')
   const [provingPdfFile, setProvingPdfFile] = useState<File | null>(null)
   const [provingPhotoFiles, setProvingPhotoFiles] = useState<File[]>([])
+  const [provingFileResetKey, setProvingFileResetKey] = useState(0)
 
   const [potSegment, setPotSegment] = useState('')
   const [potProducer, setPotProducer] = useState('')
@@ -2538,6 +2539,22 @@ function handleProvingAreaSelect(areaId: string) {
     }
   }
 
+  function resetProvingForm() {
+    setSelectedProvingSegment('')
+    setSelectedProvingLease('')
+    setProvingMeter('')
+    setProvingDate('')
+    setProverVolume('')
+    setProvingIndicatedVolume('')
+    setAcceptedMF('')
+    setProvingCpl('')
+    setProvingWitness('')
+    setProvingFactorType('MF')
+    setProvingPdfFile(null)
+    setProvingPhotoFiles([])
+    setProvingFileResetKey((key) => key + 1)
+  }
+
   async function saveProving() {
     if (!companyId || !provingMeter || !provingDate) {
       alert('Select meter and proving date first.')
@@ -2601,18 +2618,36 @@ function handleProvingAreaSelect(areaId: string) {
       }
     }
 
-    setProvingMeter('')
-    setProvingDate('')
-    setProverVolume('')
-    setProvingIndicatedVolume('')
-    setAcceptedMF('')
-    setProvingCpl('')
-    setProvingWitness('')
-    setProvingFactorType('MF')
-    setProvingPdfFile(null)
-    setProvingPhotoFiles([])
+    resetProvingForm()
+    setProvingTab('create')
 
-    alert('Proving saved.')
+    alert('Proving draft saved. Ready for next proving.')
+    loadAll()
+  }
+
+  async function deleteDraftProving(proving: Proving) {
+    if (!proving?.id) return
+    if ((proving.status || '').toLowerCase() !== 'draft') {
+      alert('Only draft provings can be deleted.')
+      return
+    }
+
+    const label = getProvingDisplayName(proving)
+    const confirmed = window.confirm(`Delete draft proving for ${label.main}? This cannot be undone.`)
+    if (!confirmed) return
+
+    const { error } = await supabase
+      .from('meter_provings')
+      .delete()
+      .eq('id', proving.id)
+      .eq('status', 'draft')
+
+    if (error) {
+      alert('Could not delete draft proving: ' + error.message)
+      return
+    }
+
+    alert('Draft proving deleted.')
     loadAll()
   }
 
@@ -3147,36 +3182,6 @@ function handleProvingAreaSelect(areaId: string) {
 
     setSelectedTicket({ ...ticket, ...updateData })
     loadAll()
-  }
-
-
-  async function deleteDraftTicket(ticket: any) {
-    const status = String(ticket?.status || 'draft').toLowerCase()
-    if (status !== 'draft') {
-      alert('Only draft tickets can be deleted.')
-      return
-    }
-
-    const ticketLabel = ticket?.ticket_number || ticket?.id || 'this draft ticket'
-    const ok = window.confirm(`Delete draft ticket ${ticketLabel}?
-
-This only removes the draft. Approved tickets cannot be deleted here.`)
-    if (!ok) return
-
-    const { error } = await supabase
-      .from('tickets')
-      .delete()
-      .eq('id', ticket.id)
-      .eq('status', 'draft')
-
-    if (error) {
-      console.error('Delete draft ticket failed:', error)
-      alert(`Could not delete draft ticket: ${error.message}`)
-      return
-    }
-
-    if (selectedTicket?.id === ticket.id) setSelectedTicket(null)
-    await loadAll()
   }
 
 
@@ -10290,6 +10295,7 @@ async function saveUserRole() {
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span>📸 Take / Choose Proving Report Photos</span>
                   <input
+                    key={`proving-photos-${provingFileResetKey}`}
                     style={input}
                     type="file"
                     accept="image/*"
@@ -10305,6 +10311,7 @@ async function saveUserRole() {
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span>📄 Or Upload Existing Proving PDF</span>
                   <input
+                    key={`proving-pdf-${provingFileResetKey}`}
                     style={input}
                     type="file"
                     accept="application/pdf"
@@ -10354,7 +10361,10 @@ async function saveUserRole() {
                     <div>Witness: {p.witness || ''}</div>
                     <div>PDF: {p.pdf_file_name || 'None'}</div>
                     {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
-                    <button style={button} onClick={() => approveProving(p)}>Submit / Approve Proving</button>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button style={button} onClick={() => approveProving(p)}>Submit / Approve Proving</button>
+                      <button style={{ ...button, background: 'linear-gradient(135deg,#7f1d1d,#450a0a)' }} onClick={() => deleteDraftProving(p)}>Delete Draft</button>
+                    </div>
                   </div>
                 )
               })}
@@ -11008,11 +11018,6 @@ async function saveUserRole() {
                       Submit Ticket
                     </button>
                   )}
-                  {selectedTicket!.status === 'draft' && (
-                    <button style={{ ...button, width: 'auto', background: '#7f1d1d', borderColor: '#991b1b' }} onClick={() => runSafeAction('Deleting draft ticket', () => deleteDraftTicket(selectedTicket!))}>
-                      Delete Draft
-                    </button>
-                  )}
                   <button style={{ ...button, width: 'auto' }} onClick={() => generatePdfPreview(selectedTicket)}>
                     Generate Customer PDF
                   </button>
@@ -11323,19 +11328,9 @@ async function saveUserRole() {
                               <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
                               <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
                             </div>
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                              <button style={{ ...button, width: 130 }} onClick={() => { setSelectedTicket(ticket); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
-                                Open Ticket
-                              </button>
-                              {String(ticket.status || 'draft').toLowerCase() === 'draft' && (
-                                <button
-                                  style={{ ...button, width: 130, background: '#7f1d1d', borderColor: '#991b1b' }}
-                                  onClick={() => runSafeAction('Deleting draft ticket', () => deleteDraftTicket(ticket))}
-                                >
-                                  Delete Draft
-                                </button>
-                              )}
-                            </div>
+                            <button style={{ ...button, width: 150 }} onClick={() => { setSelectedTicket(ticket); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
+                              Open Ticket
+                            </button>
                           </div>
                         ))}
                       </div>

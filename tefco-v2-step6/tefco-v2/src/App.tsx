@@ -10414,8 +10414,8 @@ async function saveUserRole() {
                         ))}
                       </select>
                     </label>
-                    <button style={secondaryButton} type="button" onClick={() => generateProvingSchedulePdf(provingScheduleSegmentId || undefined)}>Export PDF</button>
-                    <button style={secondaryButton} type="button" onClick={() => generateProvingSchedulePdf()}>Full Month PDF</button>
+                    <button style={{ background: '#1f2937', border: '1px solid #374151', color: '#e5e7eb', borderRadius: 10, padding: '10px 14px', fontWeight: 800, cursor: 'pointer' }} type="button" onClick={() => generateProvingSchedulePdf(provingScheduleSegmentId || undefined)}>Export PDF</button>
+                    <button style={{ background: '#1f2937', border: '1px solid #374151', color: '#e5e7eb', borderRadius: 10, padding: '10px 14px', fontWeight: 800, cursor: 'pointer' }} type="button" onClick={() => generateProvingSchedulePdf()}>Full Month PDF</button>
                   </div>
                 </div>
 

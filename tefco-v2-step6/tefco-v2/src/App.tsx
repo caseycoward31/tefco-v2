@@ -607,7 +607,7 @@ function App() {
   const [provingTab, setProvingTab] = useState<'create' | 'drafts' | 'pending' | 'approved' | 'kpi'>('create')
   const [potTab, setPotTab] = useState<'create' | 'history' | 'export'>('create')
   const [readingTab, setReadingTab] = useState<'new' | 'history' | 'photos'>('new')
-  const [operationsTab, setOperationsTab] = useState<'overview' | 'provings' | 'readings' | 'balance'>('overview')
+  const [operationsTab, setOperationsTab] = useState<'overview' | 'provings' | 'readings'>('overview')
   const [hierarchySegmentId, setHierarchySegmentId] = useState('')
   const [hierarchyAreaId, setHierarchyAreaId] = useState('')
   const [hierarchyLeaseId, setHierarchyLeaseId] = useState('')
@@ -10404,7 +10404,6 @@ async function saveUserRole() {
                 { key: 'overview', label: 'Overview' },
                 { key: 'provings', label: 'Proving Watchlist' },
                 { key: 'readings', label: 'Reading Freshness' },
-                { key: 'balance', label: 'Segment O/S' },
               ].map((tab: any) => (
                 <button
                   key={tab.key}

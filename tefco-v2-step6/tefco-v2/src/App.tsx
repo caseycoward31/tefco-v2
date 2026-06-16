@@ -741,6 +741,14 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [provingScheduleExclusions, setProvingScheduleExclusions] = useState<any[]>([])
   const [provingScheduleEntries, setProvingScheduleEntries] = useState<any[]>([])
   const [provingKpiMonth, setProvingKpiMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const provingMonthOptions = Array.from({ length: 36 }, (_, i) => {
+    const d = new Date()
+    d.setDate(1)
+    d.setMonth(d.getMonth() - 12 + i)
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    return { value, label }
+  })
   const [provingScheduleSegmentId, setProvingScheduleSegmentId] = useState('')
   const [meterAssetConfigs, setMeterAssetConfigs] = useState<any[]>([])
   const [tankCalibrationVersions, setTankCalibrationVersions] = useState<any[]>([])
@@ -10357,7 +10365,11 @@ async function saveUserRole() {
                   <div style={{ marginTop: 16 }}>
                     <label>
                       <div style={{ color: '#a8b3bd', marginBottom: 6 }}>KPI Month</div>
-                      <input style={input} type="month" value={provingKpiMonth} onChange={(e) => setProvingKpiMonth(e.target.value)} />
+                      <select style={input} value={provingKpiMonth} onChange={(e) => setProvingKpiMonth(e.target.value)}>
+                        {provingMonthOptions.map((month) => (
+                          <option key={month.value} value={month.value}>{month.label}</option>
+                        ))}
+                      </select>
                     </label>
                   </div>
                 </div>
@@ -10403,7 +10415,11 @@ async function saveUserRole() {
                   <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '220px 1fr auto auto', gap: 12, alignItems: 'end' }}>
                     <label>
                       <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Schedule Month</div>
-                      <input style={input} type="month" value={provingKpiMonth} onChange={(e) => setProvingKpiMonth(e.target.value)} />
+                      <select style={input} value={provingKpiMonth} onChange={(e) => setProvingKpiMonth(e.target.value)}>
+                        {provingMonthOptions.map((month) => (
+                          <option key={month.value} value={month.value}>{month.label}</option>
+                        ))}
+                      </select>
                     </label>
                     <label>
                       <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Segment</div>

@@ -604,10 +604,6 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
-  const [provingTab, setProvingTab] = useState<'create' | 'drafts' | 'pending' | 'approved' | 'kpi'>('create')
-  const [potTab, setPotTab] = useState<'create' | 'history' | 'export'>('create')
-  const [readingTab, setReadingTab] = useState<'new' | 'history' | 'photos'>('new')
-  const [operationsTab, setOperationsTab] = useState<'overview' | 'provings' | 'readings' | 'balance'>('overview')
   const [hierarchySegmentId, setHierarchySegmentId] = useState('')
   const [hierarchyAreaId, setHierarchyAreaId] = useState('')
   const [hierarchyLeaseId, setHierarchyLeaseId] = useState('')
@@ -1314,8 +1310,6 @@ useEffect(() => {
   const remainingProvingCount = Math.max(activeMeters.length - provedThisMonthCount, 0)
   const provingCompliance = activeMeters.length > 0 ? Math.round((provedThisMonthCount / activeMeters.length) * 100) : 0
   const pendingProvings = provings.filter((p) => p.status !== 'approved')
-  const draftProvings = provings.filter((p) => String(p.status || '').toLowerCase() === 'draft')
-  const approvalProvings = provings.filter((p) => p.status !== 'approved' && String(p.status || '').toLowerCase() !== 'draft')
   const approvedProvings = provings.filter((p) => p.status === 'approved')
   const activeTickets = tickets.filter((t) => t.status !== 'approved')
   const overdueMeters = meters.filter(
@@ -5698,46 +5692,6 @@ async function createCompany() {
     }, {})
   }
 
-
-  function getMonthLabelFromRow(row: any, fields: string[] = []) {
-    const value = fields.map((field) => row?.[field]).find(Boolean) || row?.sample_date || row?.reading_date || row?.created_at || row?.date
-    if (!value) return 'Undated'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return 'Undated'
-    return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
-  }
-
-  function groupRowsByMonth(rows: any[], fields: string[] = []) {
-    return rows.reduce((groups: Record<string, any[]>, row: any) => {
-      const key = getMonthLabelFromRow(row, fields)
-      if (!groups[key]) groups[key] = []
-      groups[key].push(row)
-      return groups
-    }, {})
-  }
-
-  function getReadingDisplayName(row: any) {
-    const meter = getMeterById(row?.meter_id || row?.meterId || '')
-    const lease = getLeaseById(row?.lease_id || row?.leaseId || meter?.lease_id || '')
-    const leaseName = String(lease?.lease_name || lease?.name || '').trim()
-    const meterNumber = String(meter?.meter_number || row?.meter_number || '').trim()
-    return {
-      main: leaseName || meterNumber || 'Reading',
-      secondary: meterNumber && meterNumber !== leaseName ? `Meter: ${meterNumber}` : ''
-    }
-  }
-
-  function getPotDisplayName(row: any) {
-    const meter = getMeterById(row?.meter_id || row?.meterId || '')
-    const lease = getLeaseById(row?.lease_id || row?.leaseId || meter?.lease_id || '')
-    const leaseName = String(lease?.lease_name || lease?.name || '').trim()
-    const segment = segments.find((s: any) => s.id === row?.segment_id)
-    return {
-      main: leaseName || row?.pot_number || row?.sample_id || 'POT Quality',
-      secondary: segment ? `Segment: ${(segment as any).segment_name || (segment as any).name}` : ''
-    }
-  }
-
   function meterMatchesSearch(meter: any, searchText: string) {
     const search = String(searchText || '').trim().toLowerCase()
     if (!search) return true
@@ -9548,162 +9502,92 @@ async function saveUserRole() {
         {page === 'readings' && (
           <>
             <h1>Operator Readings</h1>
-            <div style={{ ...box, padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0 }}>
-                {[
-                  ['new', 'New Reading', 'Enter meter reading'],
-                  ['history', `Monthly History (${readings.length})`, 'Grouped by month'],
-                  ['photos', 'Photos / Review', 'Lease photo history'],
-                ].map(([key, label, sub]) => (
-                  <button
-                    key={key}
-                    style={{
-                      ...button,
-                      borderRadius: 0,
-                      background: readingTab === key ? 'linear-gradient(135deg,#ef4444,#7f1d1d)' : 'rgba(15,23,42,0.92)',
-                      border: readingTab === key ? '1px solid #ef4444' : '1px solid #22303c',
-                      boxShadow: readingTab === key ? '0 0 18px rgba(239,68,68,0.28)' : 'none',
-                    }}
-                    onClick={() => setReadingTab(key as any)}
-                  >
-                    <div style={{ fontWeight: 800 }}>{label}</div>
-                    <div style={{ fontSize: 11, color: '#cbd5e1' }}>{sub}</div>
-                  </button>
+            <div style={box}>
+              {!shouldHideAreaSelector() ? (
+                <select style={input} value={selectedReadingArea} onChange={(e) => handleReadingAreaSelect(e.target.value)}>
+                  <option value="">Select Area</option>
+                  {getVisibleAreas().map((area: any) => (
+                    <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <div style={card}>Area: <strong>{getVisibleAreas()[0]?.area_name || getVisibleAreas()[0]?.name || 'Assigned Area'}</strong></div>
+              )}
+
+              <select style={input} value={selectedReadingSegment} onChange={(e) => handleReadingSegmentSelect(e.target.value)} disabled={!selectedReadingArea}>
+                <option value="">{selectedReadingArea ? 'Select Segment' : 'Select area first'}</option>
+                {getVisibleSegments(selectedReadingArea).map((segment: any) => (
+                  <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
-              </div>
-            </div>
+              </select>
 
-            {readingTab === 'new' && (
-              <div style={box}>
-                <h3>New Operator Reading</h3>
-                {!shouldHideAreaSelector() ? (
-                  <select style={input} value={selectedReadingArea} onChange={(e) => handleReadingAreaSelect(e.target.value)}>
-                    <option value="">Select Area</option>
-                    {getVisibleAreas().map((area: any) => (
-                      <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <div style={card}>Area: <strong>{getVisibleAreas()[0]?.area_name || getVisibleAreas()[0]?.name || 'Assigned Area'}</strong></div>
-                )}
+              <select style={input} value={selectedReadingLease} onChange={(e) => handleReadingLeaseSelect(e.target.value)} disabled={!selectedReadingSegment}>
+                <option value="">{selectedReadingSegment ? 'Select Lease' : 'Select segment first'}</option>
+                {getVisibleLeases(selectedReadingSegment).map((lease: any) => (
+                  <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                ))}
+              </select>
 
-                <select style={input} value={selectedReadingSegment} onChange={(e) => handleReadingSegmentSelect(e.target.value)} disabled={!selectedReadingArea}>
-                  <option value="">{selectedReadingArea ? 'Select Segment' : 'Select area first'}</option>
-                  {getVisibleSegments(selectedReadingArea).map((segment: any) => (
-                    <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
-                  ))}
-                </select>
+              <select style={input} value={selectedReadingMeter} onChange={(e) => { setSelectedReadingMeter(e.target.value); autofillOpeningReadingForLease(selectedReadingLease, e.target.value) }} disabled={!selectedReadingLease}>
+                <option value="">{selectedReadingLease ? 'Select Meter' : 'Select lease first'}</option>
+                {getVisibleMeters(selectedReadingLease).map((meter: any) => (
+                  <option key={meter.id} value={meter.id}>
+                    {meter.meter_number || meter.meter_name} {meter.meter_name && meter.meter_number ? `- ${meter.meter_name}` : ''}
+                  </option>
+                ))}
+              </select>
 
-                <select style={input} value={selectedReadingLease} onChange={(e) => handleReadingLeaseSelect(e.target.value)} disabled={!selectedReadingSegment}>
-                  <option value="">{selectedReadingSegment ? 'Select Lease' : 'Select segment first'}</option>
-                  {getVisibleLeases(selectedReadingSegment).map((lease: any) => (
-                    <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
-                  ))}
-                </select>
-
-                <select style={input} value={selectedReadingMeter} onChange={(e) => { setSelectedReadingMeter(e.target.value); autofillOpeningReadingForLease(selectedReadingLease, e.target.value) }} disabled={!selectedReadingLease}>
-                  <option value="">{selectedReadingLease ? 'Select Meter' : 'Select lease first'}</option>
-                  {getVisibleMeters(selectedReadingLease).map((meter: any) => (
-                    <option key={meter.id} value={meter.id}>
-                      {meter.meter_number || meter.meter_name} {meter.meter_name && meter.meter_number ? `- ${meter.meter_name}` : ''}
-                    </option>
-                  ))}
-                </select>
-
-                {selectedReadingMeter && (
-                  <div style={{ color: '#a8b3bd', fontSize: 13 }}>
-                    Auto-selected meter: <strong>{getSelectedReadingMeterNumber()}</strong> • Movement from Meter Master: <strong>{getSelectedReadingMovementType() === 'receipt' ? 'Receipt / Inbound' : 'Delivery / Outbound'}</strong>
-                  </div>
-                )}
-                <input style={input} placeholder="Opening Reading" value={readingOpen} onChange={(e) => setReadingOpen(e.target.value)} />
-                <input style={input} placeholder="Closing Reading" value={readingClose} onChange={(e) => setReadingClose(e.target.value)} />
-                <input style={input} placeholder="Average Temperature" value={readingAvgTemp} onChange={(e) => setReadingAvgTemp(e.target.value)} />
-                <input style={input} placeholder="Average Pressure" value={readingAvgPressure} onChange={(e) => setReadingAvgPressure(e.target.value)} />
-                <input style={input} placeholder="Fallback Meter Factor" value={readingMF} onChange={(e) => setReadingMF(e.target.value)} />
-
-                <div style={{ ...card, border: '1px dashed rgba(148,163,184,0.35)' }}>
-                  <strong>Meter / Flow Computer Photos</strong>
-                  <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 4 }}>
-                    Upload multiple photos for this lease. Use this for meter displays, flow computer totals, seals, or screen checks.
-                  </div>
-                  <input
-                    style={{ ...input, marginTop: 10 }}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) => setReadingPhotoFiles(Array.from(e.target.files || []))}
-                  />
-                  {readingPhotoFiles.length > 0 && (
-                    <div style={{ color: '#bbf7d0', fontSize: 12 }}>{readingPhotoFiles.length} photo(s) ready to upload with this reading.</div>
-                  )}
+              {selectedReadingMeter && (
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>
+                  Auto-selected meter: <strong>{getSelectedReadingMeterNumber()}</strong> • Movement from Meter Master: <strong>{getSelectedReadingMovementType() === 'receipt' ? 'Receipt / Inbound' : 'Delivery / Outbound'}</strong>
                 </div>
+              )}
+              <input style={input} placeholder="Opening Reading" value={readingOpen} onChange={(e) => setReadingOpen(e.target.value)} />
+              <input style={input} placeholder="Closing Reading" value={readingClose} onChange={(e) => setReadingClose(e.target.value)} />
+              <input style={input} placeholder="Average Temperature" value={readingAvgTemp} onChange={(e) => setReadingAvgTemp(e.target.value)} />
+              <input style={input} placeholder="Average Pressure" value={readingAvgPressure} onChange={(e) => setReadingAvgPressure(e.target.value)} />
+              <input style={input} placeholder="Fallback Meter Factor" value={readingMF} onChange={(e) => setReadingMF(e.target.value)} />
 
-                {selectedReadingLease && getReadingPhotosForLease(selectedReadingLease).length > 0 && (
-                  <div style={card}>
-                    <strong>Recent Photos for Selected Lease</strong>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginTop: 10 }}>
-                      {getReadingPhotosForLease(selectedReadingLease).map((photo: any) => (
-                        <a key={photo.id || photo.file_path} href={photo.public_url || '#'} target="_blank" rel="noreferrer" style={{ color: '#e5e7eb', textDecoration: 'none' }}>
-                          <img src={photo.public_url} alt={photo.file_name || 'reading photo'} style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 10, border: '1px solid rgba(148,163,184,0.25)' }} />
-                          <div style={{ fontSize: 11, color: '#a8b3bd', marginTop: 4 }}>{new Date(photo.created_at || Date.now()).toLocaleString()}</div>
-                        </a>
-                      ))}
-                    </div>
-                  </div>
+              <div style={{ ...card, border: '1px dashed rgba(148,163,184,0.35)' }}>
+                <strong>Meter / Flow Computer Photos</strong>
+                <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 4 }}>
+                  Upload multiple photos for this lease. Use this for meter displays, flow computer totals, seals, or screen checks.
+                </div>
+                <input
+                  style={{ ...input, marginTop: 10 }}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => setReadingPhotoFiles(Array.from(e.target.files || []))}
+                />
+                {readingPhotoFiles.length > 0 && (
+                  <div style={{ color: '#bbf7d0', fontSize: 12 }}>{readingPhotoFiles.length} photo(s) ready to upload with this reading.</div>
                 )}
-
-                <div style={{ marginTop: 15 }}>IV: {(Number(readingClose || 0) - Number(readingOpen || 0)).toFixed(2)}</div>
-                <button style={button} onClick={saveReading} disabled={readingPhotoUploading}>{readingPhotoUploading ? 'Saving Photos...' : 'Save Reading'}</button>
               </div>
-            )}
 
-            {readingTab === 'history' && (
-              <div style={box}>
-                <h3>Operator Readings by Month</h3>
-                {Object.entries(groupRowsByMonth(readings, ['reading_date', 'created_at']) as Record<string, any[]>).map(([month, rows]) => (
-                  <details key={month} open={month === getMonthLabelFromRow({}, [])} style={card}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{month} • {rows.length} reading(s)</summary>
-                    <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-                      {rows.map((row: any) => {
-                        const display = getReadingDisplayName(row)
-                        return (
-                          <div key={row.id} style={{ ...card, margin: 0 }}>
-                            <strong>{display.main}</strong>
-                            {display.secondary && <div style={{ color: '#a8b3bd' }}>{display.secondary}</div>}
-                            <div style={{ color: '#a8b3bd' }}>Date: {new Date(row.reading_date || row.created_at || Date.now()).toLocaleString()}</div>
-                            <div>Open: {row.opening_reading ?? row.opening_meter_reading ?? row.open_reading ?? '—'} • Close: {row.closing_reading ?? row.closing_meter_reading ?? row.close_reading ?? '—'}</div>
-                            <div>Avg Temp: {row.avg_temp ?? row.average_temperature ?? '—'} • Avg Pressure: {row.avg_pressure ?? row.average_pressure ?? '—'}</div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </details>
-                ))}
-                {readings.length === 0 && <div style={card}>No readings saved yet.</div>}
-              </div>
-            )}
-
-            {readingTab === 'photos' && (
-              <div style={box}>
-                <h3>Reading Photo Review</h3>
-                <p style={{ color: '#a8b3bd' }}>Select a lease on the New Reading tab to view its recent meter and flow computer photos, or review saved reading history by month.</p>
-                {selectedReadingLease && getReadingPhotosForLease(selectedReadingLease).length > 0 ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+              {selectedReadingLease && getReadingPhotosForLease(selectedReadingLease).length > 0 && (
+                <div style={card}>
+                  <strong>Recent Photos for Selected Lease</strong>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginTop: 10 }}>
                     {getReadingPhotosForLease(selectedReadingLease).map((photo: any) => (
                       <a key={photo.id || photo.file_path} href={photo.public_url || '#'} target="_blank" rel="noreferrer" style={{ color: '#e5e7eb', textDecoration: 'none' }}>
-                        <img src={photo.public_url} alt={photo.file_name || 'reading photo'} style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 12, border: '1px solid rgba(148,163,184,0.25)' }} />
+                        <img src={photo.public_url} alt={photo.file_name || 'reading photo'} style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 10, border: '1px solid rgba(148,163,184,0.25)' }} />
                         <div style={{ fontSize: 11, color: '#a8b3bd', marginTop: 4 }}>{new Date(photo.created_at || Date.now()).toLocaleString()}</div>
                       </a>
                     ))}
                   </div>
-                ) : (
-                  <div style={card}>No lease photo selection active. Choose a lease on New Reading first.</div>
-                )}
-              </div>
-            )}
+                </div>
+              )}
+
+              <div style={{ marginTop: 15 }}>IV: {(Number(readingClose || 0) - Number(readingOpen || 0)).toFixed(2)}</div>
+              <button style={button} onClick={saveReading} disabled={readingPhotoUploading}>{readingPhotoUploading ? 'Saving Photos...' : 'Save Reading'}</button>
+            </div>
           </>
         )}
 
+        
+        
+        
         {page === 'api_engine' && (
           <>
             <h1>API 11.1 Engine Tester</h1>
@@ -9959,172 +9843,100 @@ async function saveUserRole() {
         {page === 'pot' && (
           <>
             <h1>POT Quality</h1>
-            <div style={{ ...box, padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0 }}>
-                {[
-                  ['create', 'Create POT', 'New quality record'],
-                  ['history', `Monthly History (${potQuality.length})`, 'Grouped by month'],
-                  ['export', 'Monthly Export', 'POT workings CSV'],
-                ].map(([key, label, sub]) => (
-                  <button
-                    key={key}
-                    style={{
-                      ...button,
-                      borderRadius: 0,
-                      background: potTab === key ? 'linear-gradient(135deg,#ef4444,#7f1d1d)' : 'rgba(15,23,42,0.92)',
-                      border: potTab === key ? '1px solid #ef4444' : '1px solid #22303c',
-                      boxShadow: potTab === key ? '0 0 18px rgba(239,68,68,0.28)' : 'none',
-                    }}
-                    onClick={() => setPotTab(key as any)}
-                  >
-                    <div style={{ fontWeight: 800 }}>{label}</div>
-                    <div style={{ fontSize: 11, color: '#cbd5e1' }}>{sub}</div>
-                  </button>
-                ))}
+            <div style={box}>
+              <h3>POT Workings CSV Export</h3>
+              <p style={{ color: '#a8b3bd' }}>
+                Export POT workings into the GQ liquid import header CSV layout.
+              </p>
+              <select style={input} value={potCsvProducerId} onChange={(e) => setPotCsvProducerId(e.target.value)}>
+                <option value="">All Producers</option>
+                {producers.map((producer) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
+              </select>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <input style={input} type="date" value={potCsvStartDate} onChange={(e) => setPotCsvStartDate(e.target.value)} />
+                <input style={input} type="date" value={potCsvEndDate} onChange={(e) => setPotCsvEndDate(e.target.value)} />
               </div>
+              <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Exporting POT workings CSV', exportPotWorkingsCsv)}>
+                Export POT Workings CSV
+              </button>
             </div>
-
-            {potTab === 'export' && (
-              <div style={box}>
-                <h3>POT Workings CSV Export</h3>
-                <p style={{ color: '#a8b3bd' }}>
-                  Export POT workings into the GQ liquid import header CSV layout.
-                </p>
-                <select style={input} value={potCsvProducerId} onChange={(e) => setPotCsvProducerId(e.target.value)}>
-                  <option value="">All Producers</option>
-                  {producers.map((producer) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
-                </select>
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <input style={input} type="date" value={potCsvStartDate} onChange={(e) => setPotCsvStartDate(e.target.value)} />
-                  <input style={input} type="date" value={potCsvEndDate} onChange={(e) => setPotCsvEndDate(e.target.value)} />
-                </div>
-                <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Exporting POT workings CSV', exportPotWorkingsCsv)}>
-                  Export POT Workings CSV
-                </button>
-              </div>
-            )}
-
-            {potTab === 'create' && (
-              <div style={box}>
-                <h3>New POT Quality</h3>
-                {!shouldHideAreaSelector() ? (
-                  <select style={input} value={selectedPotArea} onChange={(e) => handlePotAreaSelect(e.target.value)}>
-                    <option value="">Select Area</option>
-                    {getVisibleAreas().map((area: any) => (
-                      <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <div style={card}>Area: <strong>{getVisibleAreas()[0]?.area_name || getVisibleAreas()[0]?.name || 'Assigned Area'}</strong></div>
-                )}
-
-                <select style={input} value={selectedPotSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
-                  <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
-                  {getVisibleSegments(selectedPotArea).map((segment: any) => (
-                    <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
+            <div style={box}>
+              <h3>New POT Quality</h3>
+              {!shouldHideAreaSelector() ? (
+                <select style={input} value={selectedPotArea} onChange={(e) => handlePotAreaSelect(e.target.value)}>
+                  <option value="">Select Area</option>
+                  {getVisibleAreas().map((area: any) => (
+                    <option key={area.id} value={area.id}>{area.area_name || area.name}</option>
                   ))}
                 </select>
+              ) : (
+                <div style={card}>Area: <strong>{getVisibleAreas()[0]?.area_name || getVisibleAreas()[0]?.name || 'Assigned Area'}</strong></div>
+              )}
 
-                <select style={input} value={selectedPotLease} onChange={(e) => handlePotLeaseSelect(e.target.value)} disabled={!selectedPotSegment}>
-                  <option value="">{selectedPotSegment ? 'Select Lease' : 'Select segment first'}</option>
-                  {filteredPotLeases.map((lease: any) => (
-                    <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
-                  ))}
-                </select>
-
-                <div style={card}>
-                  Meter Number: <strong>{selectedPotMeterRow?.meter_number || selectedPotMeterRow?.meter_name || (selectedPotLease ? 'No meter linked' : 'Select lease first')}</strong>
-                </div>
-                <input style={input} type="date" value={potDate} onChange={(e) => setPotDate(e.target.value)} />
-                <input style={input} placeholder="Observed API Gravity" value={potGravity} onChange={(e) => setPotGravity(e.target.value)} />
-                <input style={input} placeholder="Observed Temperature" value={potTemp} onChange={(e) => setPotTemp(e.target.value)} />
-                <div style={card}>
-                  Calculated API Gravity @60:{' '}
-                  {calculateApi11Corrections({
-                    productGroup: 'crude',
-                    observedApiGravity: Number(potGravity || 0),
-                    observedTemperature: Number(potTemp || 60),
-                    observedPressure: 0,
-                    averageTemperature: Number(potTemp || 60),
-                    averagePressure: 0,
-                  }).api_gravity_60}
-                </div>
-                <input style={input} placeholder="BS&W %" value={potBSW} onChange={(e) => setPotBSW(e.target.value)} />
-                <input style={input} placeholder="Notes" value={potNotes} onChange={(e) => setPotNotes(e.target.value)} />
-                <div style={card}>CSW: {(1 - Number(potBSW || 0) / 100).toFixed(6)}</div>
-                <button style={button} onClick={savePotQuality}>Save POT Quality</button>
-              </div>
-            )}
-
-            {potTab === 'history' && (
-              <div style={box}>
-                <h3>POT Quality by Month</h3>
-                {Object.entries(groupRowsByMonth(potQuality, ['sample_date', 'created_at']) as Record<string, any[]>).map(([month, rows]) => (
-                  <details key={month} open style={card}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{month} • {rows.length} POT record(s)</summary>
-                    <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-                      {rows.map((p: any) => {
-                        const prod = producers.find((x) => x.id === p.producer_id)
-                        const display = getPotDisplayName(p)
-                        return (
-                          <div key={p.id} style={{ ...card, margin: 0 }}>
-                            <strong>{display.main}</strong>
-                            {display.secondary && <div style={{ color: '#a8b3bd' }}>{display.secondary}</div>}
-                            <div>Producer: {prod?.name || '—'}</div>
-                            <div>Date: {p.sample_date || '—'}</div>
-                            <div>Observed API Gravity: {p.observed_api_gravity ?? p.api_gravity}</div>
-                            <div>Observed Temp: {p.observed_temperature ?? p.sample_temperature}</div>
-                            <div>API Gravity @60: {p.api_gravity_60 ?? p.api_gravity}</div>
-                            <div>BS&W: {p.bsw}</div>
-                            <div>CSW: {p.csw}</div>
-                            <div>Notes: {p.notes || ''}</div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </details>
+              <select style={input} value={selectedPotSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
+                <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
+                {getVisibleSegments(selectedPotArea).map((segment: any) => (
+                  <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                 ))}
-                {potQuality.length === 0 && <div style={card}>No POT quality records saved yet.</div>}
+              </select>
+
+              <select style={input} value={selectedPotLease} onChange={(e) => handlePotLeaseSelect(e.target.value)} disabled={!selectedPotSegment}>
+                <option value="">{selectedPotSegment ? 'Select Lease' : 'Select segment first'}</option>
+                {filteredPotLeases.map((lease: any) => (
+                  <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                ))}
+              </select>
+
+              <div style={card}>
+                Meter Number: <strong>{selectedPotMeterRow?.meter_number || selectedPotMeterRow?.meter_name || (selectedPotLease ? 'No meter linked' : 'Select lease first')}</strong>
               </div>
-            )}
+              <input style={input} type="date" value={potDate} onChange={(e) => setPotDate(e.target.value)} />
+              <input style={input} placeholder="Observed API Gravity" value={potGravity} onChange={(e) => setPotGravity(e.target.value)} />
+              <input style={input} placeholder="Observed Temperature" value={potTemp} onChange={(e) => setPotTemp(e.target.value)} />
+              <div style={card}>
+                Calculated API Gravity @60:{' '}
+                {calculateApi11Corrections({
+                  productGroup: 'crude',
+                  observedApiGravity: Number(potGravity || 0),
+                  observedTemperature: Number(potTemp || 60),
+                  observedPressure: 0,
+                  averageTemperature: Number(potTemp || 60),
+                  averagePressure: 0,
+                }).api_gravity_60}
+              </div>
+              <input style={input} placeholder="BS&W %" value={potBSW} onChange={(e) => setPotBSW(e.target.value)} />
+              <input style={input} placeholder="Notes" value={potNotes} onChange={(e) => setPotNotes(e.target.value)} />
+              <div style={card}>CSW: {(1 - Number(potBSW || 0) / 100).toFixed(6)}</div>
+              <button style={button} onClick={savePotQuality}>Save POT Quality</button>
+            </div>
+            <div style={box}>
+              <h3>Recent POT Quality</h3>
+              {potQuality.map((p) => {
+                const seg = segments.find((s) => s.id === p.segment_id)
+                const prod = producers.find((x) => x.id === p.producer_id)
+                const lease = leases.find((l) => l.id === p.lease_id)
+                return (
+                  <div key={p.id} style={card}>
+                    <strong>{lease?.lease_name || 'Lease'}</strong>
+                    <div>Segment: {seg?.name || ''}</div>
+                    <div>Producer: {prod?.name || ''}</div>
+                    <div>Date: {p.sample_date}</div>
+                    <div>Observed API Gravity: {p.observed_api_gravity ?? p.api_gravity}</div>
+                    <div>Observed Temp: {p.observed_temperature ?? p.sample_temperature}</div>
+                    <div>API Gravity @60: {p.api_gravity_60 ?? p.api_gravity}</div>
+                    <div>BS&W: {p.bsw}</div>
+                    <div>CSW: {p.csw}</div>
+                    <div>Notes: {p.notes || ''}</div>
+                  </div>
+                )
+              })}
+            </div>
           </>
         )}
 
         {page === 'provings' && (
           <>
             <h1>Meter Provings</h1>
-            <div style={{ ...box, padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 0 }}>
-                {[
-                  ['create', 'Create Proving', 'New proving entry'],
-                  ['drafts', `Drafts (${draftProvings.length})`, 'Saved drafts'],
-                  ['pending', `Pending (${approvalProvings.length})`, 'Awaiting approval'],
-                  ['approved', `Approved (${approvedProvings.length})`, 'History by month'],
-                  ['kpi', 'KPI / Schedule', 'Monthly compliance'],
-                ].map(([key, label, sub]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    style={{
-                      ...button,
-                      borderRadius: 0,
-                      margin: 0,
-                      background: provingTab === key ? 'linear-gradient(135deg,#ef4444,#7f1d1d)' : 'rgba(15,23,42,0.92)',
-                      border: provingTab === key ? '1px solid #ef4444' : '1px solid #22303c',
-                      boxShadow: provingTab === key ? '0 0 18px rgba(239,68,68,0.28)' : 'none',
-                      minHeight: 68,
-                      textAlign: 'left',
-                    }}
-                    onClick={() => setProvingTab(key as any)}
-                  >
-                    <div style={{ fontWeight: 900 }}>{label}</div>
-                    <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 4 }}>{sub}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-            {provingTab === 'kpi' && (
-              <>
             <div style={box}>
               <h2>Monthly Proving KPI</h2>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginTop: 20 }}>
@@ -10202,11 +10014,7 @@ async function saveUserRole() {
                 </table>
               </div>
             </div>
-              </>
-            )}
 
-            {provingTab === 'create' && (
-              <>
             <div style={box}>
               <h2>New Proving</h2>
               {!shouldHideAreaSelector() ? (
@@ -10302,42 +10110,11 @@ async function saveUserRole() {
               </div>
               <button style={button} onClick={saveProving}>Save Draft Proving</button>
             </div>
-              </>
-            )}
 
-            {provingTab === 'drafts' && (
-              <>
-            <div style={box}>
-              <h2>Draft Provings</h2>
-              {draftProvings.length === 0 && <div style={card}>No draft provings.</div>}
-              {draftProvings.map((p) => {
-                const label = getProvingDisplayName(p)
-                return (
-                  <div key={p.id} style={card}>
-                    <strong>{label.main}</strong>
-                    {label.secondary && <div style={{ color: '#a8b3bd' }}>{label.secondary}</div>}
-                    <div>Date: {p.proving_date}</div>
-                    <div>Status: {p.status}</div>
-                    <div>Type: {p.factor_type || 'MF'}</div>
-                    <div>Accepted {p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>
-                    {p.factor_type === 'CMF' && <div>MF: {Number(p.mf || 0).toFixed(4)} × CPL: {Number(p.cpl || 1).toFixed(5)}</div>}
-                    <div>Witness: {p.witness || ''}</div>
-                    <div>PDF: {p.pdf_file_name || 'None'}</div>
-                    {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
-                    <button style={button} onClick={() => approveProving(p)}>Submit / Approve Proving</button>
-                  </div>
-                )
-              })}
-            </div>
-              </>
-            )}
-
-            {provingTab === 'pending' && (
-              <>
             <div style={box}>
               <h2>Needs Approval</h2>
-              {approvalProvings.length === 0 && <div style={card}>No provings pending approval.</div>}
-              {approvalProvings.map((p) => {
+              {pendingProvings.length === 0 && <div style={card}>No pending provings.</div>}
+              {pendingProvings.map((p) => {
                 const label = getProvingDisplayName(p)
                 return (
                   <div key={p.id} style={card}>
@@ -10356,11 +10133,7 @@ async function saveUserRole() {
                 )
               })}
             </div>
-              </>
-            )}
 
-            {provingTab === 'approved' && (
-              <>
             <div style={box}>
               <h2>Approved History</h2>
               {approvedProvings.length === 0 && <div style={card}>No approved provings yet.</div>}
@@ -10387,252 +10160,268 @@ async function saveUserRole() {
                 </details>
               ))}
             </div>
-              </>
-            )}
           </>
         )}
 
         {page === 'operations' && (
           <>
             <h1>Operations Intelligence</h1>
-            <p style={{ color: '#a8b3bd', marginTop: -8 }}>
-              One clean command center for proving compliance, reading freshness, and segment over/short.
-            </p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 16 }}>
-              {[
-                { key: 'overview', label: 'Overview' },
-                { key: 'provings', label: 'Proving Watchlist' },
-                { key: 'readings', label: 'Reading Freshness' },
-                { key: 'balance', label: 'Segment O/S' },
-              ].map((tab: any) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  style={{
-                    ...button,
-                    background: operationsTab === tab.key ? 'linear-gradient(135deg,#ef4444,#7f1d1d)' : 'rgba(15,23,42,0.92)',
-                    border: operationsTab === tab.key ? '1px solid #ef4444' : '1px solid #22303c',
-                    boxShadow: operationsTab === tab.key ? '0 0 18px rgba(239,68,68,0.28)' : 'none',
-                  }}
-                  onClick={() => setOperationsTab(tab.key)}
-                >
-                  {tab.label}
+            {/* Phase 24 Inventory / Over-Short */}
+            <div style={box}>
+              <h2>Segment-Based Over / Short Detail Engine</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Approved tickets only. Uses meter roles, tank/line fill entries, truck tickets, check meter groups, and butane shrinkage adjustments.
+              </p>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <input style={input} type="date" value={overShortStartDate} onChange={(e) => setOverShortStartDate(e.target.value)} />
+                <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
+                <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
+                  <option value="">All Segments</option>
+                  {segments.map((segment: any) => (
+                    <option key={segment.id} value={segment.id}>{segment.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <button style={button} onClick={exportOverShortCsv}>
+                  Export CSV
                 </button>
-              ))}
+                <button style={button} onClick={exportOverShortExcel}>
+                  Export Excel Spreadsheet
+                </button>
+              </div>
+
+              {userCanManageCompanySetup && (
+                <div style={{ ...card, marginTop: 12 }}>
+                  <h3>Segment Balance Modules</h3>
+                  <p style={{ color: '#a8b3bd', marginTop: 0 }}>
+                    Turn optional O/S sections on only for the segments that need them. Butane blend adds API MPMS 12.3 shrinkage KPIs and applies shrinkage to that segment's O/S.
+                  </p>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {segments.map((segment: any) => {
+                      const enabled = segmentHasButaneBlendEnabled(segment.id)
+                      return (
+                        <label key={segment.id} style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#e5e7eb' }}>
+                          <input
+                            type="checkbox"
+                            checked={enabled}
+                            onChange={(e) => toggleSegmentButaneBlend(segment.id, e.target.checked)}
+                          />
+                          <strong>{segment.name}</strong>
+                          <span style={{ color: '#a8b3bd' }}>Butane Blend / API MPMS 12.3 Shrinkage</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+                {getOverShortRows().map((row: any) => (
+                  <div key={row.segment.id} style={card}>
+                    <h3>{row.segment.name}</h3>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+                      <div>Receipts: <strong>{row.receipts.toFixed(2)}</strong></div>
+                      <div>Deliveries: <strong>{row.deliveries.toFixed(2)}</strong></div>
+                      <div>Truck Tickets: <strong>{row.truckTickets.toFixed(2)}</strong></div>
+                      <div>Tank Change: <strong>{row.tankChange.toFixed(2)}</strong></div>
+                      <div>Line Fill: <strong>{row.lineFillChange.toFixed(2)}</strong></div>
+                      {row.butaneEnabled && (
+                        <>
+                          <div>Butane GSV: <strong>{row.butaneAdjustment.butaneGsv.toFixed(2)}</strong></div>
+                          <div>Blend %: <strong>{row.butaneAdjustment.blendPercent.toFixed(4)}%</strong></div>
+                          <div>Shrink Adj: <strong>{row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2)}</strong></div>
+                        </>
+                      )}
+                      <div>Check Meter O/S: <strong>{row.checkMeterOverShort.toFixed(2)}</strong></div>
+                      <div>Book Inv: <strong>{row.bookInventory.toFixed(2)}</strong></div>
+                      <div>Actual Inv: <strong>{row.actualInventory.toFixed(2)}</strong></div>
+                      <div>O/S: <strong style={{ color: Math.abs(row.overShort) > 0.01 ? '#fca5a5' : '#86efac' }}>{row.overShort.toFixed(2)}</strong></div>
+                      <div>O/S %: <strong>{row.overShortPercent.toFixed(4)}%</strong></div>
+                    </div>
+                    {row.checkMeterRows.length > 0 && (
+                      <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+                        <strong>Check Meter Groups</strong>
+                        {row.checkMeterRows.map((check: any) => (
+                          <div key={check.group.id} style={{ color: '#a8b3bd' }}>
+                            {check.group.name}: Inputs {check.inputTotal.toFixed(2)} / Check {check.checkTotal.toFixed(2)} / Diff {check.difference.toFixed(2)} ({check.differencePercent.toFixed(4)}%)
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {row.stationEquationRows && row.stationEquationRows.length > 0 && (
+                      <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+                        <strong>Station / Balance Equations</strong>
+                        {row.stationEquationRows.map((equation: any) => (
+                          <div key={equation.equation.id} style={{ color: '#a8b3bd' }}>
+                            {equation.equation.name}: Side A {equation.sideA.toFixed(2)} / Side B {equation.sideB.toFixed(2)} / Diff {equation.difference.toFixed(2)} ({equation.differencePercent.toFixed(4)}%)
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p style={{ color: '#a8b3bd' }}>
+                Uses approved tickets, meter receipt/delivery roles, tank movements, and truck tickets to calculate segment balance.
+              </p>
+
+              <div style={{ display: 'grid', gap: 10 }}>
+                {getSegmentInventoryRows().map((row: any) => (
+                  <div key={row.segment.id} style={card}>
+                    <strong>{row.segment.name}</strong>
+                    <div>Receipts: {row.receiptVolume.toFixed(2)}</div>
+                    <div>Deliveries: {row.deliveryVolume.toFixed(2)}</div>
+                    <div>Tank Movement: {row.tankMovement.toFixed(2)}</div>
+                    <div>Truck Tickets: {row.truckVolume.toFixed(2)}</div>
+                    <div><strong>Over / Short: {row.overShort.toFixed(2)}</strong></div>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            {operationsTab === 'overview' && (
-              <>
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
-                  <div style={kpiCard}>
-                    <div style={{ color: '#a8b3bd', fontSize: 13 }}>Proving Compliance</div>
-                    <div style={{ fontSize: 34, fontWeight: 900 }}>{opsProvingCompliancePercent}%</div>
-                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>{opsCompliantMeters.length} of {getScopedMeters().length} meters</div>
-                  </div>
-                  <div style={kpiCard}>
-                    <div style={{ color: '#a8b3bd', fontSize: 13 }}>Overdue Proving</div>
-                    <div style={{ fontSize: 34, fontWeight: 900, color: opsOverdueMeters.length ? '#fecaca' : '#bbf7d0' }}>{opsOverdueMeters.length}</div>
-                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>Needs attention</div>
-                  </div>
-                  <div style={kpiCard}>
-                    <div style={{ color: '#a8b3bd', fontSize: 13 }}>Due Soon</div>
-                    <div style={{ fontSize: 34, fontWeight: 900 }}>{opsDueSoonMeters.length}</div>
-                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>Within 7 days</div>
-                  </div>
-                  <div style={kpiCard}>
-                    <div style={{ color: '#a8b3bd', fontSize: 13 }}>Stale Readings</div>
-                    <div style={{ fontSize: 34, fontWeight: 900 }}>{staleReadingMeters.length}</div>
-                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>No recent reading</div>
-                  </div>
-                </div>
-
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div style={box}>
-                    <h2>What Needs Attention</h2>
-                    <div style={card}><strong>{opsOverdueMeters.length}</strong> overdue proving{opsOverdueMeters.length === 1 ? '' : 's'}</div>
-                    <div style={card}><strong>{opsDueSoonMeters.length}</strong> proving{opsDueSoonMeters.length === 1 ? '' : 's'} due soon</div>
-                    <div style={card}><strong>{staleReadingMeters.length}</strong> stale reading{staleReadingMeters.length === 1 ? '' : 's'}</div>
-                  </div>
-                  <div style={box}>
-                    <h2>Quick Actions</h2>
-                    <button style={button} onClick={() => setOperationsTab('provings')}>Review Proving Watchlist</button>
-                    <button style={button} onClick={() => setOperationsTab('readings')}>Review Reading Freshness</button>
-                    <button style={button} onClick={() => setOperationsTab('balance')}>Open Segment O/S</button>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {operationsTab === 'provings' && (
-              <div style={box}>
-                <h2>Proving Watchlist</h2>
-                <p style={{ color: '#a8b3bd' }}>
-                  Lease name is shown first. Meter number is shown as supporting detail.
-                </p>
-
-                <details open style={{ ...card, padding: 0, overflow: 'hidden', marginBottom: 12 }}>
-                  <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 900, background: 'rgba(239,68,68,0.12)' }}>
-                    Overdue • {opsOverdueMeters.length}
-                  </summary>
-                  <div style={{ display: 'grid', gap: 10, padding: 12 }}>
-                    {opsOverdueMeters.length === 0 && <div style={card}>No overdue provings found.</div>}
-                    {(opsOverdueMeters as any[]).map((item: any) => {
-                      const label = getMeterDisplayName(item.meter)
-                      return (
-                        <div key={item.meter.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr 130px 130px auto', gap: 12, alignItems: 'center', margin: 0 }}>
-                          <div>
-                            <strong>{label.main}</strong>
-                            <div style={{ color: '#a8b3bd', fontSize: 12 }}>{label.secondary || item.meter.meter_number || item.meter.id}</div>
-                            <div style={{ color: '#a8b3bd', fontSize: 12 }}>Last proving: {item.provingDate || 'None'}</div>
-                          </div>
-                          <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Age</div><strong>{item.provingAgeDays === null ? 'None' : `${item.provingAgeDays} days`}</strong></div>
-                          <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Frequency</div><strong>{item.provingFrequencyDays} days</strong></div>
-                          <button style={button} onClick={() => setPage('provings')}>Open</button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </details>
-
-                <details style={{ ...card, padding: 0, overflow: 'hidden' }}>
-                  <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 900, background: 'rgba(245,158,11,0.12)' }}>
-                    Due Soon • {opsDueSoonMeters.length}
-                  </summary>
-                  <div style={{ display: 'grid', gap: 10, padding: 12 }}>
-                    {opsDueSoonMeters.length === 0 && <div style={card}>Nothing due soon.</div>}
-                    {(opsDueSoonMeters as any[]).map((item: any) => {
-                      const label = getMeterDisplayName(item.meter)
-                      return (
-                        <div key={item.meter.id} style={{ ...card, margin: 0 }}>
-                          <strong>{label.main}</strong>
-                          <div style={{ color: '#a8b3bd', fontSize: 12 }}>{label.secondary || item.meter.meter_number || item.meter.id}</div>
-                          <div style={{ color: '#a8b3bd', fontSize: 12 }}>Last proving: {item.provingDate || 'None'}</div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </details>
+            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
+              <div style={kpiCard}>
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Proving Compliance</div>
+                <div style={{ fontSize: 34, fontWeight: 900 }}>{opsProvingCompliancePercent}%</div>
+                <div style={{ color: '#a8b3bd', fontSize: 12 }}>{opsCompliantMeters.length} of {getScopedMeters().length} meters</div>
               </div>
-            )}
 
-            {operationsTab === 'readings' && (
+              <div style={kpiCard}>
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Overdue Proving</div>
+                <div style={{ fontSize: 34, fontWeight: 900, color: opsOverdueMeters.length ? '#fecaca' : '#bbf7d0' }}>{opsOverdueMeters.length}</div>
+                <div style={{ color: '#a8b3bd', fontSize: 12 }}>Needs attention</div>
+              </div>
+
+              <div style={kpiCard}>
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Due Soon</div>
+                <div style={{ fontSize: 34, fontWeight: 900 }}>{opsDueSoonMeters.length}</div>
+                <div style={{ color: '#a8b3bd', fontSize: 12 }}>Within 7 days</div>
+              </div>
+
+              <div style={kpiCard}>
+                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Stale Readings</div>
+                <div style={{ fontSize: 34, fontWeight: 900 }}>{staleReadingMeters.length}</div>
+                <div style={{ color: '#a8b3bd', fontSize: 12 }}>No recent reading</div>
+              </div>
+            </div>
+
+            <div style={box}>
+              <h2>Proving Watchlist</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Meters are flagged overdue when no proving exists or the latest proving age exceeds the meter proving frequency.
+              </p>
+
+              {opsOverdueMeters.length === 0 && (
+                <div style={card}>No overdue provings found.</div>
+              )}
+
+              <div style={{ display: 'grid', gap: 10 }}>
+                {(opsOverdueMeters as any[]).slice(0, 20).map((item: any) => (
+                  <div
+                    key={(item as any).meter.id}
+                    style={{
+                      ...card,
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 140px 140px auto',
+                      gap: 12,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div>
+                      <strong>{(item as any).meter.meter_number || (item as any).meter.name || (item as any).meter.id}</strong>
+                      <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                        Last proving: {(item as any).provingDate || 'None'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ color: '#a8b3bd', fontSize: 12 }}>Age</div>
+                      <strong>{(item as any).provingAgeDays === null ? 'None' : `${(item as any).provingAgeDays} days`}</strong>
+                    </div>
+
+                    <div>
+                      <div style={{ color: '#a8b3bd', fontSize: 12 }}>Frequency</div>
+                      <strong>{(item as any).provingFrequencyDays} days</strong>
+                    </div>
+
+                    <button style={button} onClick={() => setPage('provings')}>
+                      Open Provings
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={box}>
+                <h2>Due Soon</h2>
+                {opsDueSoonMeters.length === 0 && <div style={card}>Nothing due soon.</div>}
+                {(opsDueSoonMeters as any[]).slice(0, 10).map((item: any) => (
+                  <div key={(item as any).meter.id} style={card}>
+                    <strong>{(item as any).meter.meter_number || (item as any).meter.name || (item as any).meter.id}</strong>
+                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                      Last proving: {(item as any).provingDate || 'None'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
               <div style={box}>
                 <h2>Reading Freshness</h2>
-                <p style={{ color: '#a8b3bd' }}>
-                  Meters without recent readings are listed by lease name first.
-                </p>
-                <details open style={{ ...card, padding: 0, overflow: 'hidden' }}>
-                  <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 900, background: 'rgba(59,130,246,0.12)' }}>
-                    Stale Readings • {staleReadingMeters.length}
-                  </summary>
-                  <div style={{ display: 'grid', gap: 10, padding: 12 }}>
-                    {staleReadingMeters.length === 0 && <div style={card}>All meters have recent readings.</div>}
-                    {(staleReadingMeters as any[]).map((item: any) => {
-                      const label = getMeterDisplayName(item.meter)
-                      return (
-                        <div key={item.meter.id} style={{ ...card, margin: 0, display: 'grid', gridTemplateColumns: '1fr 160px auto', gap: 12, alignItems: 'center' }}>
-                          <div>
-                            <strong>{label.main}</strong>
-                            <div style={{ color: '#a8b3bd', fontSize: 12 }}>{label.secondary || item.meter.meter_number || item.meter.id}</div>
-                          </div>
-                          <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Last Reading</div><strong>{item.readingDate || 'None'}</strong></div>
-                          <button style={button} onClick={() => setPage('readings')}>Open Readings</button>
-                        </div>
-                      )
-                    })}
+                {staleReadingMeters.length === 0 && <div style={card}>All meters have recent readings.</div>}
+                {(staleReadingMeters as any[]).slice(0, 10).map((item: any) => (
+                  <div key={(item as any).meter.id} style={card}>
+                    <strong>{(item as any).meter.meter_number || (item as any).meter.name || (item as any).meter.id}</strong>
+                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                      Last reading: {(item as any).readingDate || 'None'}
+                    </div>
                   </div>
-                </details>
+                ))}
               </div>
-            )}
+            </div>
+                      <div style={box}>
+              <h2>Segment Over / Short</h2>
+              <p style={{ color: '#a8b3bd' }}>
+                Early over/short model: approved receipt meters minus delivery meters plus tank/line-fill movements. This becomes more accurate as meter directions, tank assets, and line fills are configured.
+              </p>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {segments.map((segment: any) => {
+                  const segmentTickets = getScopedTickets().filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
+                  const receipts = segmentTickets
+                    .filter((ticket: any) => {
+                      const meter = meters.find((m: any) => m.id === ticket.meter_id)
+                      return (meter as any)?.direction === 'receipt'
+                    })
+                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+                  const deliveries = segmentTickets
+                    .filter((ticket: any) => {
+                      const meter = meters.find((m: any) => m.id === ticket.meter_id)
+                      return (meter as any)?.direction === 'delivery'
+                    })
+                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
+                  const tankMovements = segmentTickets
+                    .filter((ticket: any) => ticket.ticket_type === 'tank')
+                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.tank_movement_bbl || 0), 0)
+                  const overShort = receipts - deliveries + tankMovements
 
-            {operationsTab === 'balance' && (
-              <div style={box}>
-                <h2>Segment-Based Over / Short Detail Engine</h2>
-                <p style={{ color: '#a8b3bd' }}>
-                  Approved tickets only. Uses meter roles, tank/line fill entries, truck tickets, check meter groups, and butane shrinkage adjustments.
-                </p>
-
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                  <input style={input} type="date" value={overShortStartDate} onChange={(e) => setOverShortStartDate(e.target.value)} />
-                  <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
-                  <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
-                    <option value="">All Segments</option>
-                    {segments.map((segment: any) => (
-                      <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-                  <button style={button} onClick={exportOverShortCsv}>Export CSV</button>
-                  <button style={button} onClick={exportOverShortExcel}>Export Excel Spreadsheet</button>
-                </div>
-
-                {userCanManageCompanySetup && (
-                  <details style={{ ...card, padding: 0, overflow: 'hidden', marginTop: 12 }}>
-                    <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 900 }}>Segment Balance Modules</summary>
-                    <div style={{ display: 'grid', gap: 8, padding: 12 }}>
-                      {segments.map((segment: any) => {
-                        const enabled = segmentHasButaneBlendEnabled(segment.id)
-                        return (
-                          <label key={segment.id} style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#e5e7eb' }}>
-                            <input type="checkbox" checked={enabled} onChange={(e) => toggleSegmentButaneBlend(segment.id, e.target.checked)} />
-                            <strong>{segment.name || segment.segment_name}</strong>
-                            <span style={{ color: '#a8b3bd' }}>Butane Blend / API MPMS 12.3 Shrinkage</span>
-                          </label>
-                        )
-                      })}
+                  return (
+                    <div key={segment.id} style={card}>
+                      <strong>{segment.name}</strong>
+                      <div>Receipts: {receipts.toFixed(2)}</div>
+                      <div>Deliveries: {deliveries.toFixed(2)}</div>
+                      <div>Tank Movement: {tankMovements.toFixed(2)}</div>
+                      <div><strong>Over / Short: {overShort.toFixed(2)}</strong></div>
                     </div>
-                  </details>
-                )}
-
-                <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
-                  {getOverShortRows().map((row: any) => (
-                    <div key={row.segment.id} style={card}>
-                      <h3>{row.segment.name || row.segment.segment_name}</h3>
-                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
-                        <div>Receipts: <strong>{row.receipts.toFixed(2)}</strong></div>
-                        <div>Deliveries: <strong>{row.deliveries.toFixed(2)}</strong></div>
-                        <div>Truck Tickets: <strong>{row.truckTickets.toFixed(2)}</strong></div>
-                        <div>Tank Change: <strong>{row.tankChange.toFixed(2)}</strong></div>
-                        <div>Line Fill: <strong>{row.lineFillChange.toFixed(2)}</strong></div>
-                        {row.butaneEnabled && <div>Blend %: <strong>{row.butaneBlendPercent.toFixed(4)}%</strong></div>}
-                        {row.butaneEnabled && <div>Shrinkage: <strong>{row.butaneShrinkageBbl.toFixed(2)}</strong></div>}
-                        <div><strong>O/S: {row.overShort.toFixed(2)}</strong></div>
-                      </div>
-
-                      {row.checkGroupRows?.length > 0 && (
-                        <details style={{ marginTop: 10 }}>
-                          <summary style={{ cursor: 'pointer', fontWeight: 800 }}>Check Meter Groups</summary>
-                          <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
-                            {row.checkGroupRows.map((group: any) => (
-                              <div key={group.group.id} style={{ color: '#a8b3bd' }}>
-                                {group.group.name}: Assigned {group.assignedTotal.toFixed(2)} / Check {group.checkTotal.toFixed(2)} / Diff {group.difference.toFixed(2)} ({group.differencePercent.toFixed(4)}%)
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      )}
-
-                      {row.stationEquationRows?.length > 0 && (
-                        <details style={{ marginTop: 10 }}>
-                          <summary style={{ cursor: 'pointer', fontWeight: 800 }}>Station / Balance Equations</summary>
-                          <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
-                            {row.stationEquationRows.map((equation: any) => (
-                              <div key={equation.equation.id} style={{ color: '#a8b3bd' }}>
-                                {equation.equation.name}: Side A {equation.sideA.toFixed(2)} / Side B {equation.sideB.toFixed(2)} / Diff {equation.difference.toFixed(2)} ({equation.differencePercent.toFixed(4)}%)
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                  )
+                })}
               </div>
-            )}
-          </>
+            </div>
+
+</>
         )}
 
         {page === 'system_health' && (

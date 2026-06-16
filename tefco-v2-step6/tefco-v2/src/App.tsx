@@ -607,6 +607,7 @@ function App() {
   const [provingTab, setProvingTab] = useState<'create' | 'drafts' | 'pending' | 'approved' | 'kpi'>('create')
   const [potTab, setPotTab] = useState<'create' | 'history' | 'export'>('create')
   const [readingTab, setReadingTab] = useState<'new' | 'history' | 'photos'>('new')
+  const [operationsTab, setOperationsTab] = useState<'overview' | 'provings' | 'readings' | 'balance'>('overview')
   const [hierarchySegmentId, setHierarchySegmentId] = useState('')
   const [hierarchyAreaId, setHierarchyAreaId] = useState('')
   const [hierarchyLeaseId, setHierarchyLeaseId] = useState('')
@@ -10394,262 +10395,244 @@ async function saveUserRole() {
         {page === 'operations' && (
           <>
             <h1>Operations Intelligence</h1>
+            <p style={{ color: '#a8b3bd', marginTop: -8 }}>
+              One clean command center for proving compliance, reading freshness, and segment over/short.
+            </p>
 
-            {/* Phase 24 Inventory / Over-Short */}
-            <div style={box}>
-              <h2>Segment-Based Over / Short Detail Engine</h2>
-              <p style={{ color: '#a8b3bd' }}>
-                Approved tickets only. Uses meter roles, tank/line fill entries, truck tickets, check meter groups, and butane shrinkage adjustments.
-              </p>
-
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                <input style={input} type="date" value={overShortStartDate} onChange={(e) => setOverShortStartDate(e.target.value)} />
-                <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
-                <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
-                  <option value="">All Segments</option>
-                  {segments.map((segment: any) => (
-                    <option key={segment.id} value={segment.id}>{segment.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <button style={button} onClick={exportOverShortCsv}>
-                  Export CSV
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 16 }}>
+              {[
+                { key: 'overview', label: 'Overview' },
+                { key: 'provings', label: 'Proving Watchlist' },
+                { key: 'readings', label: 'Reading Freshness' },
+                { key: 'balance', label: 'Segment O/S' },
+              ].map((tab: any) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  style={{
+                    ...button,
+                    background: operationsTab === tab.key ? 'linear-gradient(135deg,#ef4444,#7f1d1d)' : 'rgba(15,23,42,0.92)',
+                    border: operationsTab === tab.key ? '1px solid #ef4444' : '1px solid #22303c',
+                    boxShadow: operationsTab === tab.key ? '0 0 18px rgba(239,68,68,0.28)' : 'none',
+                  }}
+                  onClick={() => setOperationsTab(tab.key)}
+                >
+                  {tab.label}
                 </button>
-                <button style={button} onClick={exportOverShortExcel}>
-                  Export Excel Spreadsheet
-                </button>
-              </div>
+              ))}
+            </div>
 
-              {userCanManageCompanySetup && (
-                <div style={{ ...card, marginTop: 12 }}>
-                  <h3>Segment Balance Modules</h3>
-                  <p style={{ color: '#a8b3bd', marginTop: 0 }}>
-                    Turn optional O/S sections on only for the segments that need them. Butane blend adds API MPMS 12.3 shrinkage KPIs and applies shrinkage to that segment's O/S.
-                  </p>
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    {segments.map((segment: any) => {
-                      const enabled = segmentHasButaneBlendEnabled(segment.id)
+            {operationsTab === 'overview' && (
+              <>
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
+                  <div style={kpiCard}>
+                    <div style={{ color: '#a8b3bd', fontSize: 13 }}>Proving Compliance</div>
+                    <div style={{ fontSize: 34, fontWeight: 900 }}>{opsProvingCompliancePercent}%</div>
+                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>{opsCompliantMeters.length} of {getScopedMeters().length} meters</div>
+                  </div>
+                  <div style={kpiCard}>
+                    <div style={{ color: '#a8b3bd', fontSize: 13 }}>Overdue Proving</div>
+                    <div style={{ fontSize: 34, fontWeight: 900, color: opsOverdueMeters.length ? '#fecaca' : '#bbf7d0' }}>{opsOverdueMeters.length}</div>
+                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>Needs attention</div>
+                  </div>
+                  <div style={kpiCard}>
+                    <div style={{ color: '#a8b3bd', fontSize: 13 }}>Due Soon</div>
+                    <div style={{ fontSize: 34, fontWeight: 900 }}>{opsDueSoonMeters.length}</div>
+                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>Within 7 days</div>
+                  </div>
+                  <div style={kpiCard}>
+                    <div style={{ color: '#a8b3bd', fontSize: 13 }}>Stale Readings</div>
+                    <div style={{ fontSize: 34, fontWeight: 900 }}>{staleReadingMeters.length}</div>
+                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>No recent reading</div>
+                  </div>
+                </div>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div style={box}>
+                    <h2>What Needs Attention</h2>
+                    <div style={card}><strong>{opsOverdueMeters.length}</strong> overdue proving{opsOverdueMeters.length === 1 ? '' : 's'}</div>
+                    <div style={card}><strong>{opsDueSoonMeters.length}</strong> proving{opsDueSoonMeters.length === 1 ? '' : 's'} due soon</div>
+                    <div style={card}><strong>{staleReadingMeters.length}</strong> stale reading{staleReadingMeters.length === 1 ? '' : 's'}</div>
+                  </div>
+                  <div style={box}>
+                    <h2>Quick Actions</h2>
+                    <button style={button} onClick={() => setOperationsTab('provings')}>Review Proving Watchlist</button>
+                    <button style={button} onClick={() => setOperationsTab('readings')}>Review Reading Freshness</button>
+                    <button style={button} onClick={() => setOperationsTab('balance')}>Open Segment O/S</button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {operationsTab === 'provings' && (
+              <div style={box}>
+                <h2>Proving Watchlist</h2>
+                <p style={{ color: '#a8b3bd' }}>
+                  Lease name is shown first. Meter number is shown as supporting detail.
+                </p>
+
+                <details open style={{ ...card, padding: 0, overflow: 'hidden', marginBottom: 12 }}>
+                  <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 900, background: 'rgba(239,68,68,0.12)' }}>
+                    Overdue • {opsOverdueMeters.length}
+                  </summary>
+                  <div style={{ display: 'grid', gap: 10, padding: 12 }}>
+                    {opsOverdueMeters.length === 0 && <div style={card}>No overdue provings found.</div>}
+                    {(opsOverdueMeters as any[]).map((item: any) => {
+                      const label = getMeterDisplayName(item.meter)
                       return (
-                        <label key={segment.id} style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#e5e7eb' }}>
-                          <input
-                            type="checkbox"
-                            checked={enabled}
-                            onChange={(e) => toggleSegmentButaneBlend(segment.id, e.target.checked)}
-                          />
-                          <strong>{segment.name}</strong>
-                          <span style={{ color: '#a8b3bd' }}>Butane Blend / API MPMS 12.3 Shrinkage</span>
-                        </label>
+                        <div key={item.meter.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr 130px 130px auto', gap: 12, alignItems: 'center', margin: 0 }}>
+                          <div>
+                            <strong>{label.main}</strong>
+                            <div style={{ color: '#a8b3bd', fontSize: 12 }}>{label.secondary || item.meter.meter_number || item.meter.id}</div>
+                            <div style={{ color: '#a8b3bd', fontSize: 12 }}>Last proving: {item.provingDate || 'None'}</div>
+                          </div>
+                          <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Age</div><strong>{item.provingAgeDays === null ? 'None' : `${item.provingAgeDays} days`}</strong></div>
+                          <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Frequency</div><strong>{item.provingFrequencyDays} days</strong></div>
+                          <button style={button} onClick={() => setPage('provings')}>Open</button>
+                        </div>
                       )
                     })}
                   </div>
-                </div>
-              )}
+                </details>
 
-              <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
-                {getOverShortRows().map((row: any) => (
-                  <div key={row.segment.id} style={card}>
-                    <h3>{row.segment.name}</h3>
-                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
-                      <div>Receipts: <strong>{row.receipts.toFixed(2)}</strong></div>
-                      <div>Deliveries: <strong>{row.deliveries.toFixed(2)}</strong></div>
-                      <div>Truck Tickets: <strong>{row.truckTickets.toFixed(2)}</strong></div>
-                      <div>Tank Change: <strong>{row.tankChange.toFixed(2)}</strong></div>
-                      <div>Line Fill: <strong>{row.lineFillChange.toFixed(2)}</strong></div>
-                      {row.butaneEnabled && (
-                        <>
-                          <div>Butane GSV: <strong>{row.butaneAdjustment.butaneGsv.toFixed(2)}</strong></div>
-                          <div>Blend %: <strong>{row.butaneAdjustment.blendPercent.toFixed(4)}%</strong></div>
-                          <div>Shrink Adj: <strong>{row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2)}</strong></div>
-                        </>
-                      )}
-                      <div>Check Meter O/S: <strong>{row.checkMeterOverShort.toFixed(2)}</strong></div>
-                      <div>Book Inv: <strong>{row.bookInventory.toFixed(2)}</strong></div>
-                      <div>Actual Inv: <strong>{row.actualInventory.toFixed(2)}</strong></div>
-                      <div>O/S: <strong style={{ color: Math.abs(row.overShort) > 0.01 ? '#fca5a5' : '#86efac' }}>{row.overShort.toFixed(2)}</strong></div>
-                      <div>O/S %: <strong>{row.overShortPercent.toFixed(4)}%</strong></div>
-                    </div>
-                    {row.checkMeterRows.length > 0 && (
-                      <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
-                        <strong>Check Meter Groups</strong>
-                        {row.checkMeterRows.map((check: any) => (
-                          <div key={check.group.id} style={{ color: '#a8b3bd' }}>
-                            {check.group.name}: Inputs {check.inputTotal.toFixed(2)} / Check {check.checkTotal.toFixed(2)} / Diff {check.difference.toFixed(2)} ({check.differencePercent.toFixed(4)}%)
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {row.stationEquationRows && row.stationEquationRows.length > 0 && (
-                      <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
-                        <strong>Station / Balance Equations</strong>
-                        {row.stationEquationRows.map((equation: any) => (
-                          <div key={equation.equation.id} style={{ color: '#a8b3bd' }}>
-                            {equation.equation.name}: Side A {equation.sideA.toFixed(2)} / Side B {equation.sideB.toFixed(2)} / Diff {equation.difference.toFixed(2)} ({equation.differencePercent.toFixed(4)}%)
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                <details style={{ ...card, padding: 0, overflow: 'hidden' }}>
+                  <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 900, background: 'rgba(245,158,11,0.12)' }}>
+                    Due Soon • {opsDueSoonMeters.length}
+                  </summary>
+                  <div style={{ display: 'grid', gap: 10, padding: 12 }}>
+                    {opsDueSoonMeters.length === 0 && <div style={card}>Nothing due soon.</div>}
+                    {(opsDueSoonMeters as any[]).map((item: any) => {
+                      const label = getMeterDisplayName(item.meter)
+                      return (
+                        <div key={item.meter.id} style={{ ...card, margin: 0 }}>
+                          <strong>{label.main}</strong>
+                          <div style={{ color: '#a8b3bd', fontSize: 12 }}>{label.secondary || item.meter.meter_number || item.meter.id}</div>
+                          <div style={{ color: '#a8b3bd', fontSize: 12 }}>Last proving: {item.provingDate || 'None'}</div>
+                        </div>
+                      )
+                    })}
                   </div>
-                ))}
+                </details>
               </div>
-              <p style={{ color: '#a8b3bd' }}>
-                Uses approved tickets, meter receipt/delivery roles, tank movements, and truck tickets to calculate segment balance.
-              </p>
+            )}
 
-              <div style={{ display: 'grid', gap: 10 }}>
-                {getSegmentInventoryRows().map((row: any) => (
-                  <div key={row.segment.id} style={card}>
-                    <strong>{row.segment.name}</strong>
-                    <div>Receipts: {row.receiptVolume.toFixed(2)}</div>
-                    <div>Deliveries: {row.deliveryVolume.toFixed(2)}</div>
-                    <div>Tank Movement: {row.tankMovement.toFixed(2)}</div>
-                    <div>Truck Tickets: {row.truckVolume.toFixed(2)}</div>
-                    <div><strong>Over / Short: {row.overShort.toFixed(2)}</strong></div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
-              <div style={kpiCard}>
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Proving Compliance</div>
-                <div style={{ fontSize: 34, fontWeight: 900 }}>{opsProvingCompliancePercent}%</div>
-                <div style={{ color: '#a8b3bd', fontSize: 12 }}>{opsCompliantMeters.length} of {getScopedMeters().length} meters</div>
-              </div>
-
-              <div style={kpiCard}>
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Overdue Proving</div>
-                <div style={{ fontSize: 34, fontWeight: 900, color: opsOverdueMeters.length ? '#fecaca' : '#bbf7d0' }}>{opsOverdueMeters.length}</div>
-                <div style={{ color: '#a8b3bd', fontSize: 12 }}>Needs attention</div>
-              </div>
-
-              <div style={kpiCard}>
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Due Soon</div>
-                <div style={{ fontSize: 34, fontWeight: 900 }}>{opsDueSoonMeters.length}</div>
-                <div style={{ color: '#a8b3bd', fontSize: 12 }}>Within 7 days</div>
-              </div>
-
-              <div style={kpiCard}>
-                <div style={{ color: '#a8b3bd', fontSize: 13 }}>Stale Readings</div>
-                <div style={{ fontSize: 34, fontWeight: 900 }}>{staleReadingMeters.length}</div>
-                <div style={{ color: '#a8b3bd', fontSize: 12 }}>No recent reading</div>
-              </div>
-            </div>
-
-            <div style={box}>
-              <h2>Proving Watchlist</h2>
-              <p style={{ color: '#a8b3bd' }}>
-                Meters are flagged overdue when no proving exists or the latest proving age exceeds the meter proving frequency.
-              </p>
-
-              {opsOverdueMeters.length === 0 && (
-                <div style={card}>No overdue provings found.</div>
-              )}
-
-              <div style={{ display: 'grid', gap: 10 }}>
-                {(opsOverdueMeters as any[]).slice(0, 20).map((item: any) => (
-                  <div
-                    key={(item as any).meter.id}
-                    style={{
-                      ...card,
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 140px 140px auto',
-                      gap: 12,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <div>
-                      <strong>{(item as any).meter.meter_number || (item as any).meter.name || (item as any).meter.id}</strong>
-                      <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                        Last proving: {(item as any).provingDate || 'None'}
-                      </div>
-                    </div>
-
-                    <div>
-                      <div style={{ color: '#a8b3bd', fontSize: 12 }}>Age</div>
-                      <strong>{(item as any).provingAgeDays === null ? 'None' : `${(item as any).provingAgeDays} days`}</strong>
-                    </div>
-
-                    <div>
-                      <div style={{ color: '#a8b3bd', fontSize: 12 }}>Frequency</div>
-                      <strong>{(item as any).provingFrequencyDays} days</strong>
-                    </div>
-
-                    <button style={button} onClick={() => setPage('provings')}>
-                      Open Provings
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div style={box}>
-                <h2>Due Soon</h2>
-                {opsDueSoonMeters.length === 0 && <div style={card}>Nothing due soon.</div>}
-                {(opsDueSoonMeters as any[]).slice(0, 10).map((item: any) => (
-                  <div key={(item as any).meter.id} style={card}>
-                    <strong>{(item as any).meter.meter_number || (item as any).meter.name || (item as any).meter.id}</strong>
-                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                      Last proving: {(item as any).provingDate || 'None'}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
+            {operationsTab === 'readings' && (
               <div style={box}>
                 <h2>Reading Freshness</h2>
-                {staleReadingMeters.length === 0 && <div style={card}>All meters have recent readings.</div>}
-                {(staleReadingMeters as any[]).slice(0, 10).map((item: any) => (
-                  <div key={(item as any).meter.id} style={card}>
-                    <strong>{(item as any).meter.meter_number || (item as any).meter.name || (item as any).meter.id}</strong>
-                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                      Last reading: {(item as any).readingDate || 'None'}
-                    </div>
+                <p style={{ color: '#a8b3bd' }}>
+                  Meters without recent readings are listed by lease name first.
+                </p>
+                <details open style={{ ...card, padding: 0, overflow: 'hidden' }}>
+                  <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 900, background: 'rgba(59,130,246,0.12)' }}>
+                    Stale Readings • {staleReadingMeters.length}
+                  </summary>
+                  <div style={{ display: 'grid', gap: 10, padding: 12 }}>
+                    {staleReadingMeters.length === 0 && <div style={card}>All meters have recent readings.</div>}
+                    {(staleReadingMeters as any[]).map((item: any) => {
+                      const label = getMeterDisplayName(item.meter)
+                      return (
+                        <div key={item.meter.id} style={{ ...card, margin: 0, display: 'grid', gridTemplateColumns: '1fr 160px auto', gap: 12, alignItems: 'center' }}>
+                          <div>
+                            <strong>{label.main}</strong>
+                            <div style={{ color: '#a8b3bd', fontSize: 12 }}>{label.secondary || item.meter.meter_number || item.meter.id}</div>
+                          </div>
+                          <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Last Reading</div><strong>{item.readingDate || 'None'}</strong></div>
+                          <button style={button} onClick={() => setPage('readings')}>Open Readings</button>
+                        </div>
+                      )
+                    })}
                   </div>
-                ))}
+                </details>
               </div>
-            </div>
-                      <div style={box}>
-              <h2>Segment Over / Short</h2>
-              <p style={{ color: '#a8b3bd' }}>
-                Early over/short model: approved receipt meters minus delivery meters plus tank/line-fill movements. This becomes more accurate as meter directions, tank assets, and line fills are configured.
-              </p>
-              <div style={{ display: 'grid', gap: 10 }}>
-                {segments.map((segment: any) => {
-                  const segmentTickets = getScopedTickets().filter((ticket: any) => ticket.segment_id === segment.id && ticket.status === 'approved')
-                  const receipts = segmentTickets
-                    .filter((ticket: any) => {
-                      const meter = meters.find((m: any) => m.id === ticket.meter_id)
-                      return (meter as any)?.direction === 'receipt'
-                    })
-                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
-                  const deliveries = segmentTickets
-                    .filter((ticket: any) => {
-                      const meter = meters.find((m: any) => m.id === ticket.meter_id)
-                      return (meter as any)?.direction === 'delivery'
-                    })
-                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.nsv || ticket.calculation_results?.gsv || 0), 0)
-                  const tankMovements = segmentTickets
-                    .filter((ticket: any) => ticket.ticket_type === 'tank')
-                    .reduce((sum: number, ticket: any) => sum + Number(ticket.calculation_results?.tank_movement_bbl || 0), 0)
-                  const overShort = receipts - deliveries + tankMovements
+            )}
 
-                  return (
-                    <div key={segment.id} style={card}>
-                      <strong>{segment.name}</strong>
-                      <div>Receipts: {receipts.toFixed(2)}</div>
-                      <div>Deliveries: {deliveries.toFixed(2)}</div>
-                      <div>Tank Movement: {tankMovements.toFixed(2)}</div>
-                      <div><strong>Over / Short: {overShort.toFixed(2)}</strong></div>
+            {operationsTab === 'balance' && (
+              <div style={box}>
+                <h2>Segment-Based Over / Short Detail Engine</h2>
+                <p style={{ color: '#a8b3bd' }}>
+                  Approved tickets only. Uses meter roles, tank/line fill entries, truck tickets, check meter groups, and butane shrinkage adjustments.
+                </p>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  <input style={input} type="date" value={overShortStartDate} onChange={(e) => setOverShortStartDate(e.target.value)} />
+                  <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
+                  <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
+                    <option value="">All Segments</option>
+                    {segments.map((segment: any) => (
+                      <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+                  <button style={button} onClick={exportOverShortCsv}>Export CSV</button>
+                  <button style={button} onClick={exportOverShortExcel}>Export Excel Spreadsheet</button>
+                </div>
+
+                {userCanManageCompanySetup && (
+                  <details style={{ ...card, padding: 0, overflow: 'hidden', marginTop: 12 }}>
+                    <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 900 }}>Segment Balance Modules</summary>
+                    <div style={{ display: 'grid', gap: 8, padding: 12 }}>
+                      {segments.map((segment: any) => {
+                        const enabled = segmentHasButaneBlendEnabled(segment.id)
+                        return (
+                          <label key={segment.id} style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#e5e7eb' }}>
+                            <input type="checkbox" checked={enabled} onChange={(e) => toggleSegmentButaneBlend(segment.id, e.target.checked)} />
+                            <strong>{segment.name || segment.segment_name}</strong>
+                            <span style={{ color: '#a8b3bd' }}>Butane Blend / API MPMS 12.3 Shrinkage</span>
+                          </label>
+                        )
+                      })}
                     </div>
-                  )
-                })}
-              </div>
-            </div>
+                  </details>
+                )}
 
-</>
+                <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+                  {getOverShortRows().map((row: any) => (
+                    <div key={row.segment.id} style={card}>
+                      <h3>{row.segment.name || row.segment.segment_name}</h3>
+                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+                        <div>Receipts: <strong>{row.receipts.toFixed(2)}</strong></div>
+                        <div>Deliveries: <strong>{row.deliveries.toFixed(2)}</strong></div>
+                        <div>Truck Tickets: <strong>{row.truckTickets.toFixed(2)}</strong></div>
+                        <div>Tank Change: <strong>{row.tankChange.toFixed(2)}</strong></div>
+                        <div>Line Fill: <strong>{row.lineFillChange.toFixed(2)}</strong></div>
+                        {row.butaneEnabled && <div>Blend %: <strong>{row.butaneBlendPercent.toFixed(4)}%</strong></div>}
+                        {row.butaneEnabled && <div>Shrinkage: <strong>{row.butaneShrinkageBbl.toFixed(2)}</strong></div>}
+                        <div><strong>O/S: {row.overShort.toFixed(2)}</strong></div>
+                      </div>
+
+                      {row.checkGroupRows?.length > 0 && (
+                        <details style={{ marginTop: 10 }}>
+                          <summary style={{ cursor: 'pointer', fontWeight: 800 }}>Check Meter Groups</summary>
+                          <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                            {row.checkGroupRows.map((group: any) => (
+                              <div key={group.group.id} style={{ color: '#a8b3bd' }}>
+                                {group.group.name}: Assigned {group.assignedTotal.toFixed(2)} / Check {group.checkTotal.toFixed(2)} / Diff {group.difference.toFixed(2)} ({group.differencePercent.toFixed(4)}%)
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+
+                      {row.stationEquationRows?.length > 0 && (
+                        <details style={{ marginTop: 10 }}>
+                          <summary style={{ cursor: 'pointer', fontWeight: 800 }}>Station / Balance Equations</summary>
+                          <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                            {row.stationEquationRows.map((equation: any) => (
+                              <div key={equation.equation.id} style={{ color: '#a8b3bd' }}>
+                                {equation.equation.name}: Side A {equation.sideA.toFixed(2)} / Side B {equation.sideB.toFixed(2)} / Diff {equation.difference.toFixed(2)} ({equation.differencePercent.toFixed(4)}%)
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {page === 'system_health' && (

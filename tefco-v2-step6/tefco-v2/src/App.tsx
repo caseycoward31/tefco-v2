@@ -3211,12 +3211,52 @@ function handleProvingAreaSelect(areaId: string) {
     if ((ticket?.status || 'draft') !== 'draft') return
     const observed = ticket.observed_inputs || {}
     const calc = ticket.calculation_results || {}
-    const pdfIv = Number(calc.iv ?? calc.gov ?? observed.total_batch_barrels ?? observed.indicated_volume ?? observed.gross_volume_bbl ?? 0)
-    const pdfCtl = Number(calc.ctl ?? observed.ctl ?? 0)
-    const pdfCpl = Number(calc.cpl ?? observed.cpl ?? 0)
-    const pdfMf = Number(calc.mf ?? observed.mf ?? 1)
-    const pdfCtpl = Number(calc.ctpl ?? observed.ctpl ?? (pdfCtl && pdfCpl ? pdfCtl * pdfCpl : 0))
-    const pdfCcf = Number(calc.ccf ?? observed.ccf ?? (pdfCtpl ? pdfCtpl * pdfMf : 0))
+    const pdfNum = (...values: any[]) => {
+      for (const value of values) {
+        if (value === null || value === undefined || value === '') continue
+        const num = Number(value)
+        if (Number.isFinite(num)) return num
+      }
+      return null
+    }
+    const pdfCtl = pdfNum(calc.ctl, observed.ctl) ?? 0
+    const pdfCpl = pdfNum(calc.cpl, observed.cpl) ?? 0
+    const pdfMf = pdfNum(calc.mf, observed.mf) ?? 1
+    const pdfCtpl = pdfNum(calc.ctpl, observed.ctpl) ?? (pdfCtl && pdfCpl ? pdfCtl * pdfCpl : 0)
+    const pdfCcf = pdfNum(calc.ccf, observed.ccf) ?? (pdfCtpl ? pdfCtpl * pdfMf : 0)
+    const pdfOpeningReading = pdfNum(
+      calc.opening_reading,
+      observed.opening_reading,
+      observed.open_meter_reading,
+      observed.opening_meter_reading,
+      ticket.opening_reading,
+      ticket.opening_meter_reading
+    )
+    const pdfClosingReading = pdfNum(
+      calc.closing_reading,
+      observed.closing_reading,
+      observed.close_meter_reading,
+      observed.closing_meter_reading,
+      ticket.closing_reading,
+      ticket.closing_meter_reading
+    )
+    const pdfReadingIv = pdfOpeningReading !== null && pdfClosingReading !== null ? pdfClosingReading - pdfOpeningReading : null
+    const pdfIvFromGsv = pdfCcf ? pdfNum(calc.gsv, observed.gsv, observed.gross_standard_volume, observed.gross_standard_volume_bbl) !== null ? (pdfNum(calc.gsv, observed.gsv, observed.gross_standard_volume, observed.gross_standard_volume_bbl) as number) / pdfCcf : null : null
+    const pdfIv = pdfNum(
+      calc.iv,
+      calc.gov,
+      calc.total_batch_barrels,
+      observed.total_batch_barrels,
+      observed.indicated_volume,
+      observed.iv,
+      observed.gov,
+      ticket.total_batch_barrels,
+      ticket.indicated_volume,
+      ticket.iv,
+      ticket.gov,
+      pdfReadingIv,
+      pdfIvFromGsv
+    ) ?? 0
     setSelectedTicket(ticket)
     setDraftTicketEditValues({
       opening_reading: ticketEditString(observed.opening_reading ?? observed.open_meter_reading ?? calc.opening_reading),
@@ -3717,6 +3757,16 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       </div>
     </div>
     ` : ''}
+
+    <div class="section">
+      <div class="section-title">Meter Readings</div>
+      <div class="grid-2">
+        <div class="cell"><div class="small-label">Opening Meter Reading</div><div class="value">${pdfOpeningReading !== null ? formatMeasurementNumber(pdfOpeningReading, 0) : '—'}</div></div>
+        <div class="cell"><div class="small-label">Closing Meter Reading</div><div class="value">${pdfClosingReading !== null ? formatMeasurementNumber(pdfClosingReading, 0) : '—'}</div></div>
+        <div class="cell"><div class="small-label">Open Date / Time</div><div class="value">${observed.open_date || '—'} ${observed.open_time || ''}</div></div>
+        <div class="cell"><div class="small-label">Close Date / Time</div><div class="value">${observed.close_date || '—'} ${observed.close_time || ''}</div></div>
+      </div>
+    </div>
 
     <div class="section">
       <div class="section-title">Volumes</div>

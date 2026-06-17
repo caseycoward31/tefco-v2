@@ -1419,7 +1419,22 @@ const provingCompliancePercent =
   const selectedTicketLeaseMeters = selectedLease ? getVisibleMeters(selectedLease) : []
   const filteredMeters = sortMetersForDropdown(selectedTicketLeaseMeters)
   const selectedTicketLeaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(selectedLease))
-  const selectedTicketProducerRow: any = asArray(producers).find((producer: any) => String(producer.id || '') === String(selectedTicketLeaseRow?.producer_id || ''))
+  const selectedTicketMeterRow: any = asArray(meters).find((meter: any) => String(meter.id || '') === String(selectedMeter))
+  const selectedTicketProducerKey = String(
+    selectedTicketLeaseRow?.producer_id ||
+    selectedTicketMeterRow?.producer_id ||
+    selectedTicketLeaseRow?.producer ||
+    selectedTicketLeaseRow?.producer_name ||
+    selectedTicketMeterRow?.producer ||
+    selectedTicketMeterRow?.producer_name ||
+    ''
+  ).trim()
+  const selectedTicketProducerRow: any = asArray(producers).find((producer: any) => {
+    const producerId = String(producer.id || '').trim()
+    const producerName = String(producer.name || producer.producer_name || '').trim().toLowerCase()
+    return (producerId && producerId === selectedTicketProducerKey) ||
+      (producerName && producerName === selectedTicketProducerKey.toLowerCase())
+  })
 
   const contractSegments = contractAreaId ? getVisibleSegments(contractAreaId) : []
   const contractLeases = contractSegmentId ? sortLeasesForDropdown(getVisibleLeases(contractSegmentId)) : []
@@ -1934,10 +1949,18 @@ function handleTicketAreaSelect(areaId: string) {
     setSelectedLease(leaseId)
 
     const leaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(leaseId))
-    setSelectedProducer(leaseRow?.producer_id ? String(leaseRow.producer_id) : '')
-
     const leaseMeters = getVisibleMeters(leaseId)
-    setSelectedMeter(leaseMeters.length === 1 ? String(leaseMeters[0].id) : '')
+    const onlyMeter: any = leaseMeters.length === 1 ? leaseMeters[0] : null
+    const producerKey = leaseRow?.producer_id || onlyMeter?.producer_id || leaseRow?.producer || leaseRow?.producer_name || onlyMeter?.producer || onlyMeter?.producer_name || ''
+    const producerRow: any = asArray(producers).find((producer: any) => {
+      const producerId = String(producer.id || '').trim()
+      const producerName = String(producer.name || producer.producer_name || '').trim().toLowerCase()
+      const key = String(producerKey || '').trim()
+      return (producerId && producerId === key) || (producerName && producerName === key.toLowerCase())
+    })
+    setSelectedProducer(producerRow?.id ? String(producerRow.id) : (producerKey ? String(producerKey) : ''))
+
+    setSelectedMeter(onlyMeter ? String(onlyMeter.id) : '')
   }
 
 function handleReadingAreaSelect(areaId: string) {

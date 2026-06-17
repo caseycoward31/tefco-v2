@@ -3211,28 +3211,15 @@ function handleProvingAreaSelect(areaId: string) {
     const observedApi = ticketEditNumber(values, 'observed_api_gravity')
     const observedTemp = ticketEditNumber(values, 'observed_temperature')
     const swPercent = ticketEditNumber(values, 'sw_percent')
-    const productGroup = calc.product_group || observed.product_group || 'crude'
-    const apiRounding = Number(calc.api_rounding ?? observed.api_rounding ?? 1)
-    const ctlRounding = Number(calc.ctl_rounding ?? observed.ctl_rounding ?? 5)
-    const cplRounding = Number(calc.cpl_rounding ?? observed.cpl_rounding ?? 5)
-    const ctlpRounding = Number(calc.ctlp_rounding ?? observed.ctlp_rounding ?? 5)
-    const corrections = calculateApi11Corrections({
-      productGroup,
-      observedApiGravity: Number(observedApi ?? calc.observed_api_gravity ?? observed.observed_api_gravity ?? 0),
-      observedTemperature: Number(observedTemp ?? calc.observed_temperature ?? observed.observed_temperature ?? 60),
-      observedPressure: 0,
-      averageTemperature: Number(averageTemperature ?? calc.average_temperature ?? observed.average_temperature ?? 60),
-      averagePressure: Number(averagePressure ?? calc.average_pressure ?? observed.average_pressure ?? 0),
-      apiRounding,
-    })
-    const ctlValue = roundTo(corrections.ctl, ctlRounding)
-    const cplValue = roundTo(corrections.cpl, cplRounding)
-    const ctlpValue = roundTo(corrections.ctlp, ctlpRounding)
+    const ctlValue = ticketEditNumber(values, 'ctl') ?? Number(calc.ctl ?? observed.ctl ?? 1)
+    const cplValue = ticketEditNumber(values, 'cpl') ?? Number(calc.cpl ?? observed.cpl ?? 1)
     const mfValue = ticketEditNumber(values, 'mf') ?? Number(calc.mf ?? observed.mf ?? 1)
     const cswValue = swPercent !== null ? roundTo(1 - swPercent / 100, 5) : Number(calc.csw ?? observed.csw ?? 1)
+    const typedGsv = ticketEditNumber(values, 'gsv')
+    const typedNsv = ticketEditNumber(values, 'nsv')
     const calculatedGsv = totalBatchBarrels !== null ? roundTo(totalBatchBarrels * ctlValue * cplValue * mfValue, 2) : null
-    const gsvValue = calculatedGsv
-    const nsvValue = gsvValue !== null ? roundTo(gsvValue * cswValue, 2) : null
+    const gsvValue = typedGsv ?? calculatedGsv
+    const nsvValue = typedNsv ?? (gsvValue !== null ? roundTo(gsvValue * cswValue, 2) : null)
 
     const nextObservedInputs: any = {
       ...observed,
@@ -3250,7 +3237,6 @@ function handleProvingAreaSelect(areaId: string) {
       sw_percent: swPercent,
       ctl: ctlValue,
       cpl: cplValue,
-      ctlp: ctlpValue,
       mf: mfValue,
       csw: cswValue,
       gsv: gsvValue,
@@ -3278,7 +3264,6 @@ function handleProvingAreaSelect(areaId: string) {
       bsw_percent: swPercent,
       ctl: ctlValue,
       cpl: cplValue,
-      ctlp: ctlpValue,
       mf: mfValue,
       csw: cswValue,
       ccf: roundTo(ctlValue * cplValue * mfValue, 6),
@@ -3315,36 +3300,6 @@ function handleProvingAreaSelect(areaId: string) {
     setIsDraftTicketEditOpen(false)
     loadAll()
     alert('Draft ticket updated.')
-  }
-
-
-  async function deleteDraftTicket(ticket: any) {
-    const status = String(ticket?.status || 'draft').toLowerCase()
-    if (status !== 'draft') {
-      alert('Only draft tickets can be deleted.')
-      return
-    }
-
-    const ticketLabel = ticket?.ticket_number || ticket?.id || 'this draft ticket'
-    const ok = window.confirm(`Delete draft ticket ${ticketLabel}?
-
-This only removes the draft. Approved tickets cannot be deleted here.`)
-    if (!ok) return
-
-    const { error } = await supabase
-      .from('tickets')
-      .delete()
-      .eq('id', ticket.id)
-      .eq('status', 'draft')
-
-    if (error) {
-      console.error('Delete draft ticket failed:', error)
-      alert(`Could not delete draft ticket: ${error.message}`)
-      return
-    }
-
-    if (selectedTicket?.id === ticket.id) setSelectedTicket(null)
-    await loadAll()
   }
 
 
@@ -11182,11 +11137,6 @@ async function saveUserRole() {
                       Submit Ticket
                     </button>
                   )}
-                  {selectedTicket!.status === 'draft' && (
-                    <button style={{ ...button, width: 'auto', background: '#7f1d1d', borderColor: '#991b1b' }} onClick={() => runSafeAction('Deleting draft ticket', () => deleteDraftTicket(selectedTicket!))}>
-                      Delete Draft
-                    </button>
-                  )}
                   <button style={{ ...button, width: 'auto' }} onClick={() => generatePdfPreview(selectedTicket)}>
                     Generate Customer PDF
                   </button>
@@ -11203,7 +11153,7 @@ async function saveUserRole() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                       <div>
                         <h3 style={{ marginTop: 0 }}>Edit Draft Ticket</h3>
-                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>Change bad inputs before approval. CTL, CPL, GSV, and NSV stay calculated by the app from the edited measurement inputs.</div>
+                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>Change bad inputs before approval. Saving updates this same draft and recalculates IV/GSV/NSV from the edited factors.</div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <button style={{ ...button, width: 'auto', background: '#16a34a' }} onClick={() => runSafeAction('Saving draft ticket edits', saveDraftTicketEdits)}>Save Changes</button>
@@ -11220,11 +11170,11 @@ async function saveUserRole() {
                       <label><div className="ticket-muted">Observed Gravity/API</div><input style={input} value={draftTicketEditValues.observed_api_gravity || ''} onChange={(e) => updateDraftTicketEditField('observed_api_gravity', e.target.value)} /></label>
                       <label><div className="ticket-muted">Observed Temp</div><input style={input} value={draftTicketEditValues.observed_temperature || ''} onChange={(e) => updateDraftTicketEditField('observed_temperature', e.target.value)} /></label>
                       <label><div className="ticket-muted">S&W %</div><input style={input} value={draftTicketEditValues.sw_percent || ''} onChange={(e) => updateDraftTicketEditField('sw_percent', e.target.value)} /></label>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CPL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
+                      <label><div className="ticket-muted">CTL</div><input style={input} value={draftTicketEditValues.ctl || ''} onChange={(e) => updateDraftTicketEditField('ctl', e.target.value)} /></label>
+                      <label><div className="ticket-muted">CPL</div><input style={input} value={draftTicketEditValues.cpl || ''} onChange={(e) => updateDraftTicketEditField('cpl', e.target.value)} /></label>
                       <label><div className="ticket-muted">MF / CMF</div><input style={input} value={draftTicketEditValues.mf || ''} onChange={(e) => updateDraftTicketEditField('mf', e.target.value)} /></label>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">GSV</div><strong>{formatTicketDetailNumber(selectedTicket!.calculation_results?.gsv ?? selectedTicket!.observed_inputs?.gsv, 2)}</strong><div className="ticket-muted">Calculated by app</div></div>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">NSV</div><strong>{formatTicketDetailNumber(selectedTicket!.calculation_results?.nsv ?? selectedTicket!.observed_inputs?.nsv, 2)}</strong><div className="ticket-muted">Calculated by app</div></div>
+                      <label><div className="ticket-muted">GSV Override</div><input style={input} value={draftTicketEditValues.gsv || ''} onChange={(e) => updateDraftTicketEditField('gsv', e.target.value)} /></label>
+                      <label><div className="ticket-muted">NSV Override</div><input style={input} value={draftTicketEditValues.nsv || ''} onChange={(e) => updateDraftTicketEditField('nsv', e.target.value)} /></label>
                       <label><div className="ticket-muted">Open Date</div><input style={input} type="date" value={draftTicketEditValues.open_date || ''} onChange={(e) => updateDraftTicketEditField('open_date', e.target.value)} /></label>
                       <label><div className="ticket-muted">Open Time</div><input style={input} type="time" value={draftTicketEditValues.open_time || ''} onChange={(e) => updateDraftTicketEditField('open_time', e.target.value)} /></label>
                       <label><div className="ticket-muted">Close Date</div><input style={input} type="date" value={draftTicketEditValues.close_date || ''} onChange={(e) => updateDraftTicketEditField('close_date', e.target.value)} /></label>
@@ -11540,11 +11490,6 @@ async function saveUserRole() {
                               {(ticket.status || 'draft') === 'draft' && (
                                 <button style={{ ...button, width: 130, background: '#f59e0b' }} onClick={() => startDraftTicketEdit(ticket)}>
                                   Edit Draft
-                                </button>
-                              )}
-                              {String(ticket.status || 'draft').toLowerCase() === 'draft' && (
-                                <button style={{ ...button, width: 130, background: '#7f1d1d', borderColor: '#991b1b' }} onClick={() => runSafeAction('Deleting draft ticket', () => deleteDraftTicket(ticket))}>
-                                  Delete Draft
                                 </button>
                               )}
                               <button style={{ ...button, width: 130 }} onClick={() => { setSelectedTicket(ticket); setIsDraftTicketEditOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>

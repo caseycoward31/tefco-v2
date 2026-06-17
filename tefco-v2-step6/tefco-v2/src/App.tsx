@@ -2,7 +2,6 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
 import JSZip from 'jszip'
-import jsPDF from 'jspdf'
 
 type Company = {
   id: string
@@ -605,7 +604,7 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
-  const [provingTab, setProvingTab] = useState<'create' | 'drafts' | 'pending' | 'approved' | 'kpi' | 'schedule'>('create')
+  const [provingTab, setProvingTab] = useState<'create' | 'drafts' | 'pending' | 'approved' | 'kpi'>('create')
   const [potTab, setPotTab] = useState<'create' | 'history' | 'export'>('create')
   const [readingTab, setReadingTab] = useState<'new' | 'history' | 'photos'>('new')
   const [operationsTab, setOperationsTab] = useState<'overview' | 'provings' | 'readings' | 'balance'>('overview')
@@ -738,18 +737,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [balanceButaneAdjustments, setBalanceButaneAdjustments] = useState<any[]>([])
   const [segmentBalanceSettings, setSegmentBalanceSettings] = useState<any[]>([])
   const [segmentProvingSettings, setSegmentProvingSettings] = useState<any[]>([])
-  const [provingScheduleExclusions, setProvingScheduleExclusions] = useState<any[]>([])
-  const [provingScheduleEntries, setProvingScheduleEntries] = useState<any[]>([])
   const [provingKpiMonth, setProvingKpiMonth] = useState(() => new Date().toISOString().slice(0, 7))
-  const provingMonthOptions = Array.from({ length: 36 }, (_, i) => {
-    const d = new Date()
-    d.setDate(1)
-    d.setMonth(d.getMonth() - 12 + i)
-    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-    const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-    return { value, label }
-  })
-  const [provingScheduleSegmentId, setProvingScheduleSegmentId] = useState('')
   const [meterAssetConfigs, setMeterAssetConfigs] = useState<any[]>([])
   const [tankCalibrationVersions, setTankCalibrationVersions] = useState<any[]>([])
   const [tankStrappingRows, setTankStrappingRows] = useState<any[]>([])
@@ -812,6 +800,8 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [newAdminEmail, setNewAdminEmail] = useState('')
   const [newAdminPassword, setNewAdminPassword] = useState('')
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
+  const [isDraftTicketEditOpen, setIsDraftTicketEditOpen] = useState(false)
+  const [draftTicketEditValues, setDraftTicketEditValues] = useState<Record<string, string>>({})
   const [openApprovedTicketMonths, setOpenApprovedTicketMonths] = useState<Record<string, boolean>>({})
   const [openWorkflowTicketGroups, setOpenWorkflowTicketGroups] = useState<Record<string, boolean>>({})
   const [ticketWorkflowTab, setTicketWorkflowTab] = useState<'create' | 'drafts' | 'pending' | 'approved'>('create')
@@ -1274,10 +1264,8 @@ useEffect(() => {
     const { data: balanceButaneAdjustmentData, error: balanceButaneAdjustmentError } = await applyCompanyScope(supabase.from('balance_butane_adjustments').select('*')).order('period_start', { ascending: false })
     const { data: segmentBalanceSettingData, error: segmentBalanceSettingError } = await applyCompanyScope(supabase.from('segment_balance_settings').select('*'))
     const { data: segmentProvingSettingData, error: segmentProvingSettingError } = await applyCompanyScope(supabase.from('segment_proving_settings').select('*'))
-    const { data: provingScheduleExclusionData, error: provingScheduleExclusionError } = await applyCompanyScope(supabase.from('proving_schedule_exclusions').select('*')).eq('active', true)
-    const { data: provingScheduleEntryData, error: provingScheduleEntryError } = await applyCompanyScope(supabase.from('proving_schedule_entries').select('*')).eq('active', true)
-    if (balanceCheckGroupError || balanceCheckGroupMeterError || balanceInventoryEntryError || balanceButaneAdjustmentError || segmentBalanceSettingError || segmentProvingSettingError || provingScheduleExclusionError || provingScheduleEntryError || balanceEquationError || balanceEquationItemError) {
-      console.warn('Balance Center optional tables unavailable:', { balanceCheckGroupError, balanceCheckGroupMeterError, balanceInventoryEntryError, balanceButaneAdjustmentError, segmentBalanceSettingError, segmentProvingSettingError, provingScheduleExclusionError, provingScheduleEntryError, balanceEquationError, balanceEquationItemError })
+    if (balanceCheckGroupError || balanceCheckGroupMeterError || balanceInventoryEntryError || balanceButaneAdjustmentError || segmentBalanceSettingError || segmentProvingSettingError || balanceEquationError || balanceEquationItemError) {
+      console.warn('Balance Center optional tables unavailable:', { balanceCheckGroupError, balanceCheckGroupMeterError, balanceInventoryEntryError, balanceButaneAdjustmentError, segmentBalanceSettingError, segmentProvingSettingError, balanceEquationError, balanceEquationItemError })
     }
 
     setUserAreaAccess(resolvedAreaAccessData)
@@ -1311,8 +1299,6 @@ useEffect(() => {
     if (balanceButaneAdjustmentData) setBalanceButaneAdjustments(balanceButaneAdjustmentData)
     if (segmentBalanceSettingData) setSegmentBalanceSettings(segmentBalanceSettingData)
     if (segmentProvingSettingData) setSegmentProvingSettings(segmentProvingSettingData)
-    if (provingScheduleExclusionData) setProvingScheduleExclusions(provingScheduleExclusionData)
-    if (provingScheduleEntryData) setProvingScheduleEntries(provingScheduleEntryData)
 
     const { data: contractProfileData } = await supabase
       .from('contract_profiles')
@@ -2468,13 +2454,6 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     return lease?.segment_id || null
   }
 
-  function formatMonthKey(monthKey: string) {
-    if (!monthKey) return ''
-    const date = new Date(`${monthKey}-01T00:00:00`)
-    if (Number.isNaN(date.getTime())) return monthKey
-    return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
-  }
-
   function getProvingKpiMonthRange(monthKey: string) {
     const fallback = new Date().toISOString().slice(0, 7)
     const key = monthKey || fallback
@@ -2492,227 +2471,23 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     return !Number.isNaN(date.getTime()) && date >= start && date < end
   }
 
-  function getProvingScheduleExclusion(meterId: string, monthKey = provingKpiMonth) {
-    return provingScheduleExclusions.find((item: any) =>
-      String(item.meter_id || '') === String(meterId || '') &&
-      String(item.month_key || '') === String(monthKey || '') &&
-      item.active !== false
-    ) || null
-  }
-
-  function getProvingScheduleEntry(meterId: string, monthKey = provingKpiMonth) {
-    return provingScheduleEntries.find((item: any) =>
-      String(item.meter_id || '') === String(meterId || '') &&
-      String(item.month_key || '') === String(monthKey || '') &&
-      item.active !== false
-    ) || null
-  }
-
-  async function saveProvingScheduleEntry(meter: any, updates: any) {
-    const segmentId = getMeterSegmentId(meter)
-    const lease = getLeaseById(meter?.lease_id)
-    const segment = segments.find((s: any) => String(s.id) === String(segmentId || ''))
-    const existing = getProvingScheduleEntry(meter.id, provingKpiMonth)
-    const payload: any = {
-      company_id: companyId || null,
-      area_id: segment?.area_id || meter?.area_id || lease?.area_id || null,
-      segment_id: segmentId || null,
-      lease_id: meter?.lease_id || null,
-      meter_id: meter?.id,
-      month_key: provingKpiMonth,
-      scheduled_date: existing?.scheduled_date || null,
-      assigned_to: existing?.assigned_to || '',
-      notes: existing?.notes || '',
-      active: true,
-      updated_at: new Date().toISOString(),
-      ...updates,
-    }
-
-    const { error } = await supabase
-      .from('proving_schedule_entries')
-      .upsert(payload, { onConflict: 'company_id,meter_id,month_key' })
-
-    if (error) {
-      alert('Could not save proving schedule item: ' + error.message)
-      return
-    }
-
-    setProvingScheduleEntries((items: any[]) => {
-      const next = items.filter((item: any) => !(String(item.meter_id) === String(meter.id) && String(item.month_key) === String(provingKpiMonth)))
-      return [...next, payload]
-    })
-  }
-
-  function generateProvingSchedulePdf(segmentId?: string) {
-    const selectedSegments = segmentId
-      ? segments.filter((s: any) => String(s.id) === String(segmentId))
-      : segments.filter((s: any) => isSegmentIncludedInProvingKpi(s.id))
-
-    if (!selectedSegments.length) {
-      alert('Select a segment or include segments in the Proving KPI first.')
-      return
-    }
-
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' })
-    const monthLabel = formatMonthKey(provingKpiMonth)
-    const pageWidth = doc.internal.pageSize.getWidth()
-    const margin = 36
-    let y = 42
-
-    const writeHeader = (title: string) => {
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(18)
-      doc.text('Monthly Proving Schedule', margin, y)
-      doc.setFontSize(11)
-      doc.setFont('helvetica', 'normal')
-      doc.text(monthLabel, pageWidth - margin, y, { align: 'right' })
-      y += 24
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(13)
-      doc.text(title, margin, y)
-      y += 18
-    }
-
-    selectedSegments.forEach((segment: any, index: number) => {
-      if (index > 0) {
-        doc.addPage()
-        y = 42
-      }
-      const segmentName = segment.segment_name || segment.name || 'Segment'
-      writeHeader(`Segment: ${segmentName}`)
-      const rows = getSegmentMetersForProvingKpi(segment.id)
-      const headers = ['Date', 'Lease', 'Meter', 'Required', 'Reason', 'Assigned To', 'Notes']
-      const widths = [70, 175, 85, 60, 95, 95, 190]
-      let x = margin
-      doc.setFontSize(9)
-      doc.setFont('helvetica', 'bold')
-      headers.forEach((h, i) => {
-        doc.text(h, x, y)
-        x += widths[i]
-      })
-      y += 8
-      doc.setDrawColor(180)
-      doc.line(margin, y, pageWidth - margin, y)
-      y += 14
-      doc.setFont('helvetica', 'normal')
-
-      rows.forEach((meter: any) => {
-        if (y > 560) {
-          doc.addPage()
-          y = 42
-          writeHeader(`Segment: ${segmentName}`)
-        }
-        const display = getMeterDisplayName(meter)
-        const exclusion = getProvingScheduleExclusion(meter.id)
-        const entry = getProvingScheduleEntry(meter.id)
-        const values = [
-          entry?.scheduled_date || '',
-          display.main || '',
-          display.secondary || meter.meter_number || '',
-          exclusion ? 'No' : 'Yes',
-          exclusion?.reason || '',
-          entry?.assigned_to || '',
-          entry?.notes || exclusion?.notes || '',
-        ]
-        x = margin
-        values.forEach((value, i) => {
-          const text = String(value || '')
-          const clipped = text.length > (i === 6 ? 42 : i === 1 ? 28 : 16) ? text.slice(0, i === 6 ? 42 : i === 1 ? 28 : 16) + '…' : text
-          doc.text(clipped, x, y)
-          x += widths[i]
-        })
-        y += 16
-      })
-
-      if (!rows.length) {
-        doc.text('No active meters found for this segment.', margin, y)
-      }
-    })
-
-    doc.save(`Proving_Schedule_${monthLabel.replace(/\s+/g, '_')}.pdf`)
-  }
-
-  function getSegmentMetersForProvingKpi(segmentId: string) {
-    return meters
-      .filter((meter: any) => meter.active !== false && String(getMeterSegmentId(meter)) === String(segmentId))
-      .sort((a: any, b: any) => {
-        const da = getMeterDisplayName(a).main.toLowerCase()
-        const db = getMeterDisplayName(b).main.toLowerCase()
-        return da.localeCompare(db)
-      })
-  }
-
-  function getRequiredProvingMetersForSegment(segmentId: string, monthKey = provingKpiMonth) {
-    return getSegmentMetersForProvingKpi(segmentId).filter((meter: any) => !getProvingScheduleExclusion(meter.id, monthKey))
-  }
-
   function getSegmentProvingKpiRows(monthKey = provingKpiMonth) {
     return segments
       .filter((segment: any) => isSegmentIncludedInProvingKpi(segment.id))
       .map((segment: any) => {
-        const segmentMeters = getSegmentMetersForProvingKpi(segment.id)
-        const excludedMeters = segmentMeters.filter((meter: any) => getProvingScheduleExclusion(meter.id, monthKey))
-        const requiredMeters = segmentMeters.filter((meter: any) => !getProvingScheduleExclusion(meter.id, monthKey))
-        const scheduledMeterIds = new Set(requiredMeters.map((meter: any) => meter.id))
+        const segmentMeters = meters.filter((meter: any) => meter.active !== false && String(getMeterSegmentId(meter)) === String(segment.id))
+        const scheduledMeterIds = new Set(segmentMeters.map((meter: any) => meter.id))
         const completedMeterIds = new Set(
           provings
             .filter((proving: any) => proving.status === 'approved' && scheduledMeterIds.has(proving.meter_id) && isProvingInKpiMonth(proving, monthKey))
             .map((proving: any) => proving.meter_id)
         )
-        const active = segmentMeters.length
-        const excluded = excludedMeters.length
-        const scheduled = requiredMeters.length
+        const scheduled = segmentMeters.length
         const completed = completedMeterIds.size
         const remaining = Math.max(scheduled - completed, 0)
         const compliance = scheduled > 0 ? (completed / scheduled) * 100 : 0
-        return { segment, active, excluded, scheduled, completed, remaining, compliance }
+        return { segment, scheduled, completed, remaining, compliance }
       })
-  }
-
-  async function saveProvingScheduleExclusion(meter: any, excluded: boolean, reason = '', notes = '') {
-    const segmentId = getMeterSegmentId(meter)
-    const lease = getLeaseById(meter?.lease_id)
-    const segment = segments.find((s: any) => String(s.id) === String(segmentId || ''))
-    const existing = getProvingScheduleExclusion(meter.id, provingKpiMonth)
-
-    if (!excluded) {
-      if (existing?.id) {
-        const { error } = await supabase
-          .from('proving_schedule_exclusions')
-          .update({ active: false, updated_at: new Date().toISOString() })
-          .eq('id', existing.id)
-        if (error) {
-          alert('Could not remove proving schedule exclusion: ' + error.message)
-          return
-        }
-      }
-      await loadAll()
-      return
-    }
-
-    const payload: any = {
-      company_id: companyId || null,
-      area_id: segment?.area_id || meter?.area_id || lease?.area_id || null,
-      segment_id: segmentId || null,
-      lease_id: meter?.lease_id || null,
-      meter_id: meter?.id,
-      month_key: provingKpiMonth,
-      reason: reason || existing?.reason || 'Not Flowing',
-      notes: notes || existing?.notes || '',
-      active: true,
-      updated_at: new Date().toISOString(),
-    }
-
-    const { error } = await supabase
-      .from('proving_schedule_exclusions')
-      .upsert(payload, { onConflict: 'company_id,meter_id,month_key' })
-
-    if (error) {
-      alert('Could not save proving schedule exclusion: ' + error.message)
-      return
-    }
-
-    await loadAll()
   }
 
   async function saveSegmentProvingSetting(segmentId: string, includeInKpi: boolean) {
@@ -2828,8 +2603,6 @@ function handleProvingAreaSelect(areaId: string) {
       }
     }
 
-    setSelectedProvingSegment('')
-    setSelectedProvingLease('')
     setProvingMeter('')
     setProvingDate('')
     setProverVolume('')
@@ -2864,32 +2637,6 @@ function handleProvingAreaSelect(areaId: string) {
 
     alert('Proving approved.')
     loadAll()
-  }
-
-
-  async function deleteDraftProving(proving: Proving) {
-    if (!proving?.id) return
-    if (String(proving.status || '').toLowerCase() !== 'draft') {
-      alert('Only draft provings can be deleted.')
-      return
-    }
-
-    const label = getProvingDisplayName(proving)
-    const confirmed = window.confirm(`Delete draft proving for ${label.main || 'this lease'}? This cannot be undone.`)
-    if (!confirmed) return
-
-    const { error } = await supabase
-      .from('meter_provings')
-      .delete()
-      .eq('id', proving.id)
-      .eq('status', 'draft')
-
-    if (error) {
-      alert('Could not delete draft proving: ' + error.message)
-      return
-    }
-
-    await loadAll()
   }
 
 
@@ -3402,6 +3149,157 @@ function handleProvingAreaSelect(areaId: string) {
 
     setSelectedTicket({ ...ticket, ...updateData })
     loadAll()
+  }
+
+  function ticketEditString(value: any) {
+    if (value === null || value === undefined) return ''
+    return String(value)
+  }
+
+  function ticketEditNumber(values: Record<string, string>, key: string) {
+    const raw = values[key]
+    if (raw === undefined || raw === null || raw === '') return null
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : null
+  }
+
+  function startDraftTicketEdit(ticket: any) {
+    if ((ticket?.status || 'draft') !== 'draft') return
+    const observed = ticket.observed_inputs || {}
+    const calc = ticket.calculation_results || {}
+    setSelectedTicket(ticket)
+    setDraftTicketEditValues({
+      opening_reading: ticketEditString(observed.opening_reading ?? observed.open_meter_reading ?? calc.opening_reading),
+      closing_reading: ticketEditString(observed.closing_reading ?? observed.close_meter_reading ?? calc.closing_reading),
+      total_batch_barrels: ticketEditString(calc.iv ?? calc.gov ?? observed.total_batch_barrels ?? observed.indicated_volume ?? observed.gross_volume_bbl),
+      average_temperature: ticketEditString(calc.average_temperature ?? observed.average_temperature),
+      average_pressure: ticketEditString(calc.average_pressure ?? observed.average_pressure),
+      observed_api_gravity: ticketEditString(observed.observed_api_gravity ?? observed.api_observed ?? observed.api_gravity_observed),
+      observed_temperature: ticketEditString(observed.observed_temperature ?? observed.temperature),
+      sw_percent: ticketEditString(calc.bsw_percent ?? observed.bsw_percent ?? observed.sw_percent ?? observed.bsw),
+      ctl: ticketEditString(calc.ctl ?? observed.ctl),
+      cpl: ticketEditString(calc.cpl ?? observed.cpl),
+      mf: ticketEditString(calc.mf ?? observed.mf),
+      gsv: ticketEditString(calc.gsv ?? observed.gsv),
+      nsv: ticketEditString(calc.nsv ?? observed.nsv ?? observed.net_volume_bbl),
+      open_date: ticketEditString(observed.open_date),
+      open_time: ticketEditString(observed.open_time),
+      close_date: ticketEditString(observed.close_date),
+      close_time: ticketEditString(observed.close_time),
+      notes: ticketEditString(observed.notes ?? (ticket as any).notes),
+    })
+    setIsDraftTicketEditOpen(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function updateDraftTicketEditField(key: string, value: string) {
+    setDraftTicketEditValues((prev) => ({ ...prev, [key]: value }))
+  }
+
+  async function saveDraftTicketEdits() {
+    if (!selectedTicket || (selectedTicket.status || 'draft') !== 'draft') return
+    const observed = { ...((selectedTicket as any).observed_inputs || {}) }
+    const calc = { ...((selectedTicket as any).calculation_results || {}) }
+    const values = draftTicketEditValues
+
+    const openingReading = ticketEditNumber(values, 'opening_reading')
+    const closingReading = ticketEditNumber(values, 'closing_reading')
+    const typedBatch = ticketEditNumber(values, 'total_batch_barrels')
+    const totalBatchBarrels = typedBatch ?? (openingReading !== null && closingReading !== null ? closingReading - openingReading : null)
+    const averageTemperature = ticketEditNumber(values, 'average_temperature')
+    const averagePressure = ticketEditNumber(values, 'average_pressure')
+    const observedApi = ticketEditNumber(values, 'observed_api_gravity')
+    const observedTemp = ticketEditNumber(values, 'observed_temperature')
+    const swPercent = ticketEditNumber(values, 'sw_percent')
+    const ctlValue = ticketEditNumber(values, 'ctl') ?? Number(calc.ctl ?? observed.ctl ?? 1)
+    const cplValue = ticketEditNumber(values, 'cpl') ?? Number(calc.cpl ?? observed.cpl ?? 1)
+    const mfValue = ticketEditNumber(values, 'mf') ?? Number(calc.mf ?? observed.mf ?? 1)
+    const cswValue = swPercent !== null ? roundTo(1 - swPercent / 100, 5) : Number(calc.csw ?? observed.csw ?? 1)
+    const typedGsv = ticketEditNumber(values, 'gsv')
+    const typedNsv = ticketEditNumber(values, 'nsv')
+    const calculatedGsv = totalBatchBarrels !== null ? roundTo(totalBatchBarrels * ctlValue * cplValue * mfValue, 2) : null
+    const gsvValue = typedGsv ?? calculatedGsv
+    const nsvValue = typedNsv ?? (gsvValue !== null ? roundTo(gsvValue * cswValue, 2) : null)
+
+    const nextObservedInputs: any = {
+      ...observed,
+      opening_reading: openingReading,
+      closing_reading: closingReading,
+      total_batch_barrels: totalBatchBarrels,
+      indicated_volume: totalBatchBarrels,
+      gross_volume_bbl: totalBatchBarrels,
+      average_temperature: averageTemperature,
+      average_pressure: averagePressure,
+      observed_api_gravity: observedApi,
+      api_observed: observedApi,
+      observed_temperature: observedTemp,
+      bsw_percent: swPercent,
+      sw_percent: swPercent,
+      ctl: ctlValue,
+      cpl: cplValue,
+      mf: mfValue,
+      csw: cswValue,
+      gsv: gsvValue,
+      nsv: nsvValue,
+      net_volume_bbl: nsvValue,
+      open_date: values.open_date || null,
+      open_time: values.open_time || null,
+      close_date: values.close_date || null,
+      close_time: values.close_time || null,
+      notes: values.notes || null,
+      draft_edited_at: new Date().toISOString(),
+    }
+
+    const nextCalculationResults: any = {
+      ...calc,
+      iv: totalBatchBarrels,
+      gov: totalBatchBarrels,
+      total_batch_barrels: totalBatchBarrels,
+      opening_reading: openingReading,
+      closing_reading: closingReading,
+      average_temperature: averageTemperature,
+      average_pressure: averagePressure,
+      observed_api_gravity: observedApi,
+      observed_temperature: observedTemp,
+      bsw_percent: swPercent,
+      ctl: ctlValue,
+      cpl: cplValue,
+      mf: mfValue,
+      csw: cswValue,
+      ccf: roundTo(ctlValue * cplValue * mfValue, 6),
+      gsv: gsvValue,
+      nsv: nsvValue,
+    }
+
+    const updatePayload: any = {
+      observed_inputs: nextObservedInputs,
+      calculation_results: nextCalculationResults,
+      observed_api_gravity: observedApi,
+      observed_temperature: observedTemp,
+      observed_pressure: averagePressure,
+      ctl: ctlValue,
+      cpl: cplValue,
+      ccf: nextCalculationResults.ccf,
+    }
+
+    const { data, error } = await supabase
+      .from('tickets')
+      .update(updatePayload)
+      .eq('id', selectedTicket.id)
+      .eq('status', 'draft')
+      .select()
+      .maybeSingle()
+
+    if (error) {
+      alert('Could not save draft ticket edits: ' + error.message)
+      return
+    }
+
+    const updatedTicket: any = data || { ...selectedTicket, ...updatePayload }
+    setSelectedTicket(updatedTicket)
+    setIsDraftTicketEditOpen(false)
+    loadAll()
+    alert('Draft ticket updated.')
   }
 
 
@@ -10349,14 +10247,13 @@ async function saveUserRole() {
           <>
             <h1>Meter Provings</h1>
             <div style={{ ...box, padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 0 }}>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 0 }}>
                 {[
                   ['create', 'Create Proving', 'New proving entry'],
                   ['drafts', `Drafts (${draftProvings.length})`, 'Saved drafts'],
                   ['pending', `Pending (${approvalProvings.length})`, 'Awaiting approval'],
                   ['approved', `Approved (${approvedProvings.length})`, 'History by month'],
-                  ['kpi', 'KPI', 'Monthly compliance'],
-                  ['schedule', 'Schedule', 'Monthly exclusions'],
+                  ['kpi', 'KPI / Schedule', 'Monthly compliance'],
                 ].map(([key, label, sub]) => (
                   <button
                     key={key}
@@ -10381,183 +10278,83 @@ async function saveUserRole() {
             </div>
             {provingTab === 'kpi' && (
               <>
-                <div style={box}>
-                  <h2>Monthly Proving KPI</h2>
-                  <p style={{ color: '#a8b3bd' }}>Compliance is based on required meters only. Meters excluded on the Schedule tab do not count against the month.</p>
-                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginTop: 20 }}>
-                    <div style={card}>Active Meters<h2>{activeMeters.length}</h2></div>
-                    <div style={card}>Proved This Month<h2>{provedThisMonthCount}</h2></div>
-                    <div style={card}>Remaining<h2>{getSegmentProvingKpiRows().reduce((sum: number, row: any) => sum + row.remaining, 0)}</h2></div>
-                    <div style={card}>Compliance<h2>{getSegmentProvingKpiRows().length ? (getSegmentProvingKpiRows().reduce((sum: number, row: any) => sum + row.completed, 0) / Math.max(getSegmentProvingKpiRows().reduce((sum: number, row: any) => sum + row.scheduled, 0), 1) * 100).toFixed(1) : provingCompliance}%</h2></div>
-                  </div>
-                  <div style={{ marginTop: 16 }}>
-                    <label>
-                      <div style={{ color: '#a8b3bd', marginBottom: 6 }}>KPI Month</div>
-                      <select style={input} value={provingKpiMonth} onChange={(e) => setProvingKpiMonth(e.target.value)}>
-                        {provingMonthOptions.map((month) => (
-                          <option key={month.value} value={month.value}>{month.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                </div>
+            <div style={box}>
+              <h2>Monthly Proving KPI</h2>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginTop: 20 }}>
+                <div style={card}>Active Meters<h2>{activeMeters.length}</h2></div>
+                <div style={card}>Proved This Month<h2>{provedThisMonthCount}</h2></div>
+                <div style={card}>Remaining<h2>{remainingProvingCount}</h2></div>
+                <div style={card}>Compliance<h2>{provingCompliance}%</h2></div>
+              </div>
+            </div>
 
-                <div style={box}>
-                  <h2>Segment Compliance</h2>
-                  <div style={{ overflowX: 'auto', marginTop: 16 }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr>
-                          {['Segment', 'Active', 'Excluded', 'Required', 'Completed', 'Remaining', 'Compliance'].map((h) => (
-                            <th key={h} style={{ textAlign: 'left', borderBottom: '1px solid #374151', padding: 8 }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {getSegmentProvingKpiRows().map((row: any) => (
-                          <tr key={row.segment.id}>
-                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.segment.segment_name || row.segment.name}</td>
-                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.active}</td>
-                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.excluded}</td>
-                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.scheduled}</td>
-                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.completed}</td>
-                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.remaining}</td>
-                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}><strong>{row.compliance.toFixed(1)}%</strong></td>
-                          </tr>
-                        ))}
-                        {!getSegmentProvingKpiRows().length && (
-                          <tr><td colSpan={7} style={{ padding: 12, color: '#a8b3bd' }}>No segments selected for Proving KPI yet. Use the Schedule tab to choose included segments.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+            <div style={box}>
+              <h2>Segment Proving Schedule / KPI</h2>
+              <p style={{ color: '#a8b3bd' }}>Choose which segments are included in monthly proving compliance. Completed means an active meter has an approved proving in the selected month.</p>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 12, alignItems: 'center' }}>
+                <label>
+                  <div style={{ color: '#a8b3bd', marginBottom: 6 }}>KPI Month</div>
+                  <input style={input} type="month" value={provingKpiMonth} onChange={(e) => setProvingKpiMonth(e.target.value)} />
+                </label>
+                <div style={card}>
+                  <strong>Included Segments:</strong> {getSegmentProvingKpiRows().length || 0}
+                  <span style={{ marginLeft: 12, color: '#a8b3bd' }}>Frequency: Monthly • Scope: All active meters in selected segments</span>
                 </div>
-              </>
-            )}
+              </div>
 
-            {provingTab === 'schedule' && (
-              <>
-                <div style={box}>
-                  <h2>Monthly Proving Schedule</h2>
-                  <p style={{ color: '#a8b3bd' }}>Choose which segments count in the KPI, then exclude individual lease meters for this month only if they did not run, were out of service, bypassed, or under maintenance.</p>
-                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '220px 1fr auto auto', gap: 12, alignItems: 'end' }}>
-                    <label>
-                      <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Schedule Month</div>
-                      <select style={input} value={provingKpiMonth} onChange={(e) => setProvingKpiMonth(e.target.value)}>
-                        {provingMonthOptions.map((month) => (
-                          <option key={month.value} value={month.value}>{month.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Segment</div>
-                      <select style={input} value={provingScheduleSegmentId} onChange={(e) => setProvingScheduleSegmentId(e.target.value)}>
-                        <option value="">Select segment</option>
-                        {getVisibleAreas().flatMap((area: any) => getVisibleSegments(area.id)).map((segment: any) => (
-                          <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <button style={{ background: '#1f2937', border: '1px solid #374151', color: '#e5e7eb', borderRadius: 10, padding: '10px 14px', fontWeight: 800, cursor: 'pointer' }} type="button" onClick={() => generateProvingSchedulePdf(provingScheduleSegmentId || undefined)}>Export PDF</button>
-                    <button style={{ background: '#1f2937', border: '1px solid #374151', color: '#e5e7eb', borderRadius: 10, padding: '10px 14px', fontWeight: 800, cursor: 'pointer' }} type="button" onClick={() => generateProvingSchedulePdf()}>Full Month PDF</button>
-                  </div>
-                </div>
-
-                <div style={box}>
-                  <h2>Segments Included in KPI</h2>
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    {getVisibleAreas().map((area: any) => {
-                      const areaSegments = getVisibleSegments(area.id)
-                      if (!areaSegments.length) return null
-                      return (
-                        <details key={area.id} open style={card}>
-                          <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{area.area_name || area.name}</summary>
-                          <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginTop: 10 }}>
-                            {areaSegments.map((segment: any) => (
-                              <label key={segment.id} style={{ ...card, display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <input
-                                  type="checkbox"
-                                  checked={isSegmentIncludedInProvingKpi(segment.id)}
-                                  onChange={(e) => saveSegmentProvingSetting(segment.id, e.target.checked)}
-                                />
-                                <span>
-                                  <strong>{segment.segment_name || segment.name}</strong>
-                                  <div style={{ color: '#a8b3bd', fontSize: 12 }}>Include in monthly proving KPI</div>
-                                </span>
-                              </label>
-                            ))}
-                          </div>
-                        </details>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                {provingScheduleSegmentId && (
-                  <div style={box}>
-                    <h2>{segments.find((s: any) => String(s.id) === String(provingScheduleSegmentId))?.segment_name || segments.find((s: any) => String(s.id) === String(provingScheduleSegmentId))?.name || 'Segment'} — Required This Month</h2>
-                    <div style={{ color: '#a8b3bd', marginBottom: 12 }}>
-                      Required: {getRequiredProvingMetersForSegment(provingScheduleSegmentId).length} • Excluded: {getSegmentMetersForProvingKpi(provingScheduleSegmentId).filter((m: any) => getProvingScheduleExclusion(m.id)).length}
-                    </div>
-                    <div style={{ display: 'grid', gap: 10 }}>
-                      {getSegmentMetersForProvingKpi(provingScheduleSegmentId).map((meter: any) => {
-                        const display = getMeterDisplayName(meter)
-                        const exclusion = getProvingScheduleExclusion(meter.id)
-                        return (
-                          <div key={meter.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1.25fr 150px 130px 190px 150px 1fr', gap: 10, alignItems: 'center' }}>
-                            <div>
-                              <strong>{display.main}</strong>
-                              <div style={{ color: '#a8b3bd', fontSize: 12 }}>{display.secondary ? `Meter: ${display.secondary}` : `Meter: ${meter.meter_number || ''}`}</div>
-                            </div>
+              <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+                {getVisibleAreas().map((area: any) => {
+                  const areaSegments = getVisibleSegments(area.id)
+                  if (!areaSegments.length) return null
+                  return (
+                    <details key={area.id} open style={card}>
+                      <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{area.area_name || area.name}</summary>
+                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginTop: 10 }}>
+                        {areaSegments.map((segment: any) => (
+                          <label key={segment.id} style={{ ...card, display: 'flex', alignItems: 'center', gap: 10 }}>
                             <input
-                              style={input}
-                              type="date"
-                              value={getProvingScheduleEntry(meter.id)?.scheduled_date || ''}
-                              onChange={(e) => saveProvingScheduleEntry(meter, { scheduled_date: e.target.value || null })}
+                              type="checkbox"
+                              checked={isSegmentIncludedInProvingKpi(segment.id)}
+                              onChange={(e) => saveSegmentProvingSetting(segment.id, e.target.checked)}
                             />
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <input
-                                type="checkbox"
-                                checked={!exclusion}
-                                onChange={(e) => saveProvingScheduleExclusion(meter, !e.target.checked, exclusion?.reason || 'Not Flowing')}
-                              />
-                              Required
-                            </label>
-                            <select
-                              style={input}
-                              value={exclusion?.reason || ''}
-                              disabled={!exclusion}
-                              onChange={(e) => saveProvingScheduleExclusion(meter, true, e.target.value)}
-                            >
-                              <option value="">Reason</option>
-                              <option value="Not Flowing">Not Flowing</option>
-                              <option value="Out of Service">Out of Service</option>
-                              <option value="Bypassed">Bypassed</option>
-                              <option value="Maintenance">Maintenance</option>
-                              <option value="Temporary Meter">Temporary Meter</option>
-                              <option value="Other">Other</option>
-                            </select>
-                            <input
-                              style={input}
-                              placeholder="Assigned tech"
-                              value={getProvingScheduleEntry(meter.id)?.assigned_to || ''}
-                              onChange={(e) => saveProvingScheduleEntry(meter, { assigned_to: e.target.value })}
-                            />
-                            <input
-                              style={input}
-                              placeholder="Schedule notes"
-                              value={getProvingScheduleEntry(meter.id)?.notes || ''}
-                              onChange={(e) => saveProvingScheduleEntry(meter, { notes: e.target.value })}
-                            />
-                          </div>
-                        )
-                      })}
-                      {!getSegmentMetersForProvingKpi(provingScheduleSegmentId).length && (
-                        <div style={card}>No active meters found for this segment.</div>
-                      )}
-                    </div>
-                  </div>
-                )}
+                            <span>
+                              <strong>{segment.segment_name || segment.name}</strong>
+                              <div style={{ color: '#a8b3bd', fontSize: 12 }}>Include in monthly proving KPI</div>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </details>
+                  )
+                })}
+              </div>
+
+              <div style={{ overflowX: 'auto', marginTop: 16 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      {['Segment', 'Scheduled', 'Completed', 'Remaining', 'Compliance'].map((h) => (
+                        <th key={h} style={{ textAlign: 'left', borderBottom: '1px solid #374151', padding: 8 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getSegmentProvingKpiRows().map((row: any) => (
+                      <tr key={row.segment.id}>
+                        <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.segment.segment_name || row.segment.name}</td>
+                        <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.scheduled}</td>
+                        <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.completed}</td>
+                        <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.remaining}</td>
+                        <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}><strong>{row.compliance.toFixed(1)}%</strong></td>
+                      </tr>
+                    ))}
+                    {!getSegmentProvingKpiRows().length && (
+                      <tr><td colSpan={5} style={{ padding: 12, color: '#a8b3bd' }}>No segments selected for Proving KPI yet.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
               </>
             )}
 
@@ -10680,15 +10477,7 @@ async function saveUserRole() {
                     <div>Witness: {p.witness || ''}</div>
                     <div>PDF: {p.pdf_file_name || 'None'}</div>
                     {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                      <button style={button} onClick={() => approveProving(p)}>Submit / Approve Proving</button>
-                      <button
-                        style={{ ...button, background: 'linear-gradient(135deg,#7f1d1d,#450a0a)', border: '1px solid #ef4444' }}
-                        onClick={() => deleteDraftProving(p)}
-                      >
-                        Delete Draft
-                      </button>
-                    </div>
+                    <button style={button} onClick={() => approveProving(p)}>Submit / Approve Proving</button>
                   </div>
                 )
               })}
@@ -11338,6 +11127,12 @@ async function saveUserRole() {
                   )}
 
                   {selectedTicket!.status === 'draft' && (
+                    <button style={{ ...button, width: 'auto', background: '#f59e0b' }} onClick={() => startDraftTicketEdit(selectedTicket)}>
+                      Edit Draft
+                    </button>
+                  )}
+
+                  {selectedTicket!.status === 'draft' && (
                     <button style={{ ...button, width: 'auto', background: '#2563eb' }} onClick={() => runSafeAction('Submitting ticket', () => updateTicketStatus(selectedTicket!, 'submitted'))}>
                       Submit Ticket
                     </button>
@@ -11352,6 +11147,45 @@ async function saveUserRole() {
                     Close Ticket
                   </button>
                 </div>
+
+                {selectedTicket!.status === 'draft' && isDraftTicketEditOpen && (
+                  <div style={{ ...card, marginTop: 14, borderColor: '#f59e0b' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div>
+                        <h3 style={{ marginTop: 0 }}>Edit Draft Ticket</h3>
+                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>Change bad inputs before approval. Saving updates this same draft and recalculates IV/GSV/NSV from the edited factors.</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button style={{ ...button, width: 'auto', background: '#16a34a' }} onClick={() => runSafeAction('Saving draft ticket edits', saveDraftTicketEdits)}>Save Changes</button>
+                        <button style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => setIsDraftTicketEditOpen(false)}>Cancel</button>
+                      </div>
+                    </div>
+
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginTop: 12 }}>
+                      <label><div className="ticket-muted">Opening Meter Reading</div><input style={input} value={draftTicketEditValues.opening_reading || ''} onChange={(e) => updateDraftTicketEditField('opening_reading', e.target.value)} /></label>
+                      <label><div className="ticket-muted">Closing Meter Reading</div><input style={input} value={draftTicketEditValues.closing_reading || ''} onChange={(e) => updateDraftTicketEditField('closing_reading', e.target.value)} /></label>
+                      <label><div className="ticket-muted">Total Batch Barrels / IV</div><input style={input} value={draftTicketEditValues.total_batch_barrels || ''} onChange={(e) => updateDraftTicketEditField('total_batch_barrels', e.target.value)} /></label>
+                      <label><div className="ticket-muted">Average Temp</div><input style={input} value={draftTicketEditValues.average_temperature || ''} onChange={(e) => updateDraftTicketEditField('average_temperature', e.target.value)} /></label>
+                      <label><div className="ticket-muted">Average Pressure</div><input style={input} value={draftTicketEditValues.average_pressure || ''} onChange={(e) => updateDraftTicketEditField('average_pressure', e.target.value)} /></label>
+                      <label><div className="ticket-muted">Observed Gravity/API</div><input style={input} value={draftTicketEditValues.observed_api_gravity || ''} onChange={(e) => updateDraftTicketEditField('observed_api_gravity', e.target.value)} /></label>
+                      <label><div className="ticket-muted">Observed Temp</div><input style={input} value={draftTicketEditValues.observed_temperature || ''} onChange={(e) => updateDraftTicketEditField('observed_temperature', e.target.value)} /></label>
+                      <label><div className="ticket-muted">S&W %</div><input style={input} value={draftTicketEditValues.sw_percent || ''} onChange={(e) => updateDraftTicketEditField('sw_percent', e.target.value)} /></label>
+                      <label><div className="ticket-muted">CTL</div><input style={input} value={draftTicketEditValues.ctl || ''} onChange={(e) => updateDraftTicketEditField('ctl', e.target.value)} /></label>
+                      <label><div className="ticket-muted">CPL</div><input style={input} value={draftTicketEditValues.cpl || ''} onChange={(e) => updateDraftTicketEditField('cpl', e.target.value)} /></label>
+                      <label><div className="ticket-muted">MF / CMF</div><input style={input} value={draftTicketEditValues.mf || ''} onChange={(e) => updateDraftTicketEditField('mf', e.target.value)} /></label>
+                      <label><div className="ticket-muted">GSV Override</div><input style={input} value={draftTicketEditValues.gsv || ''} onChange={(e) => updateDraftTicketEditField('gsv', e.target.value)} /></label>
+                      <label><div className="ticket-muted">NSV Override</div><input style={input} value={draftTicketEditValues.nsv || ''} onChange={(e) => updateDraftTicketEditField('nsv', e.target.value)} /></label>
+                      <label><div className="ticket-muted">Open Date</div><input style={input} type="date" value={draftTicketEditValues.open_date || ''} onChange={(e) => updateDraftTicketEditField('open_date', e.target.value)} /></label>
+                      <label><div className="ticket-muted">Open Time</div><input style={input} type="time" value={draftTicketEditValues.open_time || ''} onChange={(e) => updateDraftTicketEditField('open_time', e.target.value)} /></label>
+                      <label><div className="ticket-muted">Close Date</div><input style={input} type="date" value={draftTicketEditValues.close_date || ''} onChange={(e) => updateDraftTicketEditField('close_date', e.target.value)} /></label>
+                      <label><div className="ticket-muted">Close Time</div><input style={input} type="time" value={draftTicketEditValues.close_time || ''} onChange={(e) => updateDraftTicketEditField('close_time', e.target.value)} /></label>
+                    </div>
+                    <label style={{ display: 'block', marginTop: 12 }}>
+                      <div className="ticket-muted">Notes</div>
+                      <textarea style={{ ...input, minHeight: 80 }} value={draftTicketEditValues.notes || ''} onChange={(e) => updateDraftTicketEditField('notes', e.target.value)} />
+                    </label>
+                  </div>
+                )}
 
                 <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginTop: 14 }}>
                   <div style={card}>
@@ -11652,9 +11486,16 @@ async function saveUserRole() {
                               <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
                               <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
                             </div>
-                            <button style={{ ...button, width: 150 }} onClick={() => { setSelectedTicket(ticket); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
-                              Open Ticket
-                            </button>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              {(ticket.status || 'draft') === 'draft' && (
+                                <button style={{ ...button, width: 130, background: '#f59e0b' }} onClick={() => startDraftTicketEdit(ticket)}>
+                                  Edit Draft
+                                </button>
+                              )}
+                              <button style={{ ...button, width: 130 }} onClick={() => { setSelectedTicket(ticket); setIsDraftTicketEditOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
+                                Open Ticket
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>

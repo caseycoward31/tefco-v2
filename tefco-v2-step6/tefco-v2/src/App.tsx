@@ -2828,6 +2828,8 @@ function handleProvingAreaSelect(areaId: string) {
       }
     }
 
+    setSelectedProvingSegment('')
+    setSelectedProvingLease('')
     setProvingMeter('')
     setProvingDate('')
     setProverVolume('')
@@ -2862,6 +2864,32 @@ function handleProvingAreaSelect(areaId: string) {
 
     alert('Proving approved.')
     loadAll()
+  }
+
+
+  async function deleteDraftProving(proving: Proving) {
+    if (!proving?.id) return
+    if (String(proving.status || '').toLowerCase() !== 'draft') {
+      alert('Only draft provings can be deleted.')
+      return
+    }
+
+    const label = getProvingDisplayName(proving)
+    const confirmed = window.confirm(`Delete draft proving for ${label.main || 'this lease'}? This cannot be undone.`)
+    if (!confirmed) return
+
+    const { error } = await supabase
+      .from('meter_provings')
+      .delete()
+      .eq('id', proving.id)
+      .eq('status', 'draft')
+
+    if (error) {
+      alert('Could not delete draft proving: ' + error.message)
+      return
+    }
+
+    await loadAll()
   }
 
 
@@ -10652,7 +10680,15 @@ async function saveUserRole() {
                     <div>Witness: {p.witness || ''}</div>
                     <div>PDF: {p.pdf_file_name || 'None'}</div>
                     {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
-                    <button style={button} onClick={() => approveProving(p)}>Submit / Approve Proving</button>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                      <button style={button} onClick={() => approveProving(p)}>Submit / Approve Proving</button>
+                      <button
+                        style={{ ...button, background: 'linear-gradient(135deg,#7f1d1d,#450a0a)', border: '1px solid #ef4444' }}
+                        onClick={() => deleteDraftProving(p)}
+                      >
+                        Delete Draft
+                      </button>
+                    </div>
                   </div>
                 )
               })}

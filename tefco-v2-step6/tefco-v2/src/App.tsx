@@ -11547,8 +11547,29 @@ async function saveUserRole() {
                 <div>POT Observed API Gravity: {autofillPreview?.pot?.observed_api_gravity ?? autofillPreview?.pot?.api_gravity ?? 'None'}</div>
                 <div>POT Observed Temp: {autofillPreview?.pot?.observed_temperature ?? autofillPreview?.pot?.sample_temperature ?? 'None'}</div>
                 <div>POT API Gravity @60: {autofillPreview?.pot?.api_gravity_60 ?? autofillPreview?.pot?.api_gravity ?? 'None'}</div>
-                <div>POT BS&W: {autofillPreview?.pot?.bsw ?? 'None'}</div>
-                <div>POT CSW: {autofillPreview?.pot?.csw ?? 'None'}</div>
+                <div>
+                  POT BS&W: {
+                    autofillPreview?.pot
+                      ? (autofillPreview.pot as any).bsw_percent ??
+                        (autofillPreview.pot as any).sw_percent ??
+                        (autofillPreview.pot as any).bsw ??
+                        'None'
+                      : 'None'
+                  }
+                </div>
+                <div>
+                  POT CSW: {
+                    autofillPreview?.pot
+                      ? (autofillPreview.pot as any).csw ??
+                        (1 - Number(
+                          (autofillPreview.pot as any).bsw_percent ??
+                          (autofillPreview.pot as any).sw_percent ??
+                          (autofillPreview.pot as any).bsw ??
+                          0
+                        ) / 100).toFixed(5)
+                      : 'None'
+                  }
+                </div>
               </div>
 
               <button style={button} disabled={isActionRunning} onClick={() => runSafeAction('Creating ticket', async () => { await createTicket(); clearLocalTicketDraft(); setTicketWorkflowTab('drafts') })}>Build Draft Ticket</button>

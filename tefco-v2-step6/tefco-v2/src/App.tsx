@@ -3082,6 +3082,8 @@ function handleProvingAreaSelect(areaId: string) {
         product_sub_group: corrections.product_sub_group,
       },
       calculation_results: {
+        iv: roundTo(iv, volumeRounding),
+        indicated_volume: roundTo(iv, volumeRounding),
         ctl,
         cpl,
         ctlp,
@@ -8150,6 +8152,61 @@ async function saveUserRole() {
     return num.toFixed(digits)
   }
 
+
+  function getTicketIvDetail(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const calc = ticket?.calculation_results || {}
+
+    const direct =
+      calc.iv ??
+      calc.indicated_volume ??
+      calc.gov ??
+      observed.iv ??
+      observed.indicated_volume ??
+      observed.total_batch_barrels ??
+      observed.total_batch_bbls ??
+      observed.gross_volume_bbl ??
+      observed.gross_bbls ??
+      ticket?.iv ??
+      ticket?.indicated_volume ??
+      ticket?.total_batch_barrels ??
+      ticket?.gross_volume
+
+    const directNum = Number(direct)
+    if (Number.isFinite(directNum) && directNum !== 0) return directNum
+
+    const opening = Number(observed.opening_reading ?? ticket?.opening_reading)
+    const closing = Number(observed.closing_reading ?? ticket?.closing_reading)
+    if (Number.isFinite(opening) && Number.isFinite(closing) && closing > opening) {
+      return closing - opening
+    }
+
+    const gsv = Number(calc.gsv ?? observed.gsv ?? ticket?.gsv)
+    const ctl = Number(calc.ctl ?? observed.ctl ?? ticket?.ctl)
+    const cpl = Number(calc.cpl ?? observed.cpl ?? ticket?.cpl)
+    const mf = Number(calc.mf ?? observed.mf ?? ticket?.mf ?? 1)
+    const ccf = Number(calc.ccf ?? observed.ccf)
+    const ctpl = Number(calc.ctpl ?? calc.ctlp ?? observed.ctpl ?? observed.ctlp)
+
+    const factor =
+      Number.isFinite(ctpl) && ctpl > 0 ? ctpl * mf :
+      Number.isFinite(ccf) && ccf > 0 ? ccf * mf :
+      Number.isFinite(ctl) && ctl > 0 && Number.isFinite(cpl) && cpl > 0 ? ctl * cpl * mf :
+      0
+
+    if (Number.isFinite(gsv) && gsv > 0 && Number.isFinite(factor) && factor > 0) {
+      return gsv / factor
+    }
+
+    const nsv = Number(calc.nsv ?? observed.nsv ?? ticket?.nsv)
+    const csw = Number(calc.csw ?? observed.csw ?? ticket?.csw)
+    if (Number.isFinite(nsv) && nsv > 0 && Number.isFinite(csw) && csw > 0 && Number.isFinite(factor) && factor > 0) {
+      return nsv / csw / factor
+    }
+
+    return undefined
+  }
+
   function getTicketAssignedPotLabel(ticket: any) {
     return ticket?.observed_inputs?.assigned_pot_label || ticket?.assigned_pot_id || '—'
   }
@@ -11344,7 +11401,7 @@ async function saveUserRole() {
 
                   <div style={card}>
                     <h3>Volume Calculation</h3>
-                    <div><strong>IV:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.iv ?? selectedTicket!.calculation_results?.gov ?? selectedTicket!.observed_inputs?.total_batch_barrels ?? selectedTicket!.observed_inputs?.indicated_volume ?? selectedTicket!.observed_inputs?.gross_volume_bbl, 1)}</div>
+                    <div><strong>IV:</strong> {formatTicketDetailNumber(getTicketIvDetail(selectedTicket), 1)}</div>
                     <div><strong>CTL:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</div>
                     <div><strong>CPL:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</div>
                     <div><strong>CTPL:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.ctpl ?? selectedTicket!.observed_inputs?.ctpl ?? ((Number(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl ?? 0) || 0) * (Number(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl ?? 0) || 0)), 6)}</div>

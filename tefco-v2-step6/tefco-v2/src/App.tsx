@@ -3530,7 +3530,33 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const pdfMf = pdfNum(calc.mf, observed.mf) ?? 1
     const pdfCtpl = pdfNum(calc.ctpl, observed.ctpl) ?? (pdfCtl && pdfCpl ? pdfCtl * pdfCpl : 0)
     const pdfCcf = pdfNum(calc.ccf, observed.ccf) ?? (pdfCtpl ? pdfCtpl * pdfMf : 0)
+
+    // Pull meter opening / closing from Operator Readings monthly history first.
+    // This keeps the customer PDF matched to the reading card used in the field.
+    const ticketMeterId = String(ticket.meter_id || observed.meter_id || '')
+    const ticketLeaseId = String(ticket.lease_id || observed.lease_id || '')
+    const ticketCreatedMs = new Date(ticket.created_at || ticket.updated_at || Date.now()).getTime()
+    const matchingOperatorReadings = (Array.isArray(readings) ? readings : [])
+      .filter((row: any) => {
+        const sameMeter = ticketMeterId && String(row.meter_id || '') === ticketMeterId
+        const sameLease = ticketLeaseId && String(row.lease_id || '') === ticketLeaseId
+        return sameMeter || sameLease
+      })
+      .sort((a: any, b: any) => {
+        const aMs = new Date(a.reading_date || a.created_at || 0).getTime()
+        const bMs = new Date(b.reading_date || b.created_at || 0).getTime()
+        const aBefore = aMs <= ticketCreatedMs ? 1 : 0
+        const bBefore = bMs <= ticketCreatedMs ? 1 : 0
+        if (aBefore !== bBefore) return bBefore - aBefore
+        return Math.abs(ticketCreatedMs - aMs) - Math.abs(ticketCreatedMs - bMs)
+      })
+    const pdfOperatorReading = matchingOperatorReadings[0] || {}
+
     const pdfOpeningReading = pdfNum(
+      pdfOperatorReading.opening_reading,
+      pdfOperatorReading.opening_meter_reading,
+      pdfOperatorReading.open_reading,
+      pdfOperatorReading.open_meter_reading,
       calc.opening_reading,
       calc.opening_meter_reading,
       observed.opening_reading,
@@ -3542,6 +3568,10 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ticket.opening_meter_reading
     )
     const pdfClosingReading = pdfNum(
+      pdfOperatorReading.closing_reading,
+      pdfOperatorReading.closing_meter_reading,
+      pdfOperatorReading.close_reading,
+      pdfOperatorReading.close_meter_reading,
       calc.closing_reading,
       calc.closing_meter_reading,
       observed.closing_reading,

@@ -960,6 +960,38 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   ])
 
   
+  function getPotBswPercentValue(pot: any) {
+    if (!pot) return null
+
+    const directValue =
+      (pot as any).bsw_percent ??
+      (pot as any).sw_percent ??
+      (pot as any).bsw ??
+      (pot as any).bs_and_w ??
+      (pot as any).sandw ??
+      (pot as any).s_and_w ??
+      (pot as any).water_percent
+
+    if (directValue !== undefined && directValue !== null && directValue !== '') {
+      const value = Number(directValue)
+      return Number.isFinite(value) ? value : null
+    }
+
+    const cswValue = (pot as any).csw
+    if (cswValue !== undefined && cswValue !== null && cswValue !== '') {
+      const value = (1 - Number(cswValue)) * 100
+      return Number.isFinite(value) ? value : null
+    }
+
+    return null
+  }
+
+  function formatPotBswPercent(pot: any) {
+    const value = getPotBswPercentValue(pot)
+    return value === null ? 'None' : value.toFixed(4)
+  }
+
+
   function normalizeRoleName(value: any) {
     return String(value || '')
       .trim()
@@ -2945,6 +2977,7 @@ function handleProvingAreaSelect(areaId: string) {
     const factorToUse = Number(latestApprovedProving?.accepted_meter_factor || latestReading?.meter_factor || 1)
     const mf = roundTo(factorToUse, 4)
     const csw = Number(latestPot?.csw || 1)
+    const bswPercent = getPotBswPercentValue(latestPot) ?? roundTo((1 - csw) * 100, 4)
     const isApi12 = selectedContractStandard.includes('API 12')
     const gsv = tankTicketSnapshot
       ? tankTicketSnapshot.gsv
@@ -3036,6 +3069,8 @@ function handleProvingAreaSelect(areaId: string) {
         average_temperature: corrections.average_temperature,
         average_pressure: corrections.average_pressure,
         csw,
+        bsw_percent: bswPercent,
+        sw_percent: bswPercent,
         mf_source: latestApprovedProving ? 'latest_approved_proving' : 'reading_fallback',
         pot_source: latestPot ? 'latest_pot_quality' : 'none',
         api_engine: corrections.api_engine,
@@ -3058,6 +3093,9 @@ function handleProvingAreaSelect(areaId: string) {
         nsv: roundTo(nsv, volumeRounding),
         api_gravity_60: corrections.api_gravity_60,
         density_60: corrections.density_60,
+        bsw_percent: bswPercent,
+        sw_percent: bswPercent,
+        csw,
         product_sub_group: corrections.product_sub_group,
         formula_profile: isApi12 ? 'API 12 2021' : 'API 11.1',
       },
@@ -8659,7 +8697,7 @@ async function saveUserRole() {
                   <option value="">Select POT Quality</option>
                   {getScopedPotQuality().map((pot: any) => (
                     <option key={pot.id} value={pot.id}>
-                      {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
+                      {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {formatPotBswPercent(pot)}
                     </option>
                   ))}
                 </select>
@@ -9488,7 +9526,7 @@ async function saveUserRole() {
                       <option value="">Select POT Quality</option>
                       {getScopedPotQuality().map((pot: any) => (
                         <option key={pot.id} value={pot.id}>
-                          {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
+                          {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {formatPotBswPercent(pot)}
                         </option>
                       ))}
                     </select>
@@ -10167,7 +10205,7 @@ async function saveUserRole() {
                   <option value="">Select POT Quality</option>
                   {getScopedPotQuality().map((pot: any) => (
                     <option key={pot.id} value={pot.id}>
-                      {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {(pot as any).bsw_percent || (pot as any).bsw || ''}
+                      {((pot as any).pot_number || (pot as any).sample_id || pot.id)} | API {(pot as any).api_gravity || (pot as any).observed_api_gravity || ''} | BSW {formatPotBswPercent(pot)}
                     </option>
                   ))}
                 </select>
@@ -10328,7 +10366,7 @@ async function saveUserRole() {
                             <div>Observed API Gravity: {p.observed_api_gravity ?? p.api_gravity}</div>
                             <div>Observed Temp: {p.observed_temperature ?? p.sample_temperature}</div>
                             <div>API Gravity @60: {p.api_gravity_60 ?? p.api_gravity}</div>
-                            <div>BS&W: {p.bsw_percent ?? p.sw_percent ?? p.bsw ?? (p.csw !== undefined && p.csw !== null ? Number((1 - Number(p.csw)) * 100).toFixed(4) : '—')}</div>
+                            <div>BS&W: {formatPotBswPercent(p)}</div>
                             <div>CSW: {p.csw}</div>
                             <div>Notes: {p.notes || ''}</div>
                           </div>
@@ -11547,16 +11585,7 @@ async function saveUserRole() {
                 <div>POT Observed API Gravity: {autofillPreview?.pot?.observed_api_gravity ?? autofillPreview?.pot?.api_gravity ?? 'None'}</div>
                 <div>POT Observed Temp: {autofillPreview?.pot?.observed_temperature ?? autofillPreview?.pot?.sample_temperature ?? 'None'}</div>
                 <div>POT API Gravity @60: {autofillPreview?.pot?.api_gravity_60 ?? autofillPreview?.pot?.api_gravity ?? 'None'}</div>
-                <div>
-                  POT BS&W: {
-                    autofillPreview?.pot
-                      ? (autofillPreview.pot as any).bsw_percent ??
-                        (autofillPreview.pot as any).sw_percent ??
-                        (autofillPreview.pot as any).bsw ??
-                        'None'
-                      : 'None'
-                  }
-                </div>
+                <div>POT BS&W: {formatPotBswPercent(autofillPreview?.pot)}</div>
                 <div>
                   POT CSW: {
                     autofillPreview?.pot

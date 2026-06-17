@@ -3517,12 +3517,60 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
 
     const observed = ticket.observed_inputs || {}
     const calc = ticket.calculation_results || {}
-    const pdfIv = Number(calc.iv ?? calc.gov ?? observed.total_batch_barrels ?? observed.indicated_volume ?? observed.gross_volume_bbl ?? 0)
-    const pdfCtl = Number(calc.ctl ?? observed.ctl ?? 0)
-    const pdfCpl = Number(calc.cpl ?? observed.cpl ?? 0)
-    const pdfMf = Number(calc.mf ?? observed.mf ?? 1)
-    const pdfCtpl = Number(calc.ctpl ?? observed.ctpl ?? (pdfCtl && pdfCpl ? pdfCtl * pdfCpl : 0))
-    const pdfCcf = Number(calc.ccf ?? observed.ccf ?? (pdfCtpl ? pdfCtpl * pdfMf : 0))
+    const pdfNum = (...values: any[]) => {
+      for (const value of values) {
+        if (value === null || value === undefined || value === '') continue
+        const num = Number(value)
+        if (Number.isFinite(num)) return num
+      }
+      return null
+    }
+    const pdfCtl = pdfNum(calc.ctl, observed.ctl) ?? 0
+    const pdfCpl = pdfNum(calc.cpl, observed.cpl) ?? 0
+    const pdfMf = pdfNum(calc.mf, observed.mf) ?? 1
+    const pdfCtpl = pdfNum(calc.ctpl, observed.ctpl) ?? (pdfCtl && pdfCpl ? pdfCtl * pdfCpl : 0)
+    const pdfCcf = pdfNum(calc.ccf, observed.ccf) ?? (pdfCtpl ? pdfCtpl * pdfMf : 0)
+    const pdfOpeningReading = pdfNum(
+      calc.opening_reading,
+      calc.opening_meter_reading,
+      observed.opening_reading,
+      observed.open_meter_reading,
+      observed.opening_meter_reading,
+      observed.meter_open,
+      observed.opening_meter,
+      ticket.opening_reading,
+      ticket.opening_meter_reading
+    )
+    const pdfClosingReading = pdfNum(
+      calc.closing_reading,
+      calc.closing_meter_reading,
+      observed.closing_reading,
+      observed.close_meter_reading,
+      observed.closing_meter_reading,
+      observed.meter_close,
+      observed.closing_meter,
+      ticket.closing_reading,
+      ticket.closing_meter_reading
+    )
+    const pdfReadingIv = pdfOpeningReading !== null && pdfClosingReading !== null ? pdfClosingReading - pdfOpeningReading : null
+    const pdfGsvForIv = pdfNum(calc.gsv, observed.gsv, observed.gross_standard_volume, observed.gross_standard_volume_bbl)
+    const pdfIvFromGsv = pdfCcf && pdfGsvForIv !== null ? pdfGsvForIv / pdfCcf : null
+    const pdfIv = pdfNum(
+      calc.iv,
+      calc.gov,
+      calc.total_batch_barrels,
+      observed.total_batch_barrels,
+      observed.indicated_volume,
+      observed.gross_volume_bbl,
+      observed.iv,
+      observed.gov,
+      ticket.total_batch_barrels,
+      ticket.indicated_volume,
+      ticket.iv,
+      ticket.gov,
+      pdfReadingIv,
+      pdfIvFromGsv
+    ) ?? 0
     const pdfLeaseName = getTicketPdfLeaseName(ticket, meter, lease, observed)
     const isFlowX = observed.source === 'flowx_transporter_summary'
 

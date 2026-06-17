@@ -3196,6 +3196,14 @@ function handleProvingAreaSelect(areaId: string) {
     setDraftTicketEditValues((prev) => ({ ...prev, [key]: value }))
   }
 
+  function getDraftTicketEditIv(values: Record<string, string>) {
+    const opening = ticketEditNumber(values, 'opening_reading')
+    const closing = ticketEditNumber(values, 'closing_reading')
+    if (opening !== null && closing !== null) return closing - opening
+    const existing = ticketEditNumber(values, 'total_batch_barrels')
+    return existing
+  }
+
   async function saveDraftTicketEdits() {
     if (!selectedTicket || (selectedTicket.status || 'draft') !== 'draft') return
     const observed = { ...((selectedTicket as any).observed_inputs || {}) }
@@ -3204,8 +3212,9 @@ function handleProvingAreaSelect(areaId: string) {
 
     const openingReading = ticketEditNumber(values, 'opening_reading')
     const closingReading = ticketEditNumber(values, 'closing_reading')
-    const typedBatch = ticketEditNumber(values, 'total_batch_barrels')
-    const totalBatchBarrels = typedBatch ?? (openingReading !== null && closingReading !== null ? closingReading - openingReading : null)
+    const totalBatchBarrels = openingReading !== null && closingReading !== null
+      ? closingReading - openingReading
+      : ticketEditNumber(values, 'total_batch_barrels')
     const averageTemperature = ticketEditNumber(values, 'average_temperature')
     const averagePressure = ticketEditNumber(values, 'average_pressure')
     const observedApi = ticketEditNumber(values, 'observed_api_gravity')
@@ -3225,6 +3234,8 @@ function handleProvingAreaSelect(areaId: string) {
       averagePressure: Number(averagePressure ?? calc.average_pressure ?? observed.average_pressure ?? 0),
       apiRounding,
     })
+    const apiGravity60Value = corrections.api_gravity_60
+    const density60Value = corrections.density_60
     const ctlValue = roundTo(corrections.ctl, ctlRounding)
     const cplValue = roundTo(corrections.cpl, cplRounding)
     const ctlpValue = roundTo(corrections.ctlp, ctlpRounding)
@@ -3245,6 +3256,9 @@ function handleProvingAreaSelect(areaId: string) {
       average_pressure: averagePressure,
       observed_api_gravity: observedApi,
       api_observed: observedApi,
+      api_gravity_60: apiGravity60Value,
+      corrected_api_gravity: apiGravity60Value,
+      density_60: density60Value,
       observed_temperature: observedTemp,
       bsw_percent: swPercent,
       sw_percent: swPercent,
@@ -3260,6 +3274,7 @@ function handleProvingAreaSelect(areaId: string) {
       open_time: values.open_time || null,
       close_date: values.close_date || null,
       close_time: values.close_time || null,
+      lease_name: getTicketPdfLeaseName(selectedTicket, meters.find((m: any) => m.id === selectedTicket.meter_id), leases.find((l: any) => l.id === selectedTicket.lease_id), observed) || observed.lease_name || null,
       notes: values.notes || null,
       draft_edited_at: new Date().toISOString(),
     }
@@ -3274,6 +3289,9 @@ function handleProvingAreaSelect(areaId: string) {
       average_temperature: averageTemperature,
       average_pressure: averagePressure,
       observed_api_gravity: observedApi,
+      api_gravity_60: apiGravity60Value,
+      corrected_api_gravity: apiGravity60Value,
+      density_60: density60Value,
       observed_temperature: observedTemp,
       bsw_percent: swPercent,
       ctl: ctlValue,
@@ -3290,6 +3308,7 @@ function handleProvingAreaSelect(areaId: string) {
       observed_inputs: nextObservedInputs,
       calculation_results: nextCalculationResults,
       observed_api_gravity: observedApi,
+      api_gravity_60: apiGravity60Value,
       observed_temperature: observedTemp,
       observed_pressure: averagePressure,
       ctl: ctlValue,
@@ -3383,6 +3402,21 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     return new Set(items).size
   }
 
+  function getTicketPdfLeaseName(ticket: any, meter: any, lease: any, observed: any) {
+    const meterLease = meter?.lease_id ? leases.find((item: any) => item.id === meter.lease_id) : null
+    return (
+      (lease as any)?.lease_name ||
+      (lease as any)?.name ||
+      (meterLease as any)?.lease_name ||
+      (meterLease as any)?.name ||
+      observed?.lease_name ||
+      observed?.lease ||
+      (lease as any)?.lease_number ||
+      (meterLease as any)?.lease_number ||
+      ''
+    )
+  }
+
   function generatePdfPreview(ticket: any) {
     const producer = producers.find((item: any) => item.id === ticket.producer_id)
     const meter = meters.find((item: any) => item.id === ticket.meter_id)
@@ -3391,6 +3425,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
 
     const observed = ticket.observed_inputs || {}
     const calc = ticket.calculation_results || {}
+    const pdfLeaseName = getTicketPdfLeaseName(ticket, meter, lease, observed)
     const isFlowX = observed.source === 'flowx_transporter_summary'
 
     const companyName = getCompanyDisplayName ? getCompanyDisplayName() : (companySettings?.company_name || 'Measurement Platform')
@@ -3604,7 +3639,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
         <div class="cell"><div class="small-label">Approved</div><div class="value">${approvedAt}</div></div>
         <div class="cell"><div class="small-label">Segment</div><div class="value">${segment?.name || observed.segment_name || '—'}</div></div>
         <div class="cell"><div class="small-label">Producer</div><div class="value">${producer?.name || observed.producer_name || '—'}</div></div>
-        <div class="cell"><div class="small-label">Lease</div><div class="value">${((lease as any)?.name || (lease as any)?.lease_name || (lease as any)?.lease_number) || observed.lease_name || (isFlowX ? `${sourceLeaseCount || '—'} lease(s)` : '—')}</div></div>
+        <div class="cell"><div class="small-label">Lease</div><div class="value">${pdfLeaseName || (isFlowX ? `${sourceLeaseCount || '—'} lease(s)` : '—')}</div></div>
         <div class="cell"><div class="small-label">Meter / Rack</div><div class="value">${meter?.meter_number || observed.meter_number || '—'}</div></div>
         <div class="cell"><div class="small-label">Transporter</div><div class="value">${transporter}</div></div>
         <div class="cell"><div class="small-label">Assigned POT</div><div class="value">${assignedPot}</div></div>
@@ -11214,11 +11249,12 @@ async function saveUserRole() {
                     <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginTop: 12 }}>
                       <label><div className="ticket-muted">Opening Meter Reading</div><input style={input} value={draftTicketEditValues.opening_reading || ''} onChange={(e) => updateDraftTicketEditField('opening_reading', e.target.value)} /></label>
                       <label><div className="ticket-muted">Closing Meter Reading</div><input style={input} value={draftTicketEditValues.closing_reading || ''} onChange={(e) => updateDraftTicketEditField('closing_reading', e.target.value)} /></label>
-                      <label><div className="ticket-muted">Total Batch Barrels / IV</div><input style={input} value={draftTicketEditValues.total_batch_barrels || ''} onChange={(e) => updateDraftTicketEditField('total_batch_barrels', e.target.value)} /></label>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">Total Batch Barrels / IV</div><strong>{formatTicketDetailNumber(getDraftTicketEditIv(draftTicketEditValues), 2)}</strong><div className="ticket-muted">Auto: Closing − Opening</div></div>
                       <label><div className="ticket-muted">Average Temp</div><input style={input} value={draftTicketEditValues.average_temperature || ''} onChange={(e) => updateDraftTicketEditField('average_temperature', e.target.value)} /></label>
                       <label><div className="ticket-muted">Average Pressure</div><input style={input} value={draftTicketEditValues.average_pressure || ''} onChange={(e) => updateDraftTicketEditField('average_pressure', e.target.value)} /></label>
                       <label><div className="ticket-muted">Observed Gravity/API</div><input style={input} value={draftTicketEditValues.observed_api_gravity || ''} onChange={(e) => updateDraftTicketEditField('observed_api_gravity', e.target.value)} /></label>
                       <label><div className="ticket-muted">Observed Temp</div><input style={input} value={draftTicketEditValues.observed_temperature || ''} onChange={(e) => updateDraftTicketEditField('observed_temperature', e.target.value)} /></label>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">API @ 60°F</div><strong>{(() => { const api = ticketEditNumber(draftTicketEditValues, 'observed_api_gravity'); const temp = ticketEditNumber(draftTicketEditValues, 'observed_temperature'); if (api === null || temp === null) return '—'; return formatMeasurementNumber(calculateApi11Corrections({ productGroup: 'crude', observedApiGravity: api, observedTemperature: temp, averageTemperature: ticketEditNumber(draftTicketEditValues, 'average_temperature') ?? temp, averagePressure: ticketEditNumber(draftTicketEditValues, 'average_pressure') ?? 0, apiRounding: 1 }).api_gravity_60, 1) })()}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <label><div className="ticket-muted">S&W %</div><input style={input} value={draftTicketEditValues.sw_percent || ''} onChange={(e) => updateDraftTicketEditField('sw_percent', e.target.value)} /></label>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CPL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>

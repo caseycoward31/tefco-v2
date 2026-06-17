@@ -7556,7 +7556,8 @@ async function saveUserRole() {
     const dataRows = rowsToExport.map((pot: any, index: number) => {
       const row = Array(gqLiquidImportHeaders.length).fill('')
       const sampleDate = pot.sample_date || pot.sampleDate || pot.effective_date || (pot as any).created_at || ''
-      const bsw = (pot as any).bsw ?? (pot as any).bsw_percent ?? pot.bs_w ?? ''
+      const bswValue = getPotBswPercentValue(pot)
+      const bsw = bswValue === null || bswValue === undefined ? '' : roundTo(bswValue, 4)
       const grav = (pot as any).observed_api_gravity ?? (pot as any).api_gravity ?? pot.gravity ?? ''
       const temp = pot.observed_temperature ?? pot.sample_temperature ?? pot.temp ?? ''
 

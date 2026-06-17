@@ -2129,6 +2129,9 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
           averagePressure: 0,
         }).api_gravity_60
       ),
+      bsw: bswNumber,
+      bsw_percent: bswNumber,
+      sw_percent: bswNumber,
       csw,
       sample_temperature: Number(potTemp || 0),
       notes: potNotes,
@@ -3168,6 +3171,12 @@ function handleProvingAreaSelect(areaId: string) {
     if ((ticket?.status || 'draft') !== 'draft') return
     const observed = ticket.observed_inputs || {}
     const calc = ticket.calculation_results || {}
+    const pdfIv = Number(calc.iv ?? calc.gov ?? observed.total_batch_barrels ?? observed.indicated_volume ?? observed.gross_volume_bbl ?? 0)
+    const pdfCtl = Number(calc.ctl ?? observed.ctl ?? 0)
+    const pdfCpl = Number(calc.cpl ?? observed.cpl ?? 0)
+    const pdfMf = Number(calc.mf ?? observed.mf ?? 1)
+    const pdfCtpl = Number(calc.ctpl ?? observed.ctpl ?? (pdfCtl && pdfCpl ? pdfCtl * pdfCpl : 0))
+    const pdfCcf = Number(calc.ccf ?? observed.ccf ?? (pdfCtpl ? pdfCtpl * pdfMf : 0))
     setSelectedTicket(ticket)
     setDraftTicketEditValues({
       opening_reading: ticketEditString(observed.opening_reading ?? observed.open_meter_reading ?? calc.opening_reading),
@@ -3298,6 +3307,7 @@ function handleProvingAreaSelect(areaId: string) {
       ctl: ctlValue,
       cpl: cplValue,
       ctlp: ctlpValue,
+      ctpl: roundTo(ctlValue * cplValue, 6),
       mf: mfValue,
       csw: cswValue,
       ccf: roundTo(ctlValue * cplValue * mfValue, 6),
@@ -3314,6 +3324,7 @@ function handleProvingAreaSelect(areaId: string) {
       observed_pressure: averagePressure,
       ctl: ctlValue,
       cpl: cplValue,
+      ctpl: nextCalculationResults.ctpl,
       ccf: nextCalculationResults.ccf,
     }
 
@@ -3426,6 +3437,12 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
 
     const observed = ticket.observed_inputs || {}
     const calc = ticket.calculation_results || {}
+    const pdfIv = Number(calc.iv ?? calc.gov ?? observed.total_batch_barrels ?? observed.indicated_volume ?? observed.gross_volume_bbl ?? 0)
+    const pdfCtl = Number(calc.ctl ?? observed.ctl ?? 0)
+    const pdfCpl = Number(calc.cpl ?? observed.cpl ?? 0)
+    const pdfMf = Number(calc.mf ?? observed.mf ?? 1)
+    const pdfCtpl = Number(calc.ctpl ?? observed.ctpl ?? (pdfCtl && pdfCpl ? pdfCtl * pdfCpl : 0))
+    const pdfCcf = Number(calc.ccf ?? observed.ccf ?? (pdfCtpl ? pdfCtpl * pdfMf : 0))
     const pdfLeaseName = getTicketPdfLeaseName(ticket, meter, lease, observed)
     const isFlowX = observed.source === 'flowx_transporter_summary'
 
@@ -3671,7 +3688,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
           </tr>
         </thead>
         <tbody>
-          <tr><td>Gross Observed / GOV</td><td class="right volume">${formatBbl(calc.gov || observed.gross_volume_bbl)}</td></tr>
+          <tr><td>Gross Observed / IV</td><td class="right volume">${formatBbl(pdfIv)}</td></tr>
           <tr><td>Gross Standard / GSV</td><td class="right volume">${formatBbl(calc.gsv || observed.gross_volume_bbl)}</td></tr>
           <tr><td>Net Standard / NSV</td><td class="right volume">${formatBbl(calc.nsv || observed.net_volume_bbl)}</td></tr>
         </tbody>
@@ -3689,9 +3706,9 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
         <div class="cell"><div class="small-label">Observed Pressure</div><div class="value">${formatMeasurementNumber(observed.observed_pressure || observed.pressure || observed.average_pressure || calc.average_pressure, 2)}</div></div>
         <div class="cell"><div class="small-label">Average Pressure</div><div class="value">${formatMeasurementNumber(calc.average_pressure || observed.average_pressure, 2)}</div></div>
         <div class="cell"><div class="small-label">API Correction Δ</div><div class="value">${formatMeasurementNumber((calc.api_gravity_60 || observed.api_gravity_60 || calc.api_gravity || observed.api_gravity || 0) - (observed.observed_api_gravity || observed.api_observed || observed.api_gravity_observed || 0), 2)}</div></div>
-        <div class="cell"><div class="small-label">CTL</div><div class="value">${formatMeasurementNumber(calc.ctl || observed.ctl, 5)}</div></div>
-        <div class="cell"><div class="small-label">CPL</div><div class="value">${formatMeasurementNumber(calc.cpl || observed.cpl, 5)}</div></div>
-        <div class="cell"><div class="small-label">CTPL</div><div class="value">${formatMeasurementNumber(calc.ctpl || observed.ctpl, 5)}</div></div>
+        <div class="cell"><div class="small-label">CTL</div><div class="value">${formatMeasurementNumber(pdfCtl, 6)}</div></div>
+        <div class="cell"><div class="small-label">CPL</div><div class="value">${formatMeasurementNumber(pdfCpl, 6)}</div></div>
+        <div class="cell"><div class="small-label">CTPL</div><div class="value">${formatMeasurementNumber(pdfCtpl, 6)}</div></div>
         <div class="cell"><div class="small-label">POT Quality Source</div><div class="value">${assignedPot}</div></div>
         <div class="cell"><div class="small-label">Calculation Method</div><div class="value">${observed.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'Standard'}</div></div>
       </div>
@@ -10298,18 +10315,20 @@ async function saveUserRole() {
                     <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{month} • {rows.length} POT record(s)</summary>
                     <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
                       {rows.map((p: any) => {
-                        const prod = producers.find((x) => x.id === p.producer_id)
+                        const potMeter = getMeterById(p?.meter_id || p?.meterId || '')
+                        const potLease = getLeaseById(p?.lease_id || p?.leaseId || potMeter?.lease_id || '')
+                        const prod = producers.find((x: any) => String(x.id) === String(p.producer_id || (potLease as any)?.producer_id || ''))
                         const display = getPotDisplayName(p)
                         return (
                           <div key={p.id} style={{ ...card, margin: 0 }}>
                             <strong>{display.main}</strong>
                             {display.secondary && <div style={{ color: '#a8b3bd' }}>{display.secondary}</div>}
-                            <div>Producer: {prod?.name || '—'}</div>
+                            <div>Producer: {prod?.name || p.producer_name || '—'}</div>
                             <div>Date: {p.sample_date || '—'}</div>
                             <div>Observed API Gravity: {p.observed_api_gravity ?? p.api_gravity}</div>
                             <div>Observed Temp: {p.observed_temperature ?? p.sample_temperature}</div>
                             <div>API Gravity @60: {p.api_gravity_60 ?? p.api_gravity}</div>
-                            <div>BS&W: {p.bsw}</div>
+                            <div>BS&W: {p.bsw_percent ?? p.sw_percent ?? p.bsw ?? (p.csw !== undefined && p.csw !== null ? Number((1 - Number(p.csw)) * 100).toFixed(4) : '—')}</div>
                             <div>CSW: {p.csw}</div>
                             <div>Notes: {p.notes || ''}</div>
                           </div>
@@ -11287,10 +11306,11 @@ async function saveUserRole() {
 
                   <div style={card}>
                     <h3>Volume Calculation</h3>
-                    <div><strong>IV:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.iv ?? selectedTicket!.calculation_results?.gov ?? selectedTicket!.observed_inputs?.gross_volume_bbl, 1)}</div>
+                    <div><strong>IV:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.iv ?? selectedTicket!.calculation_results?.gov ?? selectedTicket!.observed_inputs?.total_batch_barrels ?? selectedTicket!.observed_inputs?.indicated_volume ?? selectedTicket!.observed_inputs?.gross_volume_bbl, 1)}</div>
                     <div><strong>CTL:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</div>
                     <div><strong>CPL:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</div>
-                    <div><strong>CCF:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.ccf ?? selectedTicket!.observed_inputs?.ccf ?? selectedTicket!.calculation_results?.ctpl, 6)}</div>
+                    <div><strong>CTPL:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.ctpl ?? selectedTicket!.observed_inputs?.ctpl ?? ((Number(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl ?? 0) || 0) * (Number(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl ?? 0) || 0)), 6)}</div>
+                    <div><strong>CCF:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.ccf ?? selectedTicket!.observed_inputs?.ccf, 6)}</div>
                     <div><strong>MF:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.mf ?? selectedTicket!.observed_inputs?.mf, 6)}</div>
                     <div><strong>CSW:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.csw ?? selectedTicket!.observed_inputs?.csw, 6)}</div>
                     <hr style={{ borderColor: '#1f2937' }} />

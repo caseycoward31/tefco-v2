@@ -2315,8 +2315,8 @@ function handleReadingAreaSelect(areaId: string) {
     setPotDate(String(p?.sample_date || '').slice(0, 10))
     setPotGravity(String(p?.observed_api_gravity ?? p?.api_gravity ?? ''))
     setPotTemp(String(p?.observed_temperature ?? p?.sample_temperature ?? ''))
-    setPotRvp(String((p as any)?.rvp ?? parsePotExtra(p?.notes, 'rvp') ?? ''))
-    setPotSulfur(String((p as any)?.sulfur ?? parsePotExtra(p?.notes, 'sulfur') ?? ''))
+    setPotRvp(String(((p as any)?.rvp ?? parsePotExtra(p?.notes, 'rvp')) || ''))
+    setPotSulfur(String(((p as any)?.sulfur ?? parsePotExtra(p?.notes, 'sulfur')) || ''))
     const bswValue = getPotBswPercentValue(p)
     setPotBSW(bswValue === null ? '' : String(Number(bswValue.toFixed(4))))
     setPotNotes(cleanPotNotes(p?.notes))
@@ -3277,8 +3277,8 @@ function handleProvingAreaSelect(areaId: string) {
         csw,
         bsw_percent: bswPercent,
         sw_percent: bswPercent,
-        rvp: latestPot ? ((latestPot as any).rvp ?? parsePotExtra((latestPot as any).notes, 'rvp') || null) : null,
-        sulfur: latestPot ? ((latestPot as any).sulfur ?? parsePotExtra((latestPot as any).notes, 'sulfur') || null) : null,
+        rvp: latestPot ? (((latestPot as any).rvp ?? parsePotExtra((latestPot as any).notes, 'rvp')) || null) : null,
+        sulfur: latestPot ? (((latestPot as any).sulfur ?? parsePotExtra((latestPot as any).notes, 'sulfur')) || null) : null,
         mf_source: latestApprovedProving ? 'latest_approved_proving' : 'reading_fallback',
         pot_source: latestPot ? 'latest_pot_quality' : 'none',
         api_engine: corrections.api_engine,
@@ -10907,8 +10907,8 @@ async function saveUserRole() {
                             <div>API Gravity @60: {p.api_gravity_60 ?? p.api_gravity}</div>
                             <div>BS&W: {formatPotBswPercent(p)}</div>
                             <div>CSW: {p.csw}</div>
-                            <div>RVP: {(p as any).rvp ?? parsePotExtra(p.notes, 'rvp') || '—'}</div>
-                            <div>Sulfur: {(p as any).sulfur ?? parsePotExtra(p.notes, 'sulfur') || '—'}</div>
+                            <div>RVP: {((p as any).rvp ?? parsePotExtra(p.notes, 'rvp')) || '—'}</div>
+                            <div>Sulfur: {((p as any).sulfur ?? parsePotExtra(p.notes, 'sulfur')) || '—'}</div>
                             <div>Notes: {cleanPotNotes(p.notes) || ''}</div>
                             {!isReadOnly && (
                               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>

@@ -870,6 +870,7 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [readingPhotoFiles, setReadingPhotoFiles] = useState<File[]>([])
   const [readingPhotoUploading, setReadingPhotoUploading] = useState(false)
   const [readingPhotos, setReadingPhotos] = useState<any[]>([])
+  const [editingReadingId, setEditingReadingId] = useState('')
 
   const [provingDate, setProvingDate] = useState('')
   const [proverVolume, setProverVolume] = useState('')
@@ -2056,6 +2057,60 @@ function handleReadingAreaSelect(areaId: string) {
       .slice(-120)
   }
 
+
+  function clearReadingForm() {
+    setEditingReadingId('')
+    setSelectedReadingArea('')
+    setSelectedReadingSegment('')
+    setSelectedReadingLease('')
+    setSelectedReadingMeter('')
+    setReadingOpen('')
+    setReadingClose('')
+    setReadingGravity('')
+    setReadingTemp('')
+    setReadingAvgTemp('')
+    setReadingAvgPressure('')
+    setReadingBSW('')
+    setReadingMF('')
+    setReadingPhotoFiles([])
+  }
+
+  function editOperatorReading(row: any) {
+    if (!row?.id) return
+
+    const segmentId = String(row.segment_id || '')
+    const leaseId = String(row.lease_id || '')
+    const meterId = String(row.meter_id || '')
+    const segmentRow: any = asArray(segments).find((s: any) => String(s.id || '') === segmentId)
+    const areaId = String(row.area_id || segmentRow?.area_id || '')
+
+    setEditingReadingId(String(row.id))
+    setSelectedReadingArea(areaId)
+    setSelectedReadingSegment(segmentId)
+    setSelectedReadingLease(leaseId)
+    setSelectedReadingMeter(meterId)
+    setReadingOpen(String(row.opening_reading ?? row.opening_meter_reading ?? row.open_reading ?? ''))
+    setReadingClose(String(row.closing_reading ?? row.closing_meter_reading ?? row.close_reading ?? ''))
+    setReadingAvgTemp(String(row.average_temperature ?? row.avg_temp ?? ''))
+    setReadingAvgPressure(String(row.average_pressure ?? row.avg_pressure ?? ''))
+    setReadingMF(String(row.meter_factor ?? row.mf ?? ''))
+    setReadingTab('new')
+  }
+
+  async function deleteOperatorReading(row: any) {
+    if (!row?.id) return
+    if (!confirm('Delete this operator reading?')) return
+
+    const { error } = await supabase.from('operator_readings').delete().eq('id', row.id)
+    if (error) {
+      alert('Could not delete reading: ' + error.message)
+      return
+    }
+
+    if (String(editingReadingId) === String(row.id)) clearReadingForm()
+    loadAll()
+  }
+
   async function uploadReadingPhotosForReading(readingId: string) {
     if (!readingId || readingPhotoFiles.length === 0) return
     setReadingPhotoUploading(true)
@@ -2105,9 +2160,9 @@ function handleReadingAreaSelect(areaId: string) {
     }
 
     if (!companyId) return
-const iv = Number(readingClose || 0) - Number(readingOpen || 0)
 
-    const { data: savedReading, error: readingSaveError } = await supabase.from('operator_readings').insert({
+    const iv = Number(readingClose || 0) - Number(readingOpen || 0)
+    const readingPayload: any = {
       company_id: companyId,
       area_id: selectedReadingArea || null,
       segment_id: selectedReadingSegment || null,
@@ -2120,30 +2175,40 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
       average_temperature: Number(readingAvgTemp || 0),
       average_pressure: Number(readingAvgPressure || 0),
       meter_factor: Number(readingMF || 0),
-    }).select('id').single()
+    }
+
+    let savedReading: any = null
+    let readingSaveError: any = null
+
+    if (editingReadingId) {
+      const result = await supabase
+        .from('operator_readings')
+        .update(readingPayload)
+        .eq('id', editingReadingId)
+        .select('id')
+        .single()
+      savedReading = result.data
+      readingSaveError = result.error
+    } else {
+      const result = await supabase
+        .from('operator_readings')
+        .insert(readingPayload)
+        .select('id')
+        .single()
+      savedReading = result.data
+      readingSaveError = result.error
+    }
 
     if (readingSaveError) {
       alert(`Could not save reading: ${readingSaveError.message}`)
       return
     }
 
-    await uploadReadingPhotosForReading(savedReading?.id)
+    await uploadReadingPhotosForReading(savedReading?.id || editingReadingId)
 
-    setReadingOpen('')
-    setReadingClose('')
-    setReadingGravity('')
-    setReadingTemp('')
-    setReadingAvgTemp('')
-    setReadingAvgPressure('')
-    setReadingBSW('')
-    setReadingMF('')
-    setReadingPhotoFiles([])
-    setSelectedReadingSegment('')
-    setSelectedReadingLease('')
-    setSelectedReadingMeter('')
+    clearReadingForm()
     loadAll()
   }
-
 
   function handlePotAreaSelect(areaId: string) {
     setSelectedPotArea(areaId)
@@ -10231,7 +10296,14 @@ async function saveUserRole() {
                 )}
 
                 <div style={{ marginTop: 15 }}>IV: {(Number(readingClose || 0) - Number(readingOpen || 0)).toFixed(2)}</div>
-                <button style={button} onClick={saveReading} disabled={readingPhotoUploading}>{readingPhotoUploading ? 'Saving Photos...' : 'Save Reading'}</button>
+                <button style={button} onClick={saveReading} disabled={readingPhotoUploading}>
+                  {readingPhotoUploading ? 'Saving Photos...' : editingReadingId ? 'Update Reading' : 'Save Reading'}
+                </button>
+                {editingReadingId && (
+                  <button style={{ ...button, background: 'linear-gradient(135deg,#374151,#111827)' }} onClick={clearReadingForm}>
+                    Cancel Edit
+                  </button>
+                )}
               </div>
             )}
 
@@ -10251,6 +10323,16 @@ async function saveUserRole() {
                             <div style={{ color: '#a8b3bd' }}>Date: {new Date(row.reading_date || row.created_at || Date.now()).toLocaleString()}</div>
                             <div>Open: {row.opening_reading ?? row.opening_meter_reading ?? row.open_reading ?? '—'} • Close: {row.closing_reading ?? row.closing_meter_reading ?? row.close_reading ?? '—'}</div>
                             <div>Avg Temp: {row.avg_temp ?? row.average_temperature ?? '—'} • Avg Pressure: {row.avg_pressure ?? row.average_pressure ?? '—'}</div>
+                            {!isReadOnly && (
+                              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                                <button style={{ ...button, padding: '8px 12px', width: 'auto', background: 'linear-gradient(135deg,#f97316,#9a3412)' }} onClick={() => editOperatorReading(row)}>
+                                  Edit Reading
+                                </button>
+                                <button style={{ ...button, padding: '8px 12px', width: 'auto', background: 'linear-gradient(135deg,#991b1b,#450a0a)' }} onClick={() => deleteOperatorReading(row)}>
+                                  Delete Reading
+                                </button>
+                              </div>
+                            )}
                           </div>
                         )
                       })}

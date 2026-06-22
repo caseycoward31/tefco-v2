@@ -3444,9 +3444,9 @@ function handleProvingAreaSelect(areaId: string) {
     ) ?? 0
     setSelectedTicket(ticket)
     setDraftTicketEditValues({
-      opening_reading: ticketEditString(observed.opening_reading ?? observed.open_meter_reading ?? calc.opening_reading),
-      closing_reading: ticketEditString(observed.closing_reading ?? observed.close_meter_reading ?? calc.closing_reading),
-      total_batch_barrels: ticketEditString(calc.iv ?? calc.gov ?? observed.total_batch_barrels ?? observed.indicated_volume ?? observed.gross_volume_bbl),
+      opening_reading: ticketEditString(pdfOpeningReading),
+      closing_reading: ticketEditString(pdfClosingReading),
+      total_batch_barrels: ticketEditString(pdfIv),
       average_temperature: ticketEditString(calc.average_temperature ?? observed.average_temperature),
       average_pressure: ticketEditString(calc.average_pressure ?? observed.average_pressure),
       observed_api_gravity: ticketEditString(observed.observed_api_gravity ?? observed.api_observed ?? observed.api_gravity_observed),
@@ -11655,7 +11655,12 @@ async function saveUserRole() {
               <div style={box}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                   <div>
-                    <h2 style={{ margin: 0 }}>Ticket Review: {selectedTicket!.ticket_number || selectedTicket!.id}</h2>
+                    <h2 style={{ margin: 0 }}>Ticket Review: {selectedTicket!.ticket_number || selectedTicket!.id} — {getTicketPdfLeaseName(
+                      selectedTicket,
+                      meters.find((m: any) => String(m.id) === String(selectedTicket!.meter_id || '')),
+                      leases.find((l: any) => String(l.id) === String(selectedTicket!.lease_id || '')),
+                      selectedTicket!.observed_inputs || {}
+                    ) || 'No lease linked'}</h2>
                     <div style={{ color: '#a8b3bd', marginTop: 4 }}>
                       {selectedTicket!.ticket_type || 'ticket'} • {selectedTicket!.observed_inputs?.transporter_name || (selectedTicket as any).transporter_name || (selectedTicket as any).customer_name || 'No transporter'}
                     </div>
@@ -11740,7 +11745,12 @@ async function saveUserRole() {
                 <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginTop: 14 }}>
                   <div style={card}>
                     <h3>Ticket Information</h3>
-                    <div><strong>Ticket #:</strong> {selectedTicket!.ticket_number || selectedTicket!.id}</div>
+                    <div><strong>Ticket # / Lease:</strong> {selectedTicket!.ticket_number || selectedTicket!.id} — {getTicketPdfLeaseName(
+                      selectedTicket,
+                      meters.find((m: any) => String(m.id) === String(selectedTicket!.meter_id || '')),
+                      leases.find((l: any) => String(l.id) === String(selectedTicket!.lease_id || '')),
+                      selectedTicket!.observed_inputs || {}
+                    ) || 'No lease linked'}</div>
                     <div><strong>Type:</strong> {selectedTicket!.ticket_type || '—'}</div>
                     <div><strong>Status:</strong> {selectedTicket!.status || 'draft'}</div>
                     <div><strong>Transporter:</strong> {selectedTicket!.observed_inputs?.transporter_name || (selectedTicket as any).transporter_name || (selectedTicket as any).customer_name || '—'}</div>

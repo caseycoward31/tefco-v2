@@ -2209,8 +2209,6 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
         }).api_gravity_60
       ),
       bsw: bswNumber,
-      bsw_percent: bswNumber,
-      sw_percent: bswNumber,
       csw,
       sample_temperature: Number(potTemp || 0),
       notes: potNotes,

@@ -3392,10 +3392,86 @@ function handleProvingAreaSelect(areaId: string) {
     return Number.isFinite(n) ? n : null
   }
 
+
+  function getDraftTicketReadingValues(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const calc = ticket?.calculation_results || {}
+    const pickNum = (...values: any[]) => {
+      for (const value of values) {
+        if (value === null || value === undefined || value === '') continue
+        const num = Number(value)
+        if (Number.isFinite(num)) return num
+      }
+      return null
+    }
+
+    const ticketMeterId = String(ticket?.meter_id || observed.meter_id || '')
+    const ticketLeaseId = String(ticket?.lease_id || observed.lease_id || '')
+    const ticketCreatedMs = new Date(ticket?.created_at || ticket?.updated_at || Date.now()).getTime()
+
+    const matchingReading = (Array.isArray(readings) ? readings : [])
+      .filter((row: any) => {
+        const sameMeter = ticketMeterId && String(row.meter_id || '') === ticketMeterId
+        const sameLease = ticketLeaseId && String(row.lease_id || '') === ticketLeaseId
+        return sameMeter || sameLease
+      })
+      .sort((a: any, b: any) => {
+        const aMs = new Date(a.reading_date || a.created_at || 0).getTime()
+        const bMs = new Date(b.reading_date || b.created_at || 0).getTime()
+        const aBefore = aMs <= ticketCreatedMs ? 1 : 0
+        const bBefore = bMs <= ticketCreatedMs ? 1 : 0
+        if (aBefore !== bBefore) return bBefore - aBefore
+        return Math.abs(ticketCreatedMs - aMs) - Math.abs(ticketCreatedMs - bMs)
+      })[0] || {}
+
+    const opening = pickNum(
+      observed.opening_reading,
+      observed.opening_meter_reading,
+      observed.open_meter_reading,
+      observed.open_meter,
+      ticket.opening_reading,
+      ticket.opening_meter_reading,
+      calc.opening_reading,
+      calc.opening_meter_reading,
+      matchingReading.opening_reading,
+      matchingReading.opening_meter_reading,
+      matchingReading.open_reading
+    )
+
+    const closing = pickNum(
+      observed.closing_reading,
+      observed.closing_meter_reading,
+      observed.close_meter_reading,
+      observed.close_reading,
+      observed.close_meter,
+      ticket.closing_reading,
+      ticket.closing_meter_reading,
+      calc.closing_reading,
+      calc.closing_meter_reading,
+      matchingReading.closing_reading,
+      matchingReading.closing_meter_reading,
+      matchingReading.close_reading
+    )
+
+    const iv = opening !== null && closing !== null
+      ? closing - opening
+      : pickNum(calc.iv, calc.gov, calc.total_batch_barrels, observed.total_batch_barrels, observed.indicated_volume, observed.iv, observed.gov, ticket.total_batch_barrels, ticket.indicated_volume, ticket.iv, ticket.gov)
+
+    return { opening, closing, iv }
+  }
+
+  function getTicketLeaseDisplay(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const meter = asArray(meters).find((m: any) => String(m.id || '') === String(ticket?.meter_id || observed.meter_id || ''))
+    const lease = asArray(leases).find((l: any) => String(l.id || '') === String(ticket?.lease_id || observed.lease_id || meter?.lease_id || ''))
+    return getTicketPdfLeaseName(ticket, meter, lease, observed) || observed.lease_name || observed.lease || ticket?.ticket_number || ticket?.id || 'Ticket'
+  }
+
   function startDraftTicketEdit(ticket: any) {
     if ((ticket?.status || 'draft') !== 'draft') return
     const observed = ticket.observed_inputs || {}
     const calc = ticket.calculation_results || {}
+    const draftReadings = getDraftTicketReadingValues(ticket)
     const pdfNum = (...values: any[]) => {
       for (const value of values) {
         if (value === null || value === undefined || value === '') continue
@@ -3444,9 +3520,9 @@ function handleProvingAreaSelect(areaId: string) {
     ) ?? 0
     setSelectedTicket(ticket)
     setDraftTicketEditValues({
-      opening_reading: ticketEditString(pdfOpeningReading),
-      closing_reading: ticketEditString(pdfClosingReading),
-      total_batch_barrels: ticketEditString(pdfIv),
+      opening_reading: ticketEditString(draftReadings.opening),
+      closing_reading: ticketEditString(draftReadings.closing),
+      total_batch_barrels: ticketEditString(draftReadings.iv),
       average_temperature: ticketEditString(calc.average_temperature ?? observed.average_temperature),
       average_pressure: ticketEditString(calc.average_pressure ?? observed.average_pressure),
       observed_api_gravity: ticketEditString(observed.observed_api_gravity ?? observed.api_observed ?? observed.api_gravity_observed),
@@ -12054,9 +12130,9 @@ async function saveUserRole() {
                         {group.tickets.map((ticket: any) => (
                           <div key={ticket.id} className="ticket-queue-card">
                             <div>
-                              <strong className="ticket-title-tight">{compactTicketTitle(ticket)}</strong>
+                              <strong className="ticket-title-tight">{getTicketLeaseDisplay(ticket)}</strong>
                               <span style={{ ...getTicketStatusStyle(ticket.status), marginLeft: 8 }}>{ticket.status || 'draft'}</span>
-                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>Ticket: {compactTicketTitle(ticket)} • {compactTicketSubtitle(ticket)}</div>
                               <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
                             </div>
                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -12118,8 +12194,8 @@ async function saveUserRole() {
                         {group.tickets.map((ticket: any) => (
                           <div key={ticket.id} className="ticket-queue-card">
                             <div>
-                              <strong className="ticket-title-tight">{compactTicketTitle(ticket)}</strong>
-                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketSubtitle(ticket)}</div>
+                              <strong className="ticket-title-tight">{getTicketLeaseDisplay(ticket)}</strong>
+                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>Ticket: {compactTicketTitle(ticket)} • {compactTicketSubtitle(ticket)}</div>
                               <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
                             </div>
                             <button style={{ ...button, width: 170 }} onClick={() => { setSelectedTicket(ticket); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>

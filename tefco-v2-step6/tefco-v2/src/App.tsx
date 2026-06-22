@@ -3953,6 +3953,19 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     * { box-sizing: border-box; }
     body {
       margin: 0;
+    }
+    .pdf-back-button {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 9999;
+      background: #c00000;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 14px;
+      cursor: pointer;
       background: #f4f5f7;
       color: #111827;
       font-family: Arial, Helvetica, sans-serif;
@@ -4117,6 +4130,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
   </style>
 </head>
 <body>
+<button class="pdf-back-button" onclick="window.close();setTimeout(()=>history.back(),100)">← Back to App</button>
   <div class="page">
     <div class="header">
       <div class="brand">

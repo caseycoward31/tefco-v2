@@ -889,6 +889,8 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [potGravity, setPotGravity] = useState('')
   const [potBSW, setPotBSW] = useState('')
   const [potTemp, setPotTemp] = useState('')
+  const [potRvp, setPotRvp] = useState('')
+  const [potSulfur, setPotSulfur] = useState('')
   const [potNotes, setPotNotes] = useState('')
   const [editingPotId, setEditingPotId] = useState('')
 
@@ -2252,6 +2254,28 @@ function handleReadingAreaSelect(areaId: string) {
     setSelectedPotMeter(leaseMeters.length === 1 ? String(leaseMeters[0].id) : '')
   }
 
+  function parsePotExtra(notes: any, key: 'rvp' | 'sulfur') {
+    const match = String(notes || '').match(new RegExp(`(?:^|\\n)${key.toUpperCase()}:\\s*([^\\n]+)`, 'i'))
+    return match ? match[1].trim() : ''
+  }
+
+  function cleanPotNotes(notes: any) {
+    return String(notes || '')
+      .split('\n')
+      .filter((line) => !/^\s*(RVP|SULFUR)\s*:/i.test(line))
+      .join('\n')
+      .trim()
+  }
+
+  function buildPotNotesWithExtras(notes: string, rvp: string, sulfur: string) {
+    const lines = []
+    if (String(rvp || '').trim()) lines.push(`RVP: ${String(rvp).trim()}`)
+    if (String(sulfur || '').trim()) lines.push(`Sulfur: ${String(sulfur).trim()}`)
+    const cleaned = cleanPotNotes(notes)
+    if (cleaned) lines.push(cleaned)
+    return lines.join('\n')
+  }
+
   function clearPotForm() {
     const defaultAreaId = getDefaultVisibleAreaId()
     setEditingPotId('')
@@ -2266,6 +2290,8 @@ function handleReadingAreaSelect(areaId: string) {
     setPotGravity('')
     setPotBSW('')
     setPotTemp('')
+    setPotRvp('')
+    setPotSulfur('')
     setPotNotes('')
   }
 
@@ -2289,9 +2315,11 @@ function handleReadingAreaSelect(areaId: string) {
     setPotDate(String(p?.sample_date || '').slice(0, 10))
     setPotGravity(String(p?.observed_api_gravity ?? p?.api_gravity ?? ''))
     setPotTemp(String(p?.observed_temperature ?? p?.sample_temperature ?? ''))
+    setPotRvp(String((p as any)?.rvp ?? parsePotExtra(p?.notes, 'rvp') ?? ''))
+    setPotSulfur(String((p as any)?.sulfur ?? parsePotExtra(p?.notes, 'sulfur') ?? ''))
     const bswValue = getPotBswPercentValue(p)
     setPotBSW(bswValue === null ? '' : String(Number(bswValue.toFixed(4))))
-    setPotNotes(String(p?.notes || ''))
+    setPotNotes(cleanPotNotes(p?.notes))
     setPotTab('create')
   }
 
@@ -2343,7 +2371,7 @@ function handleReadingAreaSelect(areaId: string) {
       bsw: bswNumber,
       csw,
       sample_temperature: Number(potTemp || 0),
-      notes: potNotes,
+      notes: buildPotNotesWithExtras(potNotes, potRvp, potSulfur),
     }
 
     const { error } = editingPotId
@@ -3249,6 +3277,8 @@ function handleProvingAreaSelect(areaId: string) {
         csw,
         bsw_percent: bswPercent,
         sw_percent: bswPercent,
+        rvp: latestPot ? ((latestPot as any).rvp ?? parsePotExtra((latestPot as any).notes, 'rvp') || null) : null,
+        sulfur: latestPot ? ((latestPot as any).sulfur ?? parsePotExtra((latestPot as any).notes, 'sulfur') || null) : null,
         mf_source: latestApprovedProving ? 'latest_approved_proving' : 'reading_fallback',
         pot_source: latestPot ? 'latest_pot_quality' : 'none',
         api_engine: corrections.api_engine,
@@ -3903,8 +3933,11 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const createdAt = ticket.created_at ? new Date(ticket.created_at).toLocaleString() : new Date().toLocaleString()
     const approvedAt = ticket.approved_at ? new Date(ticket.approved_at).toLocaleString() : 'Pending Approval'
 
-    const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name || '—'
-    const assignedPot = observed.assigned_pot_label || ticket.assigned_pot_id || '—'
+    const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name || (ticket.ticket_type === 'meter' ? 'Pipeline Meter' : '—')
+    const assignedPot = observed.assigned_pot_label || ticket.assigned_pot_id || (observed.pot_source === 'latest_pot_quality' ? 'Sample POT' : '—')
+    const potQualitySource = observed.pot_source === 'latest_pot_quality' ? 'Latest POT Quality' : assignedPot
+    const pdfRvp = observed.rvp || parsePotExtra(observed.notes, 'rvp') || '—'
+    const pdfSulfur = observed.sulfur || parsePotExtra(observed.notes, 'sulfur') || '—'
     const sourceTicketCount = uniqueCsvCount(observed.ticket_numbers)
     const sourceBatchCount = uniqueCsvCount(observed.batch_numbers)
     const sourceTruckCount = uniqueCsvCount(observed.truck_numbers)
@@ -4166,7 +4199,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
         <div class="cell"><div class="small-label">CTL</div><div class="value">${formatMeasurementNumber(pdfCtl, 6)}</div></div>
         <div class="cell"><div class="small-label">CPL</div><div class="value">${formatMeasurementNumber(pdfCpl, 6)}</div></div>
         <div class="cell"><div class="small-label">CTPL</div><div class="value">${formatMeasurementNumber(pdfCtpl, 6)}</div></div>
-        <div class="cell"><div class="small-label">POT Quality Source</div><div class="value">${assignedPot}</div></div>
+        <div class="cell"><div class="small-label">POT Quality Source</div><div class="value">${potQualitySource}</div></div>
         <div class="cell"><div class="small-label">Calculation Method</div><div class="value">${observed.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'Standard'}</div></div>
       </div>
     </div>
@@ -10828,6 +10861,8 @@ async function saveUserRole() {
                 </label>
                 <input style={input} placeholder="Observed API Gravity" value={potGravity} onChange={(e) => setPotGravity(e.target.value)} />
                 <input style={input} placeholder="Observed Temperature" value={potTemp} onChange={(e) => setPotTemp(e.target.value)} />
+                <input style={input} placeholder="RVP" value={potRvp} onChange={(e) => setPotRvp(e.target.value)} />
+                <input style={input} placeholder="Sulfur %" value={potSulfur} onChange={(e) => setPotSulfur(e.target.value)} />
                 <div style={card}>
                   Calculated API Gravity @60:{' '}
                   {calculateApi11Corrections({
@@ -10872,7 +10907,9 @@ async function saveUserRole() {
                             <div>API Gravity @60: {p.api_gravity_60 ?? p.api_gravity}</div>
                             <div>BS&W: {formatPotBswPercent(p)}</div>
                             <div>CSW: {p.csw}</div>
-                            <div>Notes: {p.notes || ''}</div>
+                            <div>RVP: {(p as any).rvp ?? parsePotExtra(p.notes, 'rvp') || '—'}</div>
+                            <div>Sulfur: {(p as any).sulfur ?? parsePotExtra(p.notes, 'sulfur') || '—'}</div>
+                            <div>Notes: {cleanPotNotes(p.notes) || ''}</div>
                             {!isReadOnly && (
                               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
                                 <button type="button" style={{ ...button, marginTop: 0, background: '#d97706', border: '1px solid #f59e0b' }} onClick={() => editPotQuality(p)}>Edit POT</button>

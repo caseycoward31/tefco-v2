@@ -913,6 +913,16 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   }, [])
 
   useEffect(() => {
+    const defaultAreaId = getDefaultVisibleAreaId()
+    if (defaultAreaId && !selectedPotArea) {
+      setSelectedPotArea(defaultAreaId)
+    }
+    if (defaultAreaId && !selectedReadingArea) {
+      setSelectedReadingArea(defaultAreaId)
+    }
+  }, [areas.length, allowedAreaIds.length, profile?.role, selectedPotArea, selectedReadingArea])
+
+  useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
       setLoading(false)
@@ -1464,6 +1474,7 @@ const provingCompliancePercent =
   const selectedContractLeaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(contractLeaseId))
   const selectedContractProducerRow: any = asArray(producers).find((producer: any) => String(producer.id || '') === String(selectedContractLeaseRow?.producer_id || ''))
 
+  const effectivePotAreaId = selectedPotArea || getDefaultVisibleAreaId()
   const selectedPotSegmentLeases = selectedPotSegment ? getVisibleLeases(selectedPotSegment) : []
   const filteredPotLeases = sortLeasesForDropdown(selectedPotSegmentLeases)
   const selectedPotLeaseMeters = selectedPotLease ? getVisibleMeters(selectedPotLease) : []
@@ -1574,6 +1585,11 @@ const provingCompliancePercent =
 
   function shouldHideAreaSelector() {
     return !userIsSuperAdmin && !userIsCompanyAdmin && getVisibleAreas().length === 1
+  }
+
+  function getDefaultVisibleAreaId() {
+    const visibleAreas = getVisibleAreas()
+    return visibleAreas.length === 1 ? String(visibleAreas[0]?.id || '') : ''
   }
 
   function userCanAccessArea(areaId: string) {
@@ -2237,8 +2253,9 @@ function handleReadingAreaSelect(areaId: string) {
   }
 
   function clearPotForm() {
+    const defaultAreaId = getDefaultVisibleAreaId()
     setEditingPotId('')
-    setSelectedPotArea('')
+    setSelectedPotArea(defaultAreaId)
     setSelectedPotSegment('')
     setSelectedPotLease('')
     setSelectedPotMeter('')
@@ -2293,7 +2310,7 @@ function handleReadingAreaSelect(areaId: string) {
   }
 
   async function savePotQuality() {
-    if (!companyId || !selectedPotArea || !selectedPotSegment || !selectedPotLease || !potDate) {
+    if (!companyId || !effectivePotAreaId || !selectedPotSegment || !selectedPotLease || !potDate) {
       alert('Select area, segment, lease, and sample date first.')
       return
     }
@@ -2314,7 +2331,7 @@ function handleReadingAreaSelect(areaId: string) {
 
     const potPayload = {
       company_id: companyId,
-      area_id: selectedPotArea || null,
+      area_id: effectivePotAreaId || null,
       segment_id: selectedPotSegment || null,
       producer_id: potProducer || null,
       lease_id: selectedPotLease || null,
@@ -10678,9 +10695,9 @@ async function saveUserRole() {
                   <div style={card}>Area: <strong>{getVisibleAreas()[0]?.area_name || getVisibleAreas()[0]?.name || 'Assigned Area'}</strong></div>
                 )}
 
-                <select style={input} value={selectedPotSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!selectedPotArea}>
-                  <option value="">{selectedPotArea ? 'Select Segment' : 'Select area first'}</option>
-                  {getVisibleSegments(selectedPotArea).map((segment: any) => (
+                <select style={input} value={selectedPotSegment} onChange={(e) => handlePotSegmentSelect(e.target.value)} disabled={!effectivePotAreaId}>
+                  <option value="">{effectivePotAreaId ? 'Select Segment' : 'Select area first'}</option>
+                  {getVisibleSegments(effectivePotAreaId).map((segment: any) => (
                     <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
                   ))}
                 </select>

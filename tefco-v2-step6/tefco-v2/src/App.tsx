@@ -915,6 +915,17 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   }, [])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!('serviceWorker' in navigator)) return
+
+    window.addEventListener('load', () => {
+      navigator.serviceWorker
+        .register('/sw.js')
+        .catch((error) => console.warn('Offline service worker registration failed:', error))
+    })
+  }, [])
+
+  useEffect(() => {
     const defaultAreaId = getDefaultVisibleAreaId()
     if (defaultAreaId && !selectedPotArea) {
       setSelectedPotArea(defaultAreaId)

@@ -1470,6 +1470,14 @@ const provingCompliancePercent =
     return (producerId && producerId === selectedTicketProducerKey) ||
       (producerName && producerName === selectedTicketProducerKey.toLowerCase())
   })
+  const selectedTicketProducerDisplay =
+    selectedTicketProducerRow?.name ||
+    selectedTicketProducerRow?.producer_name ||
+    selectedTicketLeaseRow?.producer_name ||
+    selectedTicketLeaseRow?.producer ||
+    selectedTicketMeterRow?.producer_name ||
+    selectedTicketMeterRow?.producer ||
+    (selectedTicketProducerKey ? 'Producer linked' : '')
 
   const contractSegments = contractAreaId ? getVisibleSegments(contractAreaId) : []
   const contractLeases = contractSegmentId ? sortLeasesForDropdown(getVisibleLeases(contractSegmentId)) : []
@@ -3101,7 +3109,10 @@ function handleProvingAreaSelect(areaId: string) {
     const latestReading = readings.find((r: any) => r.meter_id === selectedMeter)
     const latestApprovedProving = provings.find((p) => p.meter_id === selectedMeter && p.status === 'approved')
     const latestPot = potQuality.find(
-      (p) => p.segment_id === selectedSegment && p.producer_id === selectedProducer && p.lease_id === selectedLease
+      (p: any) =>
+        String(p.segment_id || '') === String(selectedSegment) &&
+        String(p.lease_id || '') === String(selectedLease) &&
+        (!selectedProducer || !p.producer_id || String(p.producer_id || '') === String(selectedProducer))
     )
 
     const tankTicketSnapshot = ticketType === 'tank' && selectedTank
@@ -12025,7 +12036,7 @@ async function saveUserRole() {
                 {filteredMeters.map((m: any) => <option key={m.id} value={m.id}>{m.meter_number || m.meter_name}</option>)}
               </select>
 
-              <div style={card}>Producer: <strong>{selectedTicketProducerRow?.name || (selectedLease ? 'No producer linked' : 'Auto-fills after lease')}</strong></div>
+              <div style={card}>Producer: <strong>{selectedTicketProducerDisplay || (selectedLease ? 'No producer linked' : 'Auto-fills after lease')}</strong></div>
 
               <div style={card}>
                 <strong>Open / Close Date & Time</strong>

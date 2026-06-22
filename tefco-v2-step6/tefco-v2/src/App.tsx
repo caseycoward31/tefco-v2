@@ -2254,7 +2254,7 @@ function handleReadingAreaSelect(areaId: string) {
     setSelectedPotMeter(leaseMeters.length === 1 ? String(leaseMeters[0].id) : '')
   }
 
-  function parsePotExtra(notes: any, key: 'rvp' | 'sulfur') {
+  function parsePotExtra(notes: any, key: 'rvp' | 'sulfur' | 'sulphur') {
     const match = String(notes || '').match(new RegExp(`(?:^|\\n)${key.toUpperCase()}:\\s*([^\\n]+)`, 'i'))
     return match ? match[1].trim() : ''
   }
@@ -3937,7 +3937,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const assignedPot = observed.assigned_pot_label || ticket.assigned_pot_id || (observed.pot_source === 'latest_pot_quality' ? 'Sample POT' : '—')
     const potQualitySource = observed.pot_source === 'latest_pot_quality' ? 'Latest POT Quality' : assignedPot
     const pdfRvp = observed.rvp || parsePotExtra(observed.notes, 'rvp') || '—'
-    const pdfSulfur = observed.sulfur || parsePotExtra(observed.notes, 'sulfur') || '—'
+    const pdfSulfur = observed.sulfur || parsePotExtra(observed.notes, 'sulfur') || parsePotExtra(observed.notes, 'sulphur') || '—'
     const sourceTicketCount = uniqueCsvCount(observed.ticket_numbers)
     const sourceBatchCount = uniqueCsvCount(observed.batch_numbers)
     const sourceTruckCount = uniqueCsvCount(observed.truck_numbers)
@@ -4191,6 +4191,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
         <div class="cell"><div class="small-label">Observed API</div><div class="value">${formatMeasurementNumber(observed.observed_api_gravity || observed.api_observed || observed.api_gravity_observed, 2)}</div></div>
         <div class="cell"><div class="small-label">API Gravity @ 60°F</div><div class="value">${formatMeasurementNumber(calc.api_gravity_60 || observed.api_gravity_60 || calc.api_gravity || observed.api_gravity, 2)}</div></div>
         <div class="cell"><div class="small-label">BS&W %</div><div class="value">${formatMeasurementNumber(calc.bsw_percent || observed.bsw_percent || observed.bsw, 4)}</div></div>
+        <div class="cell"><div class="small-label">RVP</div><div class="value">${pdfRvp}</div></div>
+        <div class="cell"><div class="small-label">Sulphur %</div><div class="value">${pdfSulfur}</div></div>
         <div class="cell"><div class="small-label">Observed Temp °F</div><div class="value">${formatMeasurementNumber(observed.observed_temperature || observed.temperature || observed.average_temperature || calc.average_temperature, 2)}</div></div>
         <div class="cell"><div class="small-label">Average Temp °F</div><div class="value">${formatMeasurementNumber(calc.average_temperature || observed.average_temperature, 2)}</div></div>
         <div class="cell"><div class="small-label">Observed Pressure</div><div class="value">${formatMeasurementNumber(observed.observed_pressure || observed.pressure || observed.average_pressure || calc.average_pressure, 2)}</div></div>
@@ -10862,7 +10864,7 @@ async function saveUserRole() {
                 <input style={input} placeholder="Observed API Gravity" value={potGravity} onChange={(e) => setPotGravity(e.target.value)} />
                 <input style={input} placeholder="Observed Temperature" value={potTemp} onChange={(e) => setPotTemp(e.target.value)} />
                 <input style={input} placeholder="RVP" value={potRvp} onChange={(e) => setPotRvp(e.target.value)} />
-                <input style={input} placeholder="Sulfur %" value={potSulfur} onChange={(e) => setPotSulfur(e.target.value)} />
+                <input style={input} placeholder="Sulphur %" value={potSulfur} onChange={(e) => setPotSulfur(e.target.value)} />
                 <div style={card}>
                   Calculated API Gravity @60:{' '}
                   {calculateApi11Corrections({
@@ -10908,7 +10910,7 @@ async function saveUserRole() {
                             <div>BS&W: {formatPotBswPercent(p)}</div>
                             <div>CSW: {p.csw}</div>
                             <div>RVP: {((p as any).rvp ?? parsePotExtra(p.notes, 'rvp')) || '—'}</div>
-                            <div>Sulfur: {((p as any).sulfur ?? parsePotExtra(p.notes, 'sulfur')) || '—'}</div>
+                            <div>Sulphur: {((p as any).sulfur ?? parsePotExtra(p.notes, 'sulfur')) || '—'}</div>
                             <div>Notes: {cleanPotNotes(p.notes) || ''}</div>
                             {!isReadOnly && (
                               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>

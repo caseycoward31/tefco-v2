@@ -928,18 +928,39 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   }, [])
 
   useEffect(() => {
-    const latestReading = readings.find((r: any) => r.meter_id === selectedMeter)
-    const latestApprovedProving = provings.find(
-      (p) => p.meter_id === selectedMeter && p.status === 'approved'
-    )
-    const producer = producers.find((p) => p.id === selectedProducer)
+    const hasTicketSelection = Boolean(selectedSegment || selectedProducer || selectedLease || selectedMeter)
+
+    if (!hasTicketSelection) {
+      setAutofillPreview({
+        reading: null,
+        proving: null,
+        producer: null,
+        profile: null,
+        pot: null,
+      })
+      return
+    }
+
+    const latestReading = selectedMeter
+      ? readings.find((r: any) => String(r.meter_id || '') === String(selectedMeter))
+      : null
+    const latestApprovedProving = selectedMeter
+      ? provings.find(
+          (p: any) => String(p.meter_id || '') === String(selectedMeter) && String(p.status || '').toLowerCase() === 'approved'
+        )
+      : null
+    const producer = selectedProducer ? producers.find((p) => String(p.id || '') === String(selectedProducer)) : null
     const profile = profiles.find((p) => p.id === producer?.calculation_profile_id)
-    const latestPot = potQuality.find(
-      (p) =>
-        (!selectedSegment || p.segment_id === selectedSegment) &&
-        (!selectedProducer || p.producer_id === selectedProducer) &&
-        (!selectedLease || p.lease_id === selectedLease)
-    )
+    const latestPot =
+      selectedSegment && selectedLease
+        ? potQuality.find(
+            (p: any) =>
+              String(p.segment_id || '') === String(selectedSegment) &&
+              String(p.lease_id || '') === String(selectedLease) &&
+              (!selectedProducer || String(p.producer_id || '') === String(selectedProducer))
+          )
+        : null
+
     setAutofillPreview({
       reading: latestReading || null,
       proving: latestApprovedProving || null,
@@ -2116,6 +2137,9 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     setReadingBSW('')
     setReadingMF('')
     setReadingPhotoFiles([])
+    setSelectedReadingSegment('')
+    setSelectedReadingLease('')
+    setSelectedReadingMeter('')
     loadAll()
   }
 
@@ -2202,6 +2226,12 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     setPotBSW('')
     setPotTemp('')
     setPotNotes('')
+    setSelectedPotSegment('')
+    setSelectedPotLease('')
+    setSelectedPotMeter('')
+    setPotProducer('')
+    setPotLease('')
+    setPotSegment('')
     alert('POT quality saved.')
     loadAll()
   }
@@ -3199,6 +3229,13 @@ function handleProvingAreaSelect(areaId: string) {
     setTankObservedGravity('')
     setTankObservedTemp('')
     setTankSwPercent('')
+
+    setSelectedSegment('')
+    setSelectedProducer('')
+    setSelectedLease('')
+    setSelectedMeter('')
+    setManualClosingReading('')
+    setAutofillPreview(null)
     loadAll()
   }
 

@@ -920,7 +920,7 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
     if (defaultAreaId && !selectedReadingArea) {
       setSelectedReadingArea(defaultAreaId)
     }
-  }, [areas.length, allowedAreaIds.length, profile?.role, selectedPotArea, selectedReadingArea])
+  }, [areas.length, selectedPotArea, selectedReadingArea])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {

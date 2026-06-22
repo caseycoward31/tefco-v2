@@ -3424,21 +3424,40 @@ function handleProvingAreaSelect(areaId: string) {
         return Math.abs(ticketCreatedMs - aMs) - Math.abs(ticketCreatedMs - bMs)
       })[0] || {}
 
+    const directIv = pickNum(
+      calc.iv,
+      calc.gov,
+      calc.total_batch_barrels,
+      observed.total_batch_barrels,
+      observed.indicated_volume,
+      observed.gross_volume_bbl,
+      observed.iv,
+      observed.gov,
+      ticket.total_batch_barrels,
+      ticket.indicated_volume,
+      ticket.iv,
+      ticket.gov,
+      matchingReading.indicated_volume
+    )
+
     const opening = pickNum(
       observed.opening_reading,
       observed.opening_meter_reading,
       observed.open_meter_reading,
+      observed.open_reading,
       observed.open_meter,
       ticket.opening_reading,
       ticket.opening_meter_reading,
+      ticket.open_reading,
       calc.opening_reading,
       calc.opening_meter_reading,
+      calc.open_reading,
       matchingReading.opening_reading,
       matchingReading.opening_meter_reading,
       matchingReading.open_reading
     )
 
-    const closing = pickNum(
+    const closingDirect = pickNum(
       observed.closing_reading,
       observed.closing_meter_reading,
       observed.close_meter_reading,
@@ -3446,16 +3465,22 @@ function handleProvingAreaSelect(areaId: string) {
       observed.close_meter,
       ticket.closing_reading,
       ticket.closing_meter_reading,
+      ticket.close_reading,
       calc.closing_reading,
       calc.closing_meter_reading,
+      calc.close_reading,
       matchingReading.closing_reading,
       matchingReading.closing_meter_reading,
       matchingReading.close_reading
     )
 
+    const closing = closingDirect !== null
+      ? closingDirect
+      : (opening !== null && directIv !== null ? opening + directIv : null)
+
     const iv = opening !== null && closing !== null
       ? closing - opening
-      : pickNum(calc.iv, calc.gov, calc.total_batch_barrels, observed.total_batch_barrels, observed.indicated_volume, observed.iv, observed.gov, ticket.total_batch_barrels, ticket.indicated_volume, ticket.iv, ticket.gov)
+      : directIv
 
     return { opening, closing, iv }
   }

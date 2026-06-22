@@ -3474,9 +3474,16 @@ function handleProvingAreaSelect(areaId: string) {
       matchingReading.close_reading
     )
 
-    const closing = closingDirect !== null
-      ? closingDirect
-      : (opening !== null && directIv !== null ? opening + directIv : null)
+    // Closing reading should be the actual closing meter total.
+    // Some older draft tickets accidentally stored IV/total batch in a close_* field,
+    // so if closing is lower than opening, rebuild closing as opening + IV.
+    const closing = opening !== null && directIv !== null && (
+        closingDirect === null ||
+        closingDirect < opening ||
+        Math.abs((closingDirect - opening) - directIv) > 0.01
+      )
+      ? opening + directIv
+      : closingDirect
 
     const iv = opening !== null && closing !== null
       ? closing - opening

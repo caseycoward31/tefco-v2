@@ -4088,10 +4088,6 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     <div class="header">
       <div class="brand">
         ${logoUrl ? `<img class="logo" src="${logoUrl}" />` : ''}
-        <div>
-          <div class="brand-title">${companyName}</div>
-          <div class="brand-subtitle">Measurement Ticket</div>
-        </div>
       </div>
       <div class="ticket-box">
         <div class="label">Ticket Number</div>

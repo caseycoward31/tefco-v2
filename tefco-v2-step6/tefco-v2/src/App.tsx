@@ -889,6 +889,7 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [potBSW, setPotBSW] = useState('')
   const [potTemp, setPotTemp] = useState('')
   const [potNotes, setPotNotes] = useState('')
+  const [editingPotId, setEditingPotId] = useState('')
 
 
 
@@ -2170,6 +2171,62 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     setSelectedPotMeter(leaseMeters.length === 1 ? String(leaseMeters[0].id) : '')
   }
 
+  function clearPotForm() {
+    setEditingPotId('')
+    setSelectedPotArea('')
+    setSelectedPotSegment('')
+    setSelectedPotLease('')
+    setSelectedPotMeter('')
+    setPotSegment('')
+    setPotProducer('')
+    setPotLease('')
+    setPotDate('')
+    setPotGravity('')
+    setPotBSW('')
+    setPotTemp('')
+    setPotNotes('')
+  }
+
+  function editPotQuality(p: any) {
+    const meterId = String(p?.meter_id || p?.meterId || '')
+    const meterRow: any = asArray(meters).find((meter: any) => String(meter.id || '') === meterId)
+    const leaseId = String(p?.lease_id || p?.leaseId || meterRow?.lease_id || '')
+    const leaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === leaseId)
+    const segmentId = String(p?.segment_id || p?.segmentId || leaseRow?.segment_id || '')
+    const segmentRow: any = asArray(segments).find((segment: any) => String(segment.id || '') === segmentId)
+    const areaId = String(p?.area_id || p?.areaId || segmentRow?.area_id || '')
+
+    setEditingPotId(String(p.id || ''))
+    setSelectedPotArea(areaId)
+    setSelectedPotSegment(segmentId)
+    setSelectedPotLease(leaseId)
+    setSelectedPotMeter(meterId || '')
+    setPotSegment(segmentId)
+    setPotLease(leaseId)
+    setPotProducer(String(p?.producer_id || leaseRow?.producer_id || ''))
+    setPotDate(String(p?.sample_date || '').slice(0, 10))
+    setPotGravity(String(p?.observed_api_gravity ?? p?.api_gravity ?? ''))
+    setPotTemp(String(p?.observed_temperature ?? p?.sample_temperature ?? ''))
+    const bswValue = getPotBswPercentValue(p)
+    setPotBSW(bswValue === null ? '' : String(Number(bswValue.toFixed(4))))
+    setPotNotes(String(p?.notes || ''))
+    setPotTab('create')
+  }
+
+  async function deletePotQuality(p: any) {
+    if (!p?.id) return
+    if (!confirm('Delete this POT quality record?')) return
+
+    const { error } = await supabase.from('pot_quality').delete().eq('id', p.id)
+    if (error) {
+      alert('Could not delete POT quality: ' + error.message)
+      return
+    }
+
+    if (String(editingPotId) === String(p.id)) clearPotForm()
+    loadAll()
+  }
+
   async function savePotQuality() {
     if (!companyId || !selectedPotArea || !selectedPotSegment || !selectedPotLease || !potDate) {
       alert('Select area, segment, lease, and sample date first.')
@@ -2179,58 +2236,46 @@ const iv = Number(readingClose || 0) - Number(readingOpen || 0)
     const bswNumber = Number(potBSW || 0)
     const csw = 1 - bswNumber / 100
 
-    const { error } = await supabase.from('pot_quality').insert({
+    const apiGravity60 = Number(
+      calculateApi11Corrections({
+        productGroup: 'crude',
+        observedApiGravity: Number(potGravity || 0),
+        observedTemperature: Number(potTemp || 60),
+        observedPressure: 0,
+        averageTemperature: Number(potTemp || 60),
+        averagePressure: 0,
+      }).api_gravity_60
+    )
+
+    const potPayload = {
       company_id: companyId,
       area_id: selectedPotArea || null,
       segment_id: selectedPotSegment || null,
       producer_id: potProducer || null,
       lease_id: selectedPotLease || null,
       sample_date: potDate,
-      api_gravity: Number(
-        calculateApi11Corrections({
-          productGroup: 'crude',
-          observedApiGravity: Number(potGravity || 0),
-          observedTemperature: Number(potTemp || 60),
-          observedPressure: 0,
-          averageTemperature: Number(potTemp || 60),
-          averagePressure: 0,
-        }).api_gravity_60
-      ),
+      api_gravity: apiGravity60,
       observed_api_gravity: Number(potGravity || 0),
       observed_temperature: Number(potTemp || 0),
-      api_gravity_60: Number(
-        calculateApi11Corrections({
-          productGroup: 'crude',
-          observedApiGravity: Number(potGravity || 0),
-          observedTemperature: Number(potTemp || 60),
-          observedPressure: 0,
-          averageTemperature: Number(potTemp || 60),
-          averagePressure: 0,
-        }).api_gravity_60
-      ),
+      api_gravity_60: apiGravity60,
       bsw: bswNumber,
       csw,
       sample_temperature: Number(potTemp || 0),
       notes: potNotes,
-    })
+    }
+
+    const { error } = editingPotId
+      ? await supabase.from('pot_quality').update(potPayload).eq('id', editingPotId)
+      : await supabase.from('pot_quality').insert(potPayload)
 
     if (error) {
       alert('Could not save POT quality: ' + error.message)
       return
     }
 
-    setPotDate('')
-    setPotGravity('')
-    setPotBSW('')
-    setPotTemp('')
-    setPotNotes('')
-    setSelectedPotSegment('')
-    setSelectedPotLease('')
-    setSelectedPotMeter('')
-    setPotProducer('')
-    setPotLease('')
-    setPotSegment('')
-    alert('POT quality saved.')
+    const wasEditingPot = Boolean(editingPotId)
+    clearPotForm()
+    alert(wasEditingPot ? 'POT quality updated.' : 'POT quality saved.')
     loadAll()
   }
 
@@ -10539,7 +10584,7 @@ async function saveUserRole() {
 
             {potTab === 'create' && (
               <div style={box}>
-                <h3>New POT Quality</h3>
+                <h3>{editingPotId ? 'Edit POT Quality' : 'New POT Quality'}</h3>
                 {!shouldHideAreaSelector() ? (
                   <select style={input} value={selectedPotArea} onChange={(e) => handlePotAreaSelect(e.target.value)}>
                     <option value="">Select Area</option>
@@ -10568,7 +10613,16 @@ async function saveUserRole() {
                 <div style={card}>
                   Meter Number: <strong>{selectedPotMeterRow?.meter_number || selectedPotMeterRow?.meter_name || (selectedPotLease ? 'No meter linked' : 'Select lease first')}</strong>
                 </div>
-                <input style={input} type="date" value={potDate} onChange={(e) => setPotDate(e.target.value)} />
+                <label style={{ display: 'block', marginTop: 10 }}>
+                  <div style={{ color: '#cbd5e1', fontWeight: 700, marginBottom: 6 }}>Sample Date</div>
+                  <input
+                    style={{ ...input, marginTop: 0, display: 'block', textAlign: 'left' }}
+                    type="date"
+                    aria-label="Sample Date"
+                    value={potDate}
+                    onChange={(e) => setPotDate(e.target.value)}
+                  />
+                </label>
                 <input style={input} placeholder="Observed API Gravity" value={potGravity} onChange={(e) => setPotGravity(e.target.value)} />
                 <input style={input} placeholder="Observed Temperature" value={potTemp} onChange={(e) => setPotTemp(e.target.value)} />
                 <div style={card}>
@@ -10585,7 +10639,10 @@ async function saveUserRole() {
                 <input style={input} placeholder="BS&W %" value={potBSW} onChange={(e) => setPotBSW(e.target.value)} />
                 <input style={input} placeholder="Notes" value={potNotes} onChange={(e) => setPotNotes(e.target.value)} />
                 <div style={card}>CSW: {(1 - Number(potBSW || 0) / 100).toFixed(6)}</div>
-                <button style={button} onClick={savePotQuality}>Save POT Quality</button>
+                <button style={button} onClick={savePotQuality}>{editingPotId ? 'Update POT Quality' : 'Save POT Quality'}</button>
+                {editingPotId && (
+                  <button type="button" style={{ ...button, background: '#334155', border: '1px solid #475569' }} onClick={clearPotForm}>Cancel Edit / Clear Form</button>
+                )}
               </div>
             )}
 
@@ -10613,6 +10670,12 @@ async function saveUserRole() {
                             <div>BS&W: {formatPotBswPercent(p)}</div>
                             <div>CSW: {p.csw}</div>
                             <div>Notes: {p.notes || ''}</div>
+                            {!isReadOnly && (
+                              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+                                <button type="button" style={{ ...button, marginTop: 0, background: '#d97706', border: '1px solid #f59e0b' }} onClick={() => editPotQuality(p)}>Edit POT</button>
+                                <button type="button" style={{ ...button, marginTop: 0, background: '#7f1d1d', border: '1px solid #ef4444' }} onClick={() => deletePotQuality(p)}>Delete POT</button>
+                              </div>
+                            )}
                           </div>
                         )
                       })}

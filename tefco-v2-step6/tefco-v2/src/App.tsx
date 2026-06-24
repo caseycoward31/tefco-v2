@@ -4327,6 +4327,9 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const ticketNumber = ticket.ticket_number || ticket.id || 'Ticket'
     const createdAt = ticket.created_at ? new Date(ticket.created_at).toLocaleString() : new Date().toLocaleString()
     const approvedAt = ticket.approved_at ? new Date(ticket.approved_at).toLocaleString() : 'Pending Approval'
+    const pdfRevisionNumber = observed.revision_number || calc.revision_number || 0
+    const pdfRevisionReason = observed.revision_reason || ''
+    const pdfRevisionAt = observed.revised_at || calc.revised_at || ''
 
     const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name || (ticket.ticket_type === 'meter' ? 'Pipeline Meter' : '—')
     const assignedPot = observed.assigned_pot_label || ticket.assigned_pot_id || (observed.pot_source === 'latest_pot_quality' ? 'Sample POT' : '—')
@@ -4544,6 +4547,9 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
         <div class="cell"><div class="small-label">Ticket Type</div><div class="value">${ticket.ticket_type || '—'}</div></div>
         <div class="cell"><div class="small-label">Created</div><div class="value">${createdAt}</div></div>
         <div class="cell"><div class="small-label">Approved</div><div class="value">${approvedAt}</div></div>
+        <div class="cell"><div class="small-label">Revision</div><div class="value">${pdfRevisionNumber ? `Revision ${pdfRevisionNumber}` : 'Original'}</div></div>
+        <div class="cell"><div class="small-label">Revision Reason</div><div class="value">${pdfRevisionReason || '—'}</div></div>
+        <div class="cell"><div class="small-label">Revised At</div><div class="value">${pdfRevisionAt ? new Date(pdfRevisionAt).toLocaleString() : '—'}</div></div>
         <div class="cell"><div class="small-label">Segment</div><div class="value">${segment?.name || observed.segment_name || '—'}</div></div>
         <div class="cell"><div class="small-label">Producer</div><div class="value">${producer?.name || observed.producer_name || '—'}</div></div>
         <div class="cell"><div class="small-label">Lease</div><div class="value">${pdfLeaseName || (isFlowX ? `${sourceLeaseCount || '—'} lease(s)` : '—')}</div></div>
@@ -12506,6 +12512,24 @@ async function saveUserRole() {
                     Close Ticket
                   </button>
                 </div>
+
+                {(selectedTicket!.observed_inputs as any)?.revision_number && (
+                  <div style={{ ...card, marginTop: 14, borderColor: '#7c3aed' }}>
+                    <h3 style={{ marginTop: 0 }}>Revision History</h3>
+                    <div><strong>Current:</strong> Revision {(selectedTicket!.observed_inputs as any).revision_number}</div>
+                    <div><strong>Last Reason:</strong> {(selectedTicket!.observed_inputs as any).revision_reason || '—'}</div>
+                    <div><strong>Last Revised:</strong> {(selectedTicket!.observed_inputs as any).revised_at ? new Date((selectedTicket!.observed_inputs as any).revised_at).toLocaleString() : '—'}</div>
+                    <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+                      {(((selectedTicket!.observed_inputs as any).revision_history || []) as any[]).slice().reverse().map((rev: any, index: number) => (
+                        <div key={index} style={{ ...card, margin: 0, background: 'rgba(124,58,237,0.10)' }}>
+                          <strong>Revision {rev.revision_number || ((selectedTicket!.observed_inputs as any).revision_number - index)}</strong>
+                          <div>Reason: {rev.reason || '—'}</div>
+                          <div>Revised: {rev.revised_at ? new Date(rev.revised_at).toLocaleString() : '—'}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {['draft', 'approved'].includes(String(selectedTicket!.status || 'draft').toLowerCase()) && isDraftTicketEditOpen && (
                   <div style={{ ...card, marginTop: 14, borderColor: '#f59e0b' }}>

@@ -915,17 +915,6 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   }, [])
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (!('serviceWorker' in navigator)) return
-
-    window.addEventListener('load', () => {
-      navigator.serviceWorker
-        .register('/sw.js')
-        .catch((error) => console.warn('Offline service worker registration failed:', error))
-    })
-  }, [])
-
-  useEffect(() => {
     const defaultAreaId = getDefaultVisibleAreaId()
     if (defaultAreaId && !selectedPotArea) {
       setSelectedPotArea(defaultAreaId)
@@ -3419,17 +3408,43 @@ function handleProvingAreaSelect(areaId: string) {
   async function updateTicketStatus(ticket: Ticket, status: string) {
     const { data: userData } = await supabase.auth.getUser()
 
-    const updateData: any = { status }
+    const normalizedStatus = String(status || '').toLowerCase()
+    const updateData: any = { status: normalizedStatus }
 
-    if (status === 'approved') {
+    if (normalizedStatus === 'approved') {
       updateData.approved_by = userData.user?.id
       updateData.approved_at = new Date().toISOString()
     }
 
-    await supabase.from('tickets').update(updateData).eq('id', ticket.id)
+    const { data, error } = await supabase
+      .from('tickets')
+      .update(updateData)
+      .eq('id', ticket.id)
+      .select()
+      .maybeSingle()
 
-    setSelectedTicket({ ...ticket, ...updateData })
-    loadAll()
+    if (error) {
+      alert(`Could not update ticket status: ${error.message}`)
+      return
+    }
+
+    const updatedTicket: any = data || { ...ticket, ...updateData }
+
+    setTickets((prev: any[]) =>
+      prev.map((row: any) => String(row.id) === String(ticket.id) ? { ...row, ...updatedTicket } : row)
+    )
+    setSelectedTicket(updatedTicket)
+    setIsDraftTicketEditOpen(false)
+
+    if (normalizedStatus === 'approved') {
+      setTicketWorkflowTab('approved')
+    } else if (normalizedStatus === 'submitted') {
+      setTicketWorkflowTab('pending')
+    } else if (normalizedStatus === 'draft') {
+      setTicketWorkflowTab('drafts')
+    }
+
+    await loadAll()
   }
 
   function ticketEditString(value: any) {

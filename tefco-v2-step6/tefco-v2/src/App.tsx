@@ -2869,8 +2869,6 @@ function handleProvingAreaSelect(areaId: string) {
   }
 
   async function approveProving(proving: Proving) {
-    const { data: userData } = await supabase.auth.getUser()
-
     const { error } = await supabase
       .from('meter_provings')
       .update({
@@ -3406,13 +3404,10 @@ function handleProvingAreaSelect(areaId: string) {
   }
 
   async function updateTicketStatus(ticket: Ticket, status: string) {
-    const { data: userData } = await supabase.auth.getUser()
-
     const normalizedStatus = String(status || '').toLowerCase()
     const updateData: any = { status: normalizedStatus }
 
     if (normalizedStatus === 'approved') {
-      updateData.approved_by = userData.user?.id
       updateData.approved_at = new Date().toISOString()
     }
 

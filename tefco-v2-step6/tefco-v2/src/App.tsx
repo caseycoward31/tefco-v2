@@ -6469,12 +6469,103 @@ async function createCompany() {
     return { main, secondary }
   }
 
+  function makeLocalDateTime(dateValue: any, timeValue?: any) {
+    if (!dateValue) return null
+    const dateText = String(dateValue || '').trim()
+    const timeText = String(timeValue || '').trim()
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateText)) {
+      const [year, month, day] = dateText.split('-').map(Number)
+      let hours = 0
+      let minutes = 0
+      if (timeText) {
+        const normalized = timeText.toUpperCase()
+        const match = normalized.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/)
+        if (match) {
+          hours = Number(match[1])
+          minutes = Number(match[2])
+          const ampm = match[4]
+          if (ampm === 'PM' && hours < 12) hours += 12
+          if (ampm === 'AM' && hours === 12) hours = 0
+        }
+      }
+      return new Date(year, month - 1, day, hours, minutes, 0, 0)
+    }
+
+    const parsed = new Date(timeText ? `${dateText} ${timeText}` : dateText)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+
+  function getAccountingDateFromValue(dateValue: any, timeValue?: any) {
+    const date = makeLocalDateTime(dateValue, timeValue)
+    if (!date) return null
+
+    // Accounting month starts at 07:01 on the 1st and ends at 07:00 on the 1st.
+    // Subtracting 7 hours and 1 minute makes 06/01 07:00 count as May,
+    // and 06/01 07:01 count as June.
+    return new Date(date.getTime() - ((7 * 60 + 1) * 60 * 1000))
+  }
+
+  function getAccountingMonthKey(dateValue: any, timeValue?: any) {
+    const accountingDate = getAccountingDateFromValue(dateValue, timeValue)
+    if (!accountingDate) return 'Unknown'
+    return `${accountingDate.getFullYear()}-${String(accountingDate.getMonth() + 1).padStart(2, '0')}`
+  }
+
+  function getAccountingMonthLabel(dateValue: any, timeValue?: any) {
+    const key = getAccountingMonthKey(dateValue, timeValue)
+    if (key === 'Unknown') return 'Undated'
+    const [year, month] = key.split('-').map(Number)
+    return new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  }
+
+  function getRowAccountingDateParts(row: any, fields: string[] = []) {
+    const observed = row?.observed_inputs || {}
+    const calc = row?.calculation_results || {}
+
+    const closeDateTime =
+      row?.close_datetime ||
+      observed?.close_datetime ||
+      calc?.close_datetime ||
+      row?.closing_datetime ||
+      observed?.closing_datetime ||
+      calc?.closing_datetime
+
+    if (closeDateTime) return { date: closeDateTime, time: undefined }
+
+    const closeDate =
+      row?.close_date ||
+      observed?.close_date ||
+      calc?.close_date ||
+      row?.closing_date ||
+      observed?.closing_date ||
+      calc?.closing_date
+    const closeTime =
+      row?.close_time ||
+      observed?.close_time ||
+      calc?.close_time ||
+      row?.closing_time ||
+      observed?.closing_time ||
+      calc?.closing_time
+
+    if (closeDate) return { date: closeDate, time: closeTime }
+
+    const value =
+      fields.map((field) => row?.[field]).find(Boolean) ||
+      row?.sample_date ||
+      row?.reading_date ||
+      row?.proving_date ||
+      row?.approved_at ||
+      row?.created_at ||
+      row?.updated_at ||
+      row?.date
+
+    return { date: value, time: undefined }
+  }
+
   function getProvingMonthLabel(proving: any) {
-    const dateValue = proving?.approved_at || proving?.proving_date || proving?.created_at
-    if (!dateValue) return 'Undated'
-    const date = new Date(dateValue)
-    if (Number.isNaN(date.getTime())) return 'Undated'
-    return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    const parts = getRowAccountingDateParts(proving, ['approved_at', 'proving_date', 'created_at'])
+    return getAccountingMonthLabel(parts.date, parts.time)
   }
 
   function groupProvingsByMonth(rows: any[]) {
@@ -6488,11 +6579,8 @@ async function createCompany() {
 
 
   function getMonthLabelFromRow(row: any, fields: string[] = []) {
-    const value = fields.map((field) => row?.[field]).find(Boolean) || row?.sample_date || row?.reading_date || row?.created_at || row?.date
-    if (!value) return 'Undated'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return 'Undated'
-    return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    const parts = getRowAccountingDateParts(row, fields)
+    return getAccountingMonthLabel(parts.date, parts.time)
   }
 
   function groupRowsByMonth(rows: any[], fields: string[] = []) {
@@ -8539,13 +8627,14 @@ async function saveUserRole() {
 
 
   function getTicketDateValue(ticket: any) {
-    return ticket.approved_at || ticket.updated_at || ticket.created_at || new Date().toISOString()
+    const parts = getRowAccountingDateParts(ticket, ['approved_at', 'updated_at', 'created_at'])
+    const date = makeLocalDateTime(parts.date, parts.time)
+    return date ? date.toISOString() : (ticket.approved_at || ticket.updated_at || ticket.created_at || new Date().toISOString())
   }
 
   function getTicketMonthKey(ticket: any) {
-    const date = new Date(getTicketDateValue(ticket))
-    if (Number.isNaN(date.getTime())) return 'Unknown'
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    const parts = getRowAccountingDateParts(ticket, ['approved_at', 'updated_at', 'created_at'])
+    return getAccountingMonthKey(parts.date, parts.time)
   }
 
   function getTicketMonthLabel(monthKey: string) {

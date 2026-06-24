@@ -2041,21 +2041,108 @@ function handleReadingAreaSelect(areaId: string) {
 
 
   function getPreviousClosingReadingForLease(leaseId: string, meterId = '') {
-    const readingRows = typeof readings !== 'undefined' ? readings : []
+    const pickNumber = (...values: any[]) => {
+      for (const value of values) {
+        if (value === null || value === undefined || value === '') continue
+        const n = Number(value)
+        if (Number.isFinite(n)) return n
+      }
+      return null
+    }
 
+    const getTicketCloseMs = (ticket: any) => {
+      const observed = ticket?.observed_inputs || {}
+      const calc = ticket?.calculation_results || {}
+      const closeDateTime =
+        observed.close_datetime ||
+        calc.close_datetime ||
+        ticket.close_datetime ||
+        observed.closing_datetime ||
+        ticket.closing_datetime
+      if (closeDateTime) return new Date(closeDateTime).getTime()
+
+      const closeDate = observed.close_date || calc.close_date || ticket.close_date || observed.closing_date || ticket.closing_date
+      const closeTime = observed.close_time || calc.close_time || ticket.close_time || observed.closing_time || ticket.closing_time
+      const localClose = makeLocalDateTime(closeDate, closeTime)
+      if (localClose) return localClose.getTime()
+
+      return new Date(ticket.approved_at || ticket.updated_at || ticket.created_at || 0).getTime()
+    }
+
+    // Preferred source: last ticket close for this lease/meter.
+    // This lets back-entered monthly tickets feed the next Operator Reading opening.
+    const matchingTickets = (Array.isArray(tickets) ? tickets : [])
+      .filter((ticket: any) => {
+        const status = String(ticket.status || 'draft').toLowerCase()
+        const observed = ticket?.observed_inputs || {}
+        const sameLease = leaseId && (
+          String(ticket.lease_id || '') === String(leaseId) ||
+          String(observed.lease_id || '') === String(leaseId)
+        )
+        const sameMeter = meterId ? (
+          String(ticket.meter_id || '') === String(meterId) ||
+          String(observed.meter_id || '') === String(meterId)
+        ) : true
+        const close = pickNumber(
+          ticket.closing_reading,
+          ticket.closing_meter_reading,
+          observed.closing_reading,
+          observed.closing_meter_reading,
+          observed.close_reading,
+          observed.close_meter_reading,
+          observed.close_meter,
+          ticket.close_reading,
+          ticket.close_meter_reading,
+          ticket.close_meter,
+          ticket.calculation_results?.closing_reading,
+          ticket.calculation_results?.closing_meter_reading
+        )
+        return sameLease && sameMeter && ['approved', 'submitted', 'draft'].includes(status) && close !== null
+      })
+      .sort((a: any, b: any) => getTicketCloseMs(b) - getTicketCloseMs(a))
+
+    const latestTicket = matchingTickets[0]
+    if (latestTicket) {
+      const observed = latestTicket.observed_inputs || {}
+      const calc = latestTicket.calculation_results || {}
+      const ticketClose = pickNumber(
+        latestTicket.closing_reading,
+        latestTicket.closing_meter_reading,
+        observed.closing_reading,
+        observed.closing_meter_reading,
+        observed.close_reading,
+        observed.close_meter_reading,
+        observed.close_meter,
+        latestTicket.close_reading,
+        latestTicket.close_meter_reading,
+        latestTicket.close_meter,
+        calc.closing_reading,
+        calc.closing_meter_reading
+      )
+      if (ticketClose !== null) return ticketClose
+    }
+
+    // Fallback source: previous operator reading close.
+    const readingRows = typeof readings !== 'undefined' ? readings : []
     const matchingRows = (readingRows || [])
       .filter((row: any) => {
         const sameLease = leaseId && String(row.lease_id || '') === String(leaseId)
         const sameMeter = meterId ? String(row.meter_id || '') === String(meterId) : true
-        return sameLease && sameMeter && row.closing_reading !== null && row.closing_reading !== undefined && row.closing_reading !== ''
+        const close = pickNumber(row.closing_reading, row.closing_meter_reading, row.close_reading)
+        return sameLease && sameMeter && close !== null
       })
       .sort((a: any, b: any) => {
-        const ad = new Date(a.created_at || a.reading_date || 0).getTime()
-        const bd = new Date(b.created_at || b.reading_date || 0).getTime()
+        const ad = new Date(a.reading_date || a.created_at || 0).getTime()
+        const bd = new Date(b.reading_date || b.created_at || 0).getTime()
         return bd - ad
       })
 
-    return matchingRows[0]?.closing_reading ?? ''
+    const previousReadingClose = pickNumber(
+      matchingRows[0]?.closing_reading,
+      matchingRows[0]?.closing_meter_reading,
+      matchingRows[0]?.close_reading
+    )
+    return previousReadingClose ?? ''
   }
 
   function autofillOpeningReadingForLease(leaseId: string, meterId = '') {

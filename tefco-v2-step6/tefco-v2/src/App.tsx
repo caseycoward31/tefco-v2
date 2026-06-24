@@ -11589,15 +11589,15 @@ async function saveUserRole() {
 
                 <div style={box}>
                   <h2>{provingKpiMonth} Schedule Summary</h2>
-                  <table style={table}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr>
-                        <th style={th}>Lease</th>
-                        <th style={th}>Meter</th>
-                        <th style={th}>Due Date</th>
-                        <th style={th}>Frequency</th>
-                        <th style={th}>Assigned To</th>
-                        <th style={th}>Status</th>
+                        <th style={{ textAlign: 'left', borderBottom: '1px solid #374151', padding: 8 }}>Lease</th>
+                        <th style={{ textAlign: 'left', borderBottom: '1px solid #374151', padding: 8 }}>Meter</th>
+                        <th style={{ textAlign: 'left', borderBottom: '1px solid #374151', padding: 8 }}>Due Date</th>
+                        <th style={{ textAlign: 'left', borderBottom: '1px solid #374151', padding: 8 }}>Frequency</th>
+                        <th style={{ textAlign: 'left', borderBottom: '1px solid #374151', padding: 8 }}>Assigned To</th>
+                        <th style={{ textAlign: 'left', borderBottom: '1px solid #374151', padding: 8 }}>Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -11607,17 +11607,17 @@ async function saveUserRole() {
                         const status = getScheduleStatus(row)
                         return (
                           <tr key={row.id || `${row.month_key}_${row.meter_id}`}>
-                            <td style={td}>{lease?.lease_name || lease?.name || lease?.lease_number || '—'}</td>
-                            <td style={td}>{meter?.meter_number || meter?.meter_name || '—'}</td>
-                            <td style={td}>{row.due_date || '—'}</td>
-                            <td style={td}>{row.frequency || 'monthly'}</td>
-                            <td style={td}>{row.assigned_to || '—'}</td>
-                            <td style={td}><strong style={{ color: status.color }}>{status.label}</strong></td>
+                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{lease?.lease_name || lease?.name || lease?.lease_number || '—'}</td>
+                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{meter?.meter_number || meter?.meter_name || '—'}</td>
+                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.due_date || '—'}</td>
+                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.frequency || 'monthly'}</td>
+                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.assigned_to || '—'}</td>
+                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}><strong style={{ color: status.color }}>{status.label}</strong></td>
                           </tr>
                         )
                       })}
                       {!getScheduledRowsForMonth(provingKpiMonth).length && (
-                        <tr><td colSpan={6} style={{ ...td, color: '#a8b3bd' }}>No provings scheduled for this month yet.</td></tr>
+                        <tr><td colSpan={6} style={{ borderBottom: '1px solid #1f2937', padding: 8, color: '#a8b3bd' }}>No provings scheduled for this month yet.</td></tr>
                       )}
                     </tbody>
                   </table>

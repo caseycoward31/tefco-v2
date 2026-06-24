@@ -881,6 +881,7 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [provingFactorType, setProvingFactorType] = useState('MF')
   const [provingPdfFile, setProvingPdfFile] = useState<File | null>(null)
   const [provingPhotoFiles, setProvingPhotoFiles] = useState<File[]>([])
+  const [editingProvingId, setEditingProvingId] = useState('')
 
   const [potSegment, setPotSegment] = useState('')
   const [potProducer, setPotProducer] = useState('')
@@ -2877,6 +2878,77 @@ function handleProvingAreaSelect(areaId: string) {
     }
   }
 
+  function clearProvingForm() {
+    setEditingProvingId('')
+    setSelectedProvingArea(getDefaultVisibleAreaId())
+    setSelectedProvingSegment('')
+    setSelectedProvingLease('')
+    setProvingMeter('')
+    setProvingDate('')
+    setProverVolume('')
+    setProvingIndicatedVolume('')
+    setAcceptedMF('')
+    setProvingCpl('')
+    setProvingWitness('')
+    setProvingFactorType('MF')
+    setProvingPdfFile(null)
+    setProvingPhotoFiles([])
+  }
+
+  function editDraftProving(proving: any) {
+    if (!proving?.id) return
+    if (String(proving.status || 'draft').toLowerCase() !== 'draft') {
+      alert('Only draft provings can be edited.')
+      return
+    }
+
+    const meterRow: any = asArray(meters).find((m: any) => String(m.id || '') === String(proving.meter_id || ''))
+    const leaseId = String(proving.lease_id || meterRow?.lease_id || '')
+    const leaseRow: any = asArray(leases).find((l: any) => String(l.id || '') === leaseId)
+    const segmentId = String(proving.segment_id || meterRow?.segment_id || leaseRow?.segment_id || '')
+    const segmentRow: any = asArray(segments).find((s: any) => String(s.id || '') === segmentId)
+    const areaId = String(proving.area_id || segmentRow?.area_id || getDefaultVisibleAreaId() || '')
+
+    setEditingProvingId(String(proving.id))
+    setSelectedProvingArea(areaId)
+    setSelectedProvingSegment(segmentId)
+    setSelectedProvingLease(leaseId)
+    setProvingMeter(String(proving.meter_id || ''))
+    setProvingDate(String(proving.proving_date || '').slice(0, 10))
+    setProverVolume(String((proving as any).prover_volume ?? ''))
+    setProvingIndicatedVolume(String((proving as any).indicated_volume ?? ''))
+    setAcceptedMF(String(proving.mf ?? proving.accepted_meter_factor ?? ''))
+    setProvingCpl(String(proving.cpl ?? ''))
+    setProvingWitness(String(proving.witness || ''))
+    setProvingFactorType(String(proving.factor_type || 'MF'))
+    setProvingPdfFile(null)
+    setProvingPhotoFiles([])
+    setProvingTab('create')
+  }
+
+  async function deleteDraftProving(proving: any) {
+    if (!proving?.id) return
+    if (String(proving.status || 'draft').toLowerCase() !== 'draft') {
+      alert('Only draft provings can be deleted.')
+      return
+    }
+    if (!confirm('Delete this draft proving?')) return
+
+    const { error } = await supabase
+      .from('meter_provings')
+      .delete()
+      .eq('id', proving.id)
+      .eq('status', 'draft')
+
+    if (error) {
+      alert('Could not delete draft proving: ' + error.message)
+      return
+    }
+
+    if (String(editingProvingId) === String(proving.id)) clearProvingForm()
+    await loadAll()
+  }
+
   async function saveProving() {
     if (!companyId || !provingMeter || !provingDate) {
       alert('Select meter and proving date first.')
@@ -2894,29 +2966,42 @@ function handleProvingAreaSelect(areaId: string) {
     const finalAcceptedFactor = provingFactorType === 'CMF' ? calculatedCMF : finalAcceptedMF
     const leaseProducerId = leases.find((l: any) => String(l.id) === String(selectedProvingLease))?.producer_id || meters.find((m: any) => String(m.id) === String(provingMeter))?.producer_id || null
 
-    const { data: inserted, error } = await supabase
-      .from('meter_provings')
-      .insert({
-        company_id: companyId,
-        area_id: selectedProvingArea || null,
-        segment_id: selectedProvingSegment || null,
-        lease_id: selectedProvingLease || null,
-        producer_id: leaseProducerId,
-        meter_id: provingMeter,
-        proving_date: provingDate,
-        prover_volume: Number(proverVolume || 0),
-        indicated_volume: Number(provingIndicatedVolume || 0),
-        observed_meter_factor: observedMF,
-        accepted_meter_factor: finalAcceptedFactor,
-        mf: finalAcceptedMF,
-        cpl: provingFactorType === 'CMF' ? finalCpl : null,
-        calculated_cmf: provingFactorType === 'CMF' ? calculatedCMF : null,
-        factor_type: provingFactorType,
-        witness: provingWitness,
-        status: 'draft',
-      })
-      .select()
-      .single()
+    const provingPayload: any = {
+      company_id: companyId,
+      area_id: selectedProvingArea || null,
+      segment_id: selectedProvingSegment || null,
+      lease_id: selectedProvingLease || null,
+      producer_id: leaseProducerId,
+      meter_id: provingMeter,
+      proving_date: provingDate,
+      prover_volume: Number(proverVolume || 0),
+      indicated_volume: Number(provingIndicatedVolume || 0),
+      observed_meter_factor: observedMF,
+      accepted_meter_factor: finalAcceptedFactor,
+      mf: finalAcceptedMF,
+      cpl: provingFactorType === 'CMF' ? finalCpl : null,
+      calculated_cmf: provingFactorType === 'CMF' ? calculatedCMF : null,
+      factor_type: provingFactorType,
+      witness: provingWitness,
+      status: 'draft',
+    }
+
+    const result = editingProvingId
+      ? await supabase
+          .from('meter_provings')
+          .update(provingPayload)
+          .eq('id', editingProvingId)
+          .eq('status', 'draft')
+          .select()
+          .single()
+      : await supabase
+          .from('meter_provings')
+          .insert(provingPayload)
+          .select()
+          .single()
+
+    const inserted = result.data
+    const error = result.error
 
     if (error || !inserted) {
       alert('Could not save proving: ' + (error?.message || 'unknown error'))
@@ -2940,18 +3025,10 @@ function handleProvingAreaSelect(areaId: string) {
       }
     }
 
-    setProvingMeter('')
-    setProvingDate('')
-    setProverVolume('')
-    setProvingIndicatedVolume('')
-    setAcceptedMF('')
-    setProvingCpl('')
-    setProvingWitness('')
-    setProvingFactorType('MF')
-    setProvingPdfFile(null)
-    setProvingPhotoFiles([])
+    const wasEditing = Boolean(editingProvingId)
+    clearProvingForm()
 
-    alert('Proving saved.')
+    alert(wasEditing ? 'Proving updated.' : 'Proving saved.')
     loadAll()
   }
 
@@ -11361,7 +11438,12 @@ async function saveUserRole() {
                   </div>
                 )}
               </div>
-              <button style={button} onClick={saveProving}>Save Draft Proving</button>
+              <button style={button} onClick={saveProving}>{editingProvingId ? 'Update Draft Proving' : 'Save Draft Proving'}</button>
+              {editingProvingId && (
+                <button type="button" style={{ ...button, background: '#334155', border: '1px solid #475569' }} onClick={clearProvingForm}>
+                  Cancel Edit / Clear Form
+                </button>
+              )}
             </div>
               </>
             )}
@@ -11385,6 +11467,12 @@ async function saveUserRole() {
                     <div>Witness: {p.witness || ''}</div>
                     <div>PDF: {p.pdf_file_name || 'None'}</div>
                     {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
+                    {!isReadOnly && (
+                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+                        <button type="button" style={{ ...button, marginTop: 0, background: '#d97706', border: '1px solid #f59e0b' }} onClick={() => editDraftProving(p)}>Edit Proving</button>
+                        <button type="button" style={{ ...button, marginTop: 0, background: '#7f1d1d', border: '1px solid #ef4444' }} onClick={() => deleteDraftProving(p)}>Delete Proving</button>
+                      </div>
+                    )}
                     <button style={button} onClick={() => approveProving(p)}>Submit / Approve Proving</button>
                   </div>
                 )

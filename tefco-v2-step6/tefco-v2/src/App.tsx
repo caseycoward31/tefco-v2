@@ -4544,6 +4544,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
         <div class="cell"><div class="small-label">CTL</div><div class="value">${formatMeasurementNumber(pdfCtl, 6)}</div></div>
         <div class="cell"><div class="small-label">CPL</div><div class="value">${formatMeasurementNumber(pdfCpl, 6)}</div></div>
         <div class="cell"><div class="small-label">CTPL</div><div class="value">${formatMeasurementNumber(pdfCtpl, 6)}</div></div>
+        <div class="cell"><div class="small-label">MF / CMF</div><div class="value">${formatMeasurementNumber(pdfMf, 4)}</div></div>
         <div class="cell"><div class="small-label">POT Quality Source</div><div class="value">${potQualitySource}</div></div>
         <div class="cell"><div class="small-label">Calculation Method</div><div class="value">${observed.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'Standard'}</div></div>
       </div>
@@ -6821,16 +6822,9 @@ async function createCompany() {
     const observed = row?.observed_inputs || {}
     const calc = row?.calculation_results || {}
 
-    const closeDateTime =
-      row?.close_datetime ||
-      observed?.close_datetime ||
-      calc?.close_datetime ||
-      row?.closing_datetime ||
-      observed?.closing_datetime ||
-      calc?.closing_datetime
-
-    if (closeDateTime) return { date: closeDateTime, time: undefined }
-
+    // For tickets, the manually-entered close_date / close_time must win.
+    // Some imported or edited tickets can still have an older close_datetime value,
+    // and that was causing the archive month to follow the wrong timestamp.
     const closeDate =
       row?.close_date ||
       observed?.close_date ||
@@ -6847,6 +6841,16 @@ async function createCompany() {
       calc?.closing_time
 
     if (closeDate) return { date: closeDate, time: closeTime }
+
+    const closeDateTime =
+      row?.close_datetime ||
+      observed?.close_datetime ||
+      calc?.close_datetime ||
+      row?.closing_datetime ||
+      observed?.closing_datetime ||
+      calc?.closing_datetime
+
+    if (closeDateTime) return { date: closeDateTime, time: undefined }
 
     const value =
       fields.map((field) => row?.[field]).find(Boolean) ||

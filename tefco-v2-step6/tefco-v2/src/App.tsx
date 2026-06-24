@@ -2873,7 +2873,6 @@ function handleProvingAreaSelect(areaId: string) {
       .from('meter_provings')
       .update({
         status: 'approved',
-        approved_by: userData.user?.id,
         approved_at: new Date().toISOString(),
       })
       .eq('id', proving.id)

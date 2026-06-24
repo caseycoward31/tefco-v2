@@ -4533,8 +4533,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       <div class="grid-3">
         <div class="cell"><div class="small-label">Observed API</div><div class="value">${formatMeasurementNumber(observed.observed_api_gravity || observed.api_observed || observed.api_gravity_observed, 2)}</div></div>
         <div class="cell"><div class="small-label">API Gravity @ 60°F</div><div class="value">${formatMeasurementNumber(calc.api_gravity_60 || observed.api_gravity_60 || calc.api_gravity || observed.api_gravity, 2)}</div></div>
-        <div class="cell"><div class="small-label">BSW %</div><div class="value">${formatMeasurementNumber(calc.bsw_percent || observed.bsw_percent || observed.bsw, 4)}</div></div>
         <div class="cell"><div class="small-label">BS&W</div><div class="value">${formatMeasurementNumber(calc.bsw_percent || observed.bsw_percent || observed.bsw, 4)}</div></div>
+        <div class="cell"><div class="small-label">BSW</div><div class="value">${formatMeasurementNumber(calc.csw || observed.csw, 5)}</div></div>
         <div class="cell"><div class="small-label">RVP</div><div class="value">${pdfRvp}</div></div>
         <div class="cell"><div class="small-label">Sulphur %</div><div class="value">${pdfSulfur}</div></div>
         <div class="cell"><div class="small-label">Observed Temp °F</div><div class="value">${formatMeasurementNumber(observed.observed_temperature || observed.temperature || observed.average_temperature || calc.average_temperature, 2)}</div></div>

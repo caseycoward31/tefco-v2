@@ -3859,7 +3859,6 @@ function handleProvingAreaSelect(areaId: string) {
   }
 
   function startDraftTicketEdit(ticket: any) {
-    if ((ticket?.status || 'draft') !== 'draft') return
     const observed = ticket.observed_inputs || {}
     const calc = ticket.calculation_results || {}
     const draftReadings = getDraftTicketReadingValues(ticket)
@@ -3947,10 +3946,26 @@ function handleProvingAreaSelect(areaId: string) {
   }
 
   async function saveDraftTicketEdits() {
-    if (!selectedTicket || (selectedTicket.status || 'draft') !== 'draft') return
+    if (!selectedTicket) return
     const observed = { ...((selectedTicket as any).observed_inputs || {}) }
     const calc = { ...((selectedTicket as any).calculation_results || {}) }
     const values = draftTicketEditValues
+    const isApprovedRevision = String(selectedTicket.status || '').toLowerCase() === 'approved'
+    const revisionNote = isApprovedRevision
+      ? window.prompt('Reason for revising this approved ticket? This will be stored in the audit log.')
+      : ''
+
+    if (isApprovedRevision && !String(revisionNote || '').trim()) {
+      alert('Revision cancelled. A reason is required to revise an approved ticket.')
+      return
+    }
+
+    const oldRevisionSnapshot = {
+      observed_inputs: observed,
+      calculation_results: calc,
+      status: selectedTicket.status,
+      approved_at: selectedTicket.approved_at || null,
+    }
 
     const openingReading = ticketEditNumber(values, 'opening_reading')
     const closingReading = ticketEditNumber(values, 'closing_reading')
@@ -4021,6 +4036,26 @@ function handleProvingAreaSelect(areaId: string) {
       draft_edited_at: new Date().toISOString(),
     }
 
+    if (isApprovedRevision) {
+      const previousRevisionNumber = Number(observed.revision_number || 0)
+      const nextRevisionNumber = previousRevisionNumber + 1
+      const revisionEntry = {
+        revision_number: nextRevisionNumber,
+        revised_at: new Date().toISOString(),
+        reason: String(revisionNote || '').trim(),
+        old_inputs: oldRevisionSnapshot.observed_inputs,
+        old_calculation_results: oldRevisionSnapshot.calculation_results,
+      }
+
+      nextObservedInputs.revision_number = nextRevisionNumber
+      nextObservedInputs.revised_at = revisionEntry.revised_at
+      nextObservedInputs.revision_reason = revisionEntry.reason
+      nextObservedInputs.revision_history = [
+        ...(Array.isArray(observed.revision_history) ? observed.revision_history : []),
+        revisionEntry,
+      ]
+    }
+
     const nextCalculationResults: any = {
       ...calc,
       iv: totalBatchBarrels,
@@ -4045,6 +4080,8 @@ function handleProvingAreaSelect(areaId: string) {
       ccf: roundTo(ctlValue * cplValue * mfValue, 6),
       gsv: gsvValue,
       nsv: nsvValue,
+      revision_number: isApprovedRevision ? nextObservedInputs.revision_number : calc.revision_number,
+      revised_at: isApprovedRevision ? nextObservedInputs.revised_at : calc.revised_at,
     }
 
     const updatePayload: any = {
@@ -4064,7 +4101,6 @@ function handleProvingAreaSelect(areaId: string) {
       .from('tickets')
       .update(updatePayload)
       .eq('id', selectedTicket.id)
-      .eq('status', 'draft')
       .select()
       .maybeSingle()
 
@@ -4074,10 +4110,40 @@ function handleProvingAreaSelect(areaId: string) {
     }
 
     const updatedTicket: any = data || { ...selectedTicket, ...updatePayload }
+
+    if (isApprovedRevision) {
+      const auditNotes = JSON.stringify({
+        revision_number: nextObservedInputs.revision_number,
+        reason: String(revisionNote || '').trim(),
+        ticket_number: selectedTicket.ticket_number || selectedTicket.id,
+        old_snapshot: oldRevisionSnapshot,
+        new_snapshot: {
+          observed_inputs: nextObservedInputs,
+          calculation_results: nextCalculationResults,
+        },
+      })
+
+      const { error: auditError } = await supabase
+        .from('ticket_audit_log')
+        .insert({
+          company_id: companyId || (selectedTicket as any).company_id || null,
+          ticket_id: selectedTicket.id,
+          action: 'approved_ticket_revision',
+          old_status: selectedTicket.status || 'approved',
+          new_status: 'approved',
+          notes: auditNotes,
+        })
+
+      if (auditError) {
+        console.warn('Ticket revision saved, but audit log failed:', auditError)
+        alert('Ticket revised, but the audit log entry failed: ' + auditError.message)
+      }
+    }
+
     setSelectedTicket(updatedTicket)
     setIsDraftTicketEditOpen(false)
     loadAll()
-    alert('Draft ticket updated.')
+    alert(String(selectedTicket.status || '').toLowerCase() === 'approved' ? 'Approved ticket revised.' : 'Draft ticket updated.')
   }
 
 
@@ -12414,9 +12480,9 @@ async function saveUserRole() {
                     </button>
                   )}
 
-                  {selectedTicket!.status === 'draft' && (
+                  {['draft', 'approved'].includes(String(selectedTicket!.status || 'draft').toLowerCase()) && (
                     <button style={{ ...button, width: 'auto', background: '#f59e0b' }} onClick={() => startDraftTicketEdit(selectedTicket)}>
-                      Edit Draft
+                      {String(selectedTicket!.status || 'draft').toLowerCase() === 'approved' ? 'Revise Approved Ticket' : 'Edit Draft'}
                     </button>
                   )}
 
@@ -12446,7 +12512,7 @@ async function saveUserRole() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                       <div>
                         <h3 style={{ marginTop: 0 }}>Edit Draft Ticket</h3>
-                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>Change bad inputs before approval. CTL, CPL, GSV, and NSV stay calculated by the app from the edited measurement inputs.</div>
+                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>Change bad inputs. CTL, CPL, GSV, and NSV stay calculated by the app from the edited measurement inputs.</div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <button style={{ ...button, width: 'auto', background: '#16a34a' }} onClick={() => runSafeAction('Saving draft ticket edits', saveDraftTicketEdits)}>Save Changes</button>

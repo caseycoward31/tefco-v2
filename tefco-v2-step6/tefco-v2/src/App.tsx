@@ -12507,11 +12507,11 @@ async function saveUserRole() {
                   </button>
                 </div>
 
-                {selectedTicket!.status === 'draft' && isDraftTicketEditOpen && (
+                {['draft', 'approved'].includes(String(selectedTicket!.status || 'draft').toLowerCase()) && isDraftTicketEditOpen && (
                   <div style={{ ...card, marginTop: 14, borderColor: '#f59e0b' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                       <div>
-                        <h3 style={{ marginTop: 0 }}>Edit Draft Ticket</h3>
+                        <h3 style={{ marginTop: 0 }}>{String(selectedTicket!.status || '').toLowerCase() === 'approved' ? 'Revise Approved Ticket' : 'Edit Draft Ticket'}</h3>
                         <div style={{ color: '#a8b3bd', fontSize: 12 }}>Change bad inputs. CTL, CPL, GSV, and NSV stay calculated by the app from the edited measurement inputs.</div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

@@ -2084,16 +2084,16 @@ function handleReadingAreaSelect(areaId: string) {
           String(observed.meter_id || '') === String(meterId)
         ) : true
         const close = pickNumber(
-          ticket.closing_reading,
-          ticket.closing_meter_reading,
+          (ticket as any).closing_reading,
+          (ticket as any).closing_meter_reading,
           observed.closing_reading,
           observed.closing_meter_reading,
           observed.close_reading,
           observed.close_meter_reading,
           observed.close_meter,
-          ticket.close_reading,
-          ticket.close_meter_reading,
-          ticket.close_meter,
+          (ticket as any).close_reading,
+          (ticket as any).close_meter_reading,
+          (ticket as any).close_meter,
           ticket.calculation_results?.closing_reading,
           ticket.calculation_results?.closing_meter_reading
         )
@@ -2106,16 +2106,16 @@ function handleReadingAreaSelect(areaId: string) {
       const observed = latestTicket.observed_inputs || {}
       const calc = latestTicket.calculation_results || {}
       const ticketClose = pickNumber(
-        latestTicket.closing_reading,
-        latestTicket.closing_meter_reading,
+        (latestTicket as any).closing_reading,
+        (latestTicket as any).closing_meter_reading,
         observed.closing_reading,
         observed.closing_meter_reading,
         observed.close_reading,
         observed.close_meter_reading,
         observed.close_meter,
-        latestTicket.close_reading,
-        latestTicket.close_meter_reading,
-        latestTicket.close_meter,
+        (latestTicket as any).close_reading,
+        (latestTicket as any).close_meter_reading,
+        (latestTicket as any).close_meter,
         calc.closing_reading,
         calc.closing_meter_reading
       )
@@ -3611,9 +3611,9 @@ function handleProvingAreaSelect(areaId: string) {
       observed.close_meter_reading,
       observed.close_reading,
       observed.close_meter,
-      ticket.closing_reading,
-      ticket.closing_meter_reading,
-      ticket.close_reading,
+      (ticket as any).closing_reading,
+      (ticket as any).closing_meter_reading,
+      (ticket as any).close_reading,
       calc.closing_reading,
       calc.closing_meter_reading,
       calc.close_reading,
@@ -3678,8 +3678,8 @@ function handleProvingAreaSelect(areaId: string) {
       observed.closing_reading,
       observed.close_meter_reading,
       observed.closing_meter_reading,
-      ticket.closing_reading,
-      ticket.closing_meter_reading
+      (ticket as any).closing_reading,
+      (ticket as any).closing_meter_reading
     )
     const pdfReadingIv = pdfOpeningReading !== null && pdfClosingReading !== null ? pdfClosingReading - pdfOpeningReading : null
     const pdfIvFromGsv = pdfCcf ? pdfNum(calc.gsv, observed.gsv, observed.gross_standard_volume, observed.gross_standard_volume_bbl) !== null ? (pdfNum(calc.gsv, observed.gsv, observed.gross_standard_volume, observed.gross_standard_volume_bbl) as number) / pdfCcf : null : null
@@ -4020,8 +4020,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       observed.closing_meter_reading,
       observed.meter_close,
       observed.closing_meter,
-      ticket.closing_reading,
-      ticket.closing_meter_reading
+      (ticket as any).closing_reading,
+      (ticket as any).closing_meter_reading
     )
     const pdfReadingIv = pdfOpeningReading !== null && pdfClosingReading !== null ? pdfClosingReading - pdfOpeningReading : null
     const pdfGsvForIv = pdfNum(calc.gsv, observed.gsv, observed.gross_standard_volume, observed.gross_standard_volume_bbl)
@@ -7443,7 +7443,7 @@ async function createCompany() {
               lease?.lease_name || lease?.name || meter?.meter_name || meter?.meter_number || '',
               ticket.ticket_number || ticket.id,
               ticket.opening_reading ?? ticket.observed_inputs?.opening_reading ?? '',
-              ticket.closing_reading ?? ticket.observed_inputs?.closing_reading ?? '',
+              (ticket as any).closing_reading ?? ticket.observed_inputs?.closing_reading ?? '',
               getTicketIv(ticket).toFixed(2),
               Number(ticket.observed_inputs?.average_temperature ?? ticket.observed_temperature ?? ticket.avg_temp ?? 0).toFixed(2),
               Number(ticket.observed_inputs?.average_pressure ?? ticket.observed_pressure ?? ticket.avg_pressure ?? 0).toFixed(2),

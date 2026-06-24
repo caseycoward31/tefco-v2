@@ -605,7 +605,7 @@ function getHighestRole(roles: any[]) {
 function App() {
   const [session, setSession] = useState<any>(null)
   const [page, setPage] = useState('dashboard')
-  const [provingTab, setProvingTab] = useState<'create' | 'drafts' | 'pending' | 'approved' | 'kpi'>('create')
+  const [provingTab, setProvingTab] = useState<'create' | 'drafts' | 'pending' | 'approved' | 'kpi' | 'schedule'>('create')
   const [potTab, setPotTab] = useState<'create' | 'history' | 'export'>('create')
   const [readingTab, setReadingTab] = useState<'new' | 'history' | 'photos'>('new')
   const [operationsTab, setOperationsTab] = useState<'overview' | 'provings' | 'readings' | 'balance'>('overview')
@@ -739,6 +739,9 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [segmentBalanceSettings, setSegmentBalanceSettings] = useState<any[]>([])
   const [segmentProvingSettings, setSegmentProvingSettings] = useState<any[]>([])
   const [provingKpiMonth, setProvingKpiMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const [provingScheduleRows, setProvingScheduleRows] = useState<any[]>([])
+  const [scheduleSegmentId, setScheduleSegmentId] = useState('')
+  const [scheduleAssignedTo, setScheduleAssignedTo] = useState('')
   const [meterAssetConfigs, setMeterAssetConfigs] = useState<any[]>([])
   const [tankCalibrationVersions, setTankCalibrationVersions] = useState<any[]>([])
   const [tankStrappingRows, setTankStrappingRows] = useState<any[]>([])
@@ -1378,12 +1381,148 @@ useEffect(() => {
     if (contractProfileData) setContractProfiles(contractProfileData)
   }
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !companyId) return
+    try {
+      const raw = window.localStorage.getItem(`proving_schedule_${companyId}`)
+      setProvingScheduleRows(raw ? JSON.parse(raw) : [])
+    } catch (error) {
+      console.warn('Could not load local proving schedule:', error)
+      setProvingScheduleRows([])
+    }
+  }, [companyId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !companyId) return
+    try {
+      window.localStorage.setItem(`proving_schedule_${companyId}`, JSON.stringify(provingScheduleRows))
+    } catch (error) {
+      console.warn('Could not save local proving schedule:', error)
+    }
+  }, [companyId, provingScheduleRows])
+
+  function getScheduledRowsForMonth(monthKey = provingKpiMonth) {
+    return asArray(provingScheduleRows).filter((row: any) =>
+      row?.active !== false && String(row.month_key || '') === String(monthKey)
+    )
+  }
+
+  function getScheduleRow(monthKey: string, meterId: string) {
+    return getScheduledRowsForMonth(monthKey).find((row: any) => String(row.meter_id || '') === String(meterId)) || null
+  }
+
+  function getApprovedProvingForScheduledRow(row: any) {
+    if (!row?.meter_id) return null
+    return asArray(provings)
+      .filter((proving: any) =>
+        String(proving.status || '').toLowerCase() === 'approved' &&
+        String(proving.meter_id || '') === String(row.meter_id || '') &&
+        isProvingInKpiMonth(proving, row.month_key || provingKpiMonth)
+      )
+      .sort((a: any, b: any) => new Date(a.proving_date || a.approved_at || a.created_at || 0).getTime() - new Date(b.proving_date || b.approved_at || b.created_at || 0).getTime())[0] || null
+  }
+
+  function getScheduleStatus(row: any) {
+    const completed = getApprovedProvingForScheduledRow(row)
+    const today = new Date()
+    const due = row?.due_date ? makeLocalDateTime(row.due_date) : null
+    if (completed) {
+      const provedDate = makeLocalDateTime(completed.proving_date || completed.approved_at || completed.created_at)
+      if (due && provedDate && provedDate.getTime() > new Date(due.getFullYear(), due.getMonth(), due.getDate(), 23, 59, 59).getTime()) {
+        return { label: 'Completed Late', color: '#f59e0b', completed }
+      }
+      return { label: 'Completed On Time', color: '#16a34a', completed }
+    }
+    if (due && today.getTime() > new Date(due.getFullYear(), due.getMonth(), due.getDate(), 23, 59, 59).getTime()) {
+      return { label: 'Overdue', color: '#dc2626', completed: null }
+    }
+    return { label: 'Scheduled', color: '#2563eb', completed: null }
+  }
+
+  function upsertProvingScheduleRow(meter: any, patch: any) {
+    const meterId = String(meter?.id || patch?.meter_id || '')
+    if (!meterId) return
+    const leaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(meter?.lease_id || patch?.lease_id || ''))
+    const segmentId = String(patch.segment_id || meter?.segment_id || leaseRow?.segment_id || scheduleSegmentId || '')
+    const leaseId = String(patch.lease_id || meter?.lease_id || '')
+    const existing = getScheduleRow(provingKpiMonth, meterId)
+    const base = existing || {
+      id: `${provingKpiMonth}_${meterId}`,
+      month_key: provingKpiMonth,
+      segment_id: segmentId,
+      lease_id: leaseId,
+      meter_id: meterId,
+      frequency: 'monthly',
+      due_date: `${provingKpiMonth}-15`,
+      assigned_to: scheduleAssignedTo,
+      active: true,
+      created_at: new Date().toISOString(),
+    }
+    const nextRow = { ...base, ...patch, month_key: provingKpiMonth, meter_id: meterId, segment_id: segmentId, lease_id: leaseId, updated_at: new Date().toISOString() }
+
+    setProvingScheduleRows((prev: any[]) => {
+      const others = asArray(prev).filter((row: any) => !(String(row.month_key || '') === String(provingKpiMonth) && String(row.meter_id || '') === meterId))
+      return [...others, nextRow]
+    })
+  }
+
+  function removeProvingScheduleRow(monthKey: string, meterId: string) {
+    setProvingScheduleRows((prev: any[]) =>
+      asArray(prev).filter((row: any) => !(String(row.month_key || '') === String(monthKey) && String(row.meter_id || '') === String(meterId)))
+    )
+  }
+
+  function getScheduleSegmentMeters() {
+    if (!scheduleSegmentId) return []
+    return sortMetersForDropdown(
+      asArray(meters).filter((meter: any) => meter.active !== false && String(getMeterSegmentId(meter)) === String(scheduleSegmentId))
+    )
+  }
+
+  function getScheduledKpiSummary(monthKey = provingKpiMonth) {
+    const scheduledRows = getScheduledRowsForMonth(monthKey)
+    const completedRows = scheduledRows.filter((row: any) => !!getApprovedProvingForScheduledRow(row))
+    const overdueRows = scheduledRows.filter((row: any) => getScheduleStatus(row).label === 'Overdue')
+    const remaining = Math.max(scheduledRows.length - completedRows.length, 0)
+    const compliance = scheduledRows.length > 0 ? Math.round((completedRows.length / scheduledRows.length) * 100) : 0
+    return {
+      scheduled: scheduledRows.length,
+      completed: completedRows.length,
+      remaining,
+      overdue: overdueRows.length,
+      compliance,
+      rows: scheduledRows,
+    }
+  }
+
+  function exportProvingScheduleCsv() {
+    const rows = getScheduledRowsForMonth(provingKpiMonth)
+    const header = ['Month', 'Segment', 'Lease', 'Meter', 'Due Date', 'Frequency', 'Assigned To', 'Status', 'Completed Date']
+    const body = rows.map((row: any) => {
+      const meter = getMeterById(row.meter_id)
+      const lease = getLeaseById(row.lease_id || meter?.lease_id || '')
+      const segment = asArray(segments).find((s: any) => String(s.id || '') === String(row.segment_id || getMeterSegmentId(meter)))
+      const status = getScheduleStatus(row)
+      return [
+        row.month_key,
+        segment?.segment_name || segment?.name || '',
+        lease?.lease_name || lease?.name || lease?.lease_number || '',
+        meter?.meter_number || meter?.meter_name || '',
+        row.due_date || '',
+        row.frequency || '',
+        row.assigned_to || '',
+        status.label,
+        status.completed?.proving_date || '',
+      ]
+    })
+    downloadCsv(`proving_schedule_${provingKpiMonth}.csv`, [header, ...body])
+  }
+
   const activeMeters = meters.filter((m) => m.active !== false)
-  const approvedThisMonth = provings.filter((p) => p.status === 'approved' && isThisMonth(p.proving_date))
-  const provedMeterIds = new Set(approvedThisMonth.map((p) => p.meter_id))
-  const provedThisMonthCount = activeMeters.filter((m) => provedMeterIds.has(m.id)).length
-  const remainingProvingCount = Math.max(activeMeters.length - provedThisMonthCount, 0)
-  const provingCompliance = activeMeters.length > 0 ? Math.round((provedThisMonthCount / activeMeters.length) * 100) : 0
+  const provingScheduleSummary = getScheduledKpiSummary(provingKpiMonth)
+  const provedThisMonthCount = provingScheduleSummary.completed
+  const remainingProvingCount = provingScheduleSummary.remaining
+  const provingCompliance = provingScheduleSummary.compliance
   const pendingProvings = provings.filter((p) => p.status !== 'approved')
   const draftProvings = provings.filter((p) => String(p.status || '').toLowerCase() === 'draft')
   const approvalProvings = provings.filter((p) => p.status !== 'approved' && String(p.status || '').toLowerCase() !== 'draft')
@@ -2810,22 +2949,17 @@ function handleReadingAreaSelect(areaId: string) {
   }
 
   function getSegmentProvingKpiRows(monthKey = provingKpiMonth) {
-    return segments
-      .filter((segment: any) => isSegmentIncludedInProvingKpi(segment.id))
-      .map((segment: any) => {
-        const segmentMeters = meters.filter((meter: any) => meter.active !== false && String(getMeterSegmentId(meter)) === String(segment.id))
-        const scheduledMeterIds = new Set(segmentMeters.map((meter: any) => meter.id))
-        const completedMeterIds = new Set(
-          provings
-            .filter((proving: any) => proving.status === 'approved' && scheduledMeterIds.has(proving.meter_id) && isProvingInKpiMonth(proving, monthKey))
-            .map((proving: any) => proving.meter_id)
-        )
-        const scheduled = segmentMeters.length
-        const completed = completedMeterIds.size
-        const remaining = Math.max(scheduled - completed, 0)
-        const compliance = scheduled > 0 ? (completed / scheduled) * 100 : 0
-        return { segment, scheduled, completed, remaining, compliance }
-      })
+    const scheduledRows = getScheduledRowsForMonth(monthKey)
+    const segmentIds = Array.from(new Set(scheduledRows.map((row: any) => String(row.segment_id || getMeterSegmentId(getMeterById(row.meter_id)) || '')).filter(Boolean)))
+    return segmentIds.map((segmentId: string) => {
+      const segment: any = asArray(segments).find((s: any) => String(s.id || '') === segmentId) || { id: segmentId, name: 'Unassigned Segment' }
+      const rows = scheduledRows.filter((row: any) => String(row.segment_id || getMeterSegmentId(getMeterById(row.meter_id)) || '') === segmentId)
+      const completed = rows.filter((row: any) => !!getApprovedProvingForScheduledRow(row)).length
+      const scheduled = rows.length
+      const remaining = Math.max(scheduled - completed, 0)
+      const compliance = scheduled > 0 ? (completed / scheduled) * 100 : 0
+      return { segment, scheduled, completed, remaining, compliance }
+    })
   }
 
   async function saveSegmentProvingSetting(segmentId: string, includeInKpi: boolean) {
@@ -11232,13 +11366,14 @@ async function saveUserRole() {
           <>
             <h1>Meter Provings</h1>
             <div style={{ ...box, padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 0 }}>
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 0 }}>
                 {[
                   ['create', 'Create Proving', 'New proving entry'],
                   ['drafts', `Drafts (${draftProvings.length})`, 'Saved drafts'],
                   ['pending', `Pending (${approvalProvings.length})`, 'Awaiting approval'],
                   ['approved', `Approved (${approvedProvings.length})`, 'History by month'],
-                  ['kpi', 'KPI / Schedule', 'Monthly compliance'],
+                  ['kpi', 'KPI', 'Monthly compliance'],
+                  ['schedule', 'Schedule', 'Plan monthly provings'],
                 ].map(([key, label, sub]) => (
                   <button
                     key={key}
@@ -11266,16 +11401,16 @@ async function saveUserRole() {
             <div style={box}>
               <h2>Monthly Proving KPI</h2>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginTop: 20 }}>
-                <div style={card}>Active Meters<h2>{activeMeters.length}</h2></div>
+                <div style={card}>Scheduled This Month<h2>{provingScheduleSummary.scheduled}</h2></div>
                 <div style={card}>Proved This Month<h2>{provedThisMonthCount}</h2></div>
                 <div style={card}>Remaining<h2>{remainingProvingCount}</h2></div>
-                <div style={card}>Compliance<h2>{provingCompliance}%</h2></div>
+                <div style={card}>Compliance<h2>{provingCompliance}%</h2><div style={{ color: '#a8b3bd' }}>Overdue: {provingScheduleSummary.overdue}</div></div>
               </div>
             </div>
 
             <div style={box}>
-              <h2>Segment Proving Schedule / KPI</h2>
-              <p style={{ color: '#a8b3bd' }}>Choose which segments are included in monthly proving compliance. Completed means an active meter has an approved proving in the selected month.</p>
+              <h2>Scheduled Proving KPI</h2>
+              <p style={{ color: '#a8b3bd' }}>KPI is based only on meters scheduled in the Schedule tab. Completed means the scheduled meter has an approved proving in the selected month.</p>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 12, alignItems: 'center' }}>
                 <label>
                   <div style={{ color: '#a8b3bd', marginBottom: 6 }}>KPI Month</div>
@@ -11283,7 +11418,7 @@ async function saveUserRole() {
                 </label>
                 <div style={card}>
                   <strong>Included Segments:</strong> {getSegmentProvingKpiRows().length || 0}
-                  <span style={{ marginLeft: 12, color: '#a8b3bd' }}>Frequency: Monthly • Scope: All active meters in selected segments</span>
+                  <span style={{ marginLeft: 12, color: '#a8b3bd' }}>Scope: scheduled meters only</span>
                 </div>
               </div>
 
@@ -11334,7 +11469,7 @@ async function saveUserRole() {
                       </tr>
                     ))}
                     {!getSegmentProvingKpiRows().length && (
-                      <tr><td colSpan={5} style={{ padding: 12, color: '#a8b3bd' }}>No segments selected for Proving KPI yet.</td></tr>
+                      <tr><td colSpan={5} style={{ padding: 12, color: '#a8b3bd' }}>No scheduled provings for this KPI month yet.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -11343,7 +11478,154 @@ async function saveUserRole() {
               </>
             )}
 
-            {provingTab === 'create' && (
+            
+            {provingTab === 'schedule' && (
+              <>
+                <div style={box}>
+                  <h2>Monthly Proving Schedule</h2>
+                  <p style={{ color: '#a8b3bd' }}>
+                    Select the month and segment, then choose which lease / meter records are scheduled for proving. KPI counts only these scheduled meters.
+                  </p>
+
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '220px 260px 220px 1fr', gap: 12, alignItems: 'end' }}>
+                    <label>
+                      <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Schedule Month</div>
+                      <input style={input} type="month" value={provingKpiMonth} onChange={(e) => setProvingKpiMonth(e.target.value)} />
+                    </label>
+                    <label>
+                      <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Segment</div>
+                      <select style={input} value={scheduleSegmentId} onChange={(e) => setScheduleSegmentId(e.target.value)}>
+                        <option value="">Select Segment</option>
+                        {getVisibleAreas().map((area: any) => (
+                          <optgroup key={area.id} label={area.area_name || area.name || 'Area'}>
+                            {getVisibleSegments(area.id).map((segment: any) => (
+                              <option key={segment.id} value={segment.id}>{segment.segment_name || segment.name}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Assigned To</div>
+                      <input style={input} placeholder="Optional" value={scheduleAssignedTo} onChange={(e) => setScheduleAssignedTo(e.target.value)} />
+                    </label>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button type="button" style={{ ...button, width: 'auto' }} onClick={exportProvingScheduleCsv}>
+                        Export Schedule CSV
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={box}>
+                  <h2>Lease / Meter Schedule</h2>
+                  {!scheduleSegmentId && <div style={card}>Select a segment to build this month's proving schedule.</div>}
+                  {scheduleSegmentId && getScheduleSegmentMeters().length === 0 && <div style={card}>No active meters found for this segment.</div>}
+
+                  {scheduleSegmentId && getScheduleSegmentMeters().map((meter: any) => {
+                    const lease: any = getLeaseById(meter.lease_id || '')
+                    const row = getScheduleRow(provingKpiMonth, meter.id)
+                    const status = row ? getScheduleStatus(row) : null
+                    return (
+                      <div key={meter.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 160px 160px 160px 160px', gap: 10, alignItems: 'center' }}>
+                        <label style={{ display: 'flex', gap: 10, alignItems: 'center', margin: 0 }}>
+                          <input
+                            type="checkbox"
+                            checked={!!row}
+                            onChange={(e) => e.target.checked ? upsertProvingScheduleRow(meter, { active: true, assigned_to: scheduleAssignedTo }) : removeProvingScheduleRow(provingKpiMonth, meter.id)}
+                          />
+                          <span>
+                            <strong>{lease?.lease_name || lease?.name || lease?.lease_number || 'Unlinked Lease'}</strong>
+                            <div style={{ color: '#a8b3bd', fontSize: 12 }}>Meter: {meter.meter_number || meter.meter_name}</div>
+                          </span>
+                        </label>
+
+                        <div>
+                          {status ? <strong style={{ color: status.color }}>{status.label}</strong> : <span style={{ color: '#a8b3bd' }}>Not Scheduled</span>}
+                          {status?.completed?.proving_date && <div style={{ color: '#a8b3bd', fontSize: 12 }}>Proved: {status.completed.proving_date}</div>}
+                        </div>
+
+                        <input
+                          style={input}
+                          type="date"
+                          value={row?.due_date || `${provingKpiMonth}-15`}
+                          disabled={!row}
+                          onChange={(e) => upsertProvingScheduleRow(meter, { due_date: e.target.value })}
+                        />
+
+                        <select
+                          style={input}
+                          value={row?.frequency || 'monthly'}
+                          disabled={!row}
+                          onChange={(e) => upsertProvingScheduleRow(meter, { frequency: e.target.value })}
+                        >
+                          <option value="monthly">Monthly</option>
+                          <option value="quarterly">Quarterly</option>
+                          <option value="semi_annual">Semi Annual</option>
+                          <option value="annual">Annual</option>
+                        </select>
+
+                        <input
+                          style={input}
+                          placeholder="Assigned To"
+                          value={row?.assigned_to || ''}
+                          disabled={!row}
+                          onChange={(e) => upsertProvingScheduleRow(meter, { assigned_to: e.target.value })}
+                        />
+
+                        {row ? (
+                          <button type="button" style={{ ...button, marginTop: 0, background: '#7f1d1d', border: '1px solid #ef4444' }} onClick={() => removeProvingScheduleRow(provingKpiMonth, meter.id)}>
+                            Remove
+                          </button>
+                        ) : (
+                          <button type="button" style={{ ...button, marginTop: 0 }} onClick={() => upsertProvingScheduleRow(meter, { active: true, assigned_to: scheduleAssignedTo })}>
+                            Schedule
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <div style={box}>
+                  <h2>{provingKpiMonth} Schedule Summary</h2>
+                  <table style={table}>
+                    <thead>
+                      <tr>
+                        <th style={th}>Lease</th>
+                        <th style={th}>Meter</th>
+                        <th style={th}>Due Date</th>
+                        <th style={th}>Frequency</th>
+                        <th style={th}>Assigned To</th>
+                        <th style={th}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {getScheduledRowsForMonth(provingKpiMonth).map((row: any) => {
+                        const meter = getMeterById(row.meter_id)
+                        const lease = getLeaseById(row.lease_id || meter?.lease_id || '')
+                        const status = getScheduleStatus(row)
+                        return (
+                          <tr key={row.id || `${row.month_key}_${row.meter_id}`}>
+                            <td style={td}>{lease?.lease_name || lease?.name || lease?.lease_number || '—'}</td>
+                            <td style={td}>{meter?.meter_number || meter?.meter_name || '—'}</td>
+                            <td style={td}>{row.due_date || '—'}</td>
+                            <td style={td}>{row.frequency || 'monthly'}</td>
+                            <td style={td}>{row.assigned_to || '—'}</td>
+                            <td style={td}><strong style={{ color: status.color }}>{status.label}</strong></td>
+                          </tr>
+                        )
+                      })}
+                      {!getScheduledRowsForMonth(provingKpiMonth).length && (
+                        <tr><td colSpan={6} style={{ ...td, color: '#a8b3bd' }}>No provings scheduled for this month yet.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+{provingTab === 'create' && (
               <>
             <div style={box}>
               <h2>New Proving</h2>

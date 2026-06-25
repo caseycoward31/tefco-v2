@@ -8466,39 +8466,66 @@ async function saveUserRole() {
       const html2pdf = await loadHtml2Pdf()
       const html = buildTicketPdfHtml(ticket)
 
-      const doc = document.implementation.createHTMLDocument('ticket-pdf')
-      doc.open()
-      doc.write(html)
-      doc.close()
-
-      const page = doc.querySelector('.page') as HTMLElement | null
-      if (!page) throw new Error('Ticket PDF layout was not found.')
-
-      const wrapper = document.createElement('div')
-      wrapper.style.position = 'fixed'
-      wrapper.style.left = '-10000px'
-      wrapper.style.top = '0'
-      wrapper.style.width = '8.5in'
-      wrapper.style.background = '#ffffff'
-      wrapper.appendChild(page.cloneNode(true))
-      document.body.appendChild(wrapper)
+      // Render the exact customer ticket HTML inside a hidden iframe so the <style>
+      // block from buildTicketPdfHtml is applied before html2canvas captures it.
+      const iframe = document.createElement('iframe')
+      iframe.style.position = 'fixed'
+      iframe.style.left = '-10000px'
+      iframe.style.top = '0'
+      iframe.style.width = '8.5in'
+      iframe.style.height = '11in'
+      iframe.style.border = '0'
+      iframe.style.background = '#ffffff'
+      document.body.appendChild(iframe)
 
       try {
+        const doc = iframe.contentDocument || iframe.contentWindow?.document
+        if (!doc) throw new Error('Could not create PDF render frame.')
+
+        doc.open()
+        doc.write(html)
+        doc.close()
+
+        await new Promise<void>((resolve) => {
+          const done = () => resolve()
+          if (iframe.contentWindow) {
+            iframe.contentWindow.requestAnimationFrame(() => {
+              iframe.contentWindow?.requestAnimationFrame(done)
+            })
+          } else {
+            setTimeout(done, 250)
+          }
+        })
+
+        const page = doc.querySelector('.page') as HTMLElement | null
+        if (!page) throw new Error('Ticket PDF layout was not found.')
+
+        const backButton = doc.querySelector('.pdf-back-button') as HTMLElement | null
+        if (backButton) backButton.style.display = 'none'
+
         const blob = await html2pdf()
           .set({
             margin: 0,
             filename: 'ticket.pdf',
             image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+            html2canvas: {
+              scale: 2,
+              useCORS: true,
+              allowTaint: true,
+              logging: false,
+              backgroundColor: '#ffffff',
+              windowWidth: 816,
+              windowHeight: 1056,
+            },
             jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
-            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+            pagebreak: { mode: ['css', 'legacy'] },
           })
-          .from(wrapper.firstElementChild)
+          .from(page)
           .outputPdf('blob')
 
         return blob as Blob
       } finally {
-        wrapper.remove()
+        iframe.remove()
       }
     }
 

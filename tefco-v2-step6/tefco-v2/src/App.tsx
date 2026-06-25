@@ -8377,9 +8377,21 @@ async function saveUserRole() {
       const bsw = bswValue === null || bswValue === undefined ? '' : roundTo(bswValue, 4)
       const grav = (pot as any).observed_api_gravity ?? (pot as any).api_gravity ?? pot.gravity ?? ''
       const temp = pot.observed_temperature ?? pot.sample_temperature ?? pot.temp ?? ''
+      const potMeter = meters.find((m: any) =>
+        String(m.id || '') === String(pot.meter_id || pot.meterId || '') ||
+        String(m.lease_id || '') === String(pot.lease_id || pot.leaseId || '')
+      )
+      const potMeterNumber =
+        pot.meter_number ||
+        pot.meterNumber ||
+        pot.meter_name ||
+        pot.meterName ||
+        potMeter?.meter_number ||
+        potMeter?.meter_name ||
+        getPotExportNumber(pot, index)
 
       // Match uploaded GQ liquid import header structure exactly by column position.
-      row[0] = getPotExportNumber(pot, index)           // Number
+      row[0] = potMeterNumber                           // Number / Meter Number
       row[1] = pot.column_type || 'A'                   // Column Type
       row[2] = formatCsvDate(sampleDate)                // EffectiveDate
       row[4] = formatCsvDate(sampleDate)                // Sample Date

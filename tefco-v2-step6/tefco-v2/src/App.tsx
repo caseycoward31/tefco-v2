@@ -6776,17 +6776,38 @@ async function createCompany() {
 
 
   function getTicketDateForBalance(ticket: any) {
-    return ticket.approved_at || ticket.ticket_date || ticket.created_at || ticket.updated_at || ''
+    const parts = getRowAccountingDateParts(ticket, ['ticket_date', 'approved_at', 'created_at', 'updated_at'])
+    const date = makeLocalDateTime(parts.date, parts.time)
+    return date ? date.toISOString() : (ticket.approved_at || ticket.ticket_date || ticket.created_at || ticket.updated_at || '')
+  }
+
+  function getCurrentOverShortRange() {
+    if (overShortStartDate || overShortEndDate) {
+      return {
+        start: overShortStartDate ? new Date(`${overShortStartDate}T00:00:00`) : null,
+        end: overShortEndDate ? new Date(`${overShortEndDate}T23:59:59`) : null,
+        label: overShortStartDate || overShortEndDate ? `${overShortStartDate || 'Beginning'} to ${overShortEndDate || 'Now'}` : 'All Dates',
+      }
+    }
+
+    // Default dashboard O/S to the current accounting month:
+    // current month starts on the 1st at 07:01 and ends next month on the 1st at 07:00.
+    const now = new Date()
+    const accountingNow = getAccountingDateFromValue(now.toISOString()) || now
+    const start = new Date(accountingNow.getFullYear(), accountingNow.getMonth(), 1, 7, 1, 0, 0)
+    const end = new Date(accountingNow.getFullYear(), accountingNow.getMonth() + 1, 1, 7, 0, 0, 0)
+    const label = accountingNow.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    return { start, end, label }
   }
 
   function isTicketInOverShortRange(ticket: any) {
-    const ticketDateRaw = getTicketDateForBalance(ticket)
-    if (!ticketDateRaw) return true
+    const parts = getRowAccountingDateParts(ticket, ['ticket_date', 'approved_at', 'created_at', 'updated_at'])
+    const ticketDate = makeLocalDateTime(parts.date, parts.time)
+    if (!ticketDate) return true
 
-    const ticketDate = new Date(ticketDateRaw)
-
-    if (overShortStartDate && ticketDate < new Date(`${overShortStartDate}T00:00:00`)) return false
-    if (overShortEndDate && ticketDate > new Date(`${overShortEndDate}T23:59:59`)) return false
+    const { start, end } = getCurrentOverShortRange()
+    if (start && ticketDate < start) return false
+    if (end && ticketDate > end) return false
 
     return true
   }
@@ -7029,15 +7050,30 @@ async function createCompany() {
 
   function getMeterBalanceRole(ticket: any) {
     const meter = meters.find((m: any) => String(m.id) === String(ticket.meter_id || ticket.observed_inputs?.meter_id || ''))
-    return normalizeMeterRole(
+    const role = normalizeMeterRole(
       (meter as any)?.meter_role ||
       (meter as any)?.balance_role ||
       (meter as any)?.meter_direction ||
       (meter as any)?.direction ||
       ticket.meter_direction ||
+      ticket.direction ||
+      ticket.movement_direction ||
       ticket.observed_inputs?.meter_direction ||
+      ticket.observed_inputs?.direction ||
+      ticket.observed_inputs?.movement_direction ||
+      ticket.observed_inputs?.receipt_delivery ||
+      ticket.receipt_delivery ||
       ''
     )
+
+    if (role) return role
+
+    // If the master data has not been assigned a receipt/delivery role yet,
+    // keep meter tickets from disappearing out of O/S. Most field LACT tickets are receipts unless marked otherwise.
+    if (String(ticket.ticket_type || '').toLowerCase() === 'truck') return 'receipt'
+    if (String(ticket.ticket_type || '').toLowerCase() === 'meter') return 'receipt'
+
+    return ''
   }
 
   function getSelectedReadingMeterRole() {
@@ -7267,11 +7303,21 @@ async function createCompany() {
   function getOverShortRows() {
     return getOverShortExportSegments()
       .map((segment: any) => {
-        const segmentTickets = getScopedTickets().filter((ticket: any) =>
-          ticket.status === 'approved' &&
-          ticket.segment_id === segment.id &&
-          isTicketInOverShortRange(ticket)
-        )
+        const segmentTickets = getScopedTickets().filter((ticket: any) => {
+          const meter = getMeterById(ticket.meter_id || ticket.observed_inputs?.meter_id || '')
+          const lease = getLeaseById(ticket.lease_id || ticket.observed_inputs?.lease_id || meter?.lease_id || '')
+          const ticketSegmentId =
+            ticket.segment_id ||
+            ticket.observed_inputs?.segment_id ||
+            meter?.segment_id ||
+            lease?.segment_id ||
+            ''
+          return (
+            String(ticket.status || '').toLowerCase() === 'approved' &&
+            String(ticketSegmentId || '') === String(segment.id || '') &&
+            isTicketInOverShortRange(ticket)
+          )
+        })
 
         const receipts = segmentTickets
           .filter((ticket: any) => {
@@ -9671,6 +9717,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 <div>
                   <h2 style={{ margin: 0 }}>Segment Over / Short</h2>
                   <div style={{ color: '#a8b3bd', fontSize: 12 }}>Receipts, deliveries, inventory, check meters, and butane shrinkage by segment.</div>
+                  <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 4 }}>Period: {getCurrentOverShortRange().label}</div>
                 </div>
               </div>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12 }}>

@@ -1370,6 +1370,8 @@ useEffect(() => {
     if (tankDeadwoodData) setTankDeadwoodRules(tankDeadwoodData)
     if (balanceCheckGroupData) setBalanceCheckGroups(balanceCheckGroupData)
     if (balanceCheckGroupMeterData) setBalanceCheckGroupMeters(balanceCheckGroupMeterData)
+    if (balanceEquationData) setBalanceEquations(balanceEquationData)
+    if (balanceEquationItemData) setBalanceEquationItems(balanceEquationItemData)
     if (balanceInventoryEntryData) setBalanceInventoryEntries(balanceInventoryEntryData)
     if (balanceButaneAdjustmentData) setBalanceButaneAdjustments(balanceButaneAdjustmentData)
     if (segmentBalanceSettingData) setSegmentBalanceSettings(segmentBalanceSettingData)

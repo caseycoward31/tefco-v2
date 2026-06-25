@@ -3127,10 +3127,7 @@ function handleProvingAreaSelect(areaId: string) {
     const result = editingProvingId
       ? await supabase
           .from('meter_provings')
-          .update({
-            ...provingPayload,
-            updated_at: new Date().toISOString(),
-          })
+          .update(provingPayload)
           .eq('id', editingProvingId)
           .select()
           .single()
@@ -12252,7 +12249,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   </div>
                 )}
               </div>
-              <button style={button} onClick={saveProving}>{editingProvingId ? 'Update Draft Proving' : 'Save Draft Proving'}</button>
+              <button style={button} onClick={saveProving}>{editingProvingId ? (editingProvingOriginalStatus === 'approved' ? 'Update Approved Proving' : 'Update Draft Proving') : 'Save Draft Proving'}</button>
               {editingProvingId && (
                 <button type="button" style={{ ...button, background: '#334155', border: '1px solid #475569' }} onClick={clearProvingForm}>
                   Cancel Edit / Clear Form

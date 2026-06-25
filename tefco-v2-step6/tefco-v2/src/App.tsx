@@ -7611,16 +7611,54 @@ async function createCompany() {
       return meters.find((meter: any) => String(meter.id) === String(meterId))
     }
 
-    const getTicketIv = (ticket: any) => Number(
-      ticket.observed_inputs?.iv ??
-      ticket.observed_inputs?.total_batch_bbls ??
-      ticket.observed_inputs?.gross_bbls ??
-      ticket.calculation_results?.iv ??
-      ticket.calculation_results?.gross_bbls ??
-      ticket.gross_volume ??
-      getTicketVolumeForBalance(ticket) ??
-      0
-    )
+    const getTicketIv = (ticket: any) => {
+      const observed = ticket.observed_inputs || {}
+      const calc = ticket.calculation_results || {}
+
+      const toNum = (value: any) => {
+        if (value === null || value === undefined || value === '') return null
+        const num = Number(value)
+        return Number.isFinite(num) ? num : null
+      }
+
+      const opening = toNum(
+        ticket.opening_reading ??
+        ticket.opening_meter_reading ??
+        observed.opening_reading ??
+        observed.opening_meter_reading ??
+        observed.open_meter_reading ??
+        calc.opening_reading
+      )
+
+      const closing = toNum(
+        (ticket as any).closing_reading ??
+        (ticket as any).closing_meter_reading ??
+        observed.closing_reading ??
+        observed.closing_meter_reading ??
+        observed.close_meter_reading ??
+        calc.closing_reading
+      )
+
+      // Total Batch Barrels / IV must be the actual batch movement:
+      // Closing Meter Reading - Opening Meter Reading.
+      if (opening !== null && closing !== null) {
+        const diff = closing - opening
+        if (Number.isFinite(diff) && Math.abs(diff) > 0.000001) return diff
+      }
+
+      return Number(
+        calc.iv ??
+        observed.iv ??
+        observed.total_batch_barrels ??
+        observed.batch_barrels ??
+        observed.gross_observed_volume ??
+        observed.gross_bbls ??
+        calc.gross_bbls ??
+        ticket.gross_volume ??
+        getTicketVolumeForBalance(ticket) ??
+        0
+      )
+    }
 
     const getTicketGsv = (ticket: any) => Number(
       ticket.calculation_results?.gsv ??

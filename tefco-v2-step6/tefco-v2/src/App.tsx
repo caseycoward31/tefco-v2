@@ -765,6 +765,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [newCheckGroupCheckMeterId, setNewCheckGroupCheckMeterId] = useState('')
   const [newCheckGroupCheckMeterIds, setNewCheckGroupCheckMeterIds] = useState<string[]>([])
   const [newCheckGroupInputMeterIds, setNewCheckGroupInputMeterIds] = useState<string[]>([])
+  const [editingCheckGroupId, setEditingCheckGroupId] = useState('')
   const [checkGroupMeterSearch, setCheckGroupMeterSearch] = useState('')
   const [newBalanceEquationName, setNewBalanceEquationName] = useState('')
   const [newBalanceEquationSegmentId, setNewBalanceEquationSegmentId] = useState('')
@@ -775,6 +776,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [equationMeterSearch, setEquationMeterSearch] = useState('')
   const [newEquationIncludeTankChange, setNewEquationIncludeTankChange] = useState(false)
   const [newEquationIncludeLineFillChange, setNewEquationIncludeLineFillChange] = useState(false)
+  const [editingBalanceEquationId, setEditingBalanceEquationId] = useState('')
   const [meterMasterSegmentFilterId, setMeterMasterSegmentFilterId] = useState('')
   const [selectedMeterMasterId, setSelectedMeterMasterId] = useState('')
   const [companies, setCompanies] = useState<Company[]>([])
@@ -8044,6 +8046,68 @@ async function createCompany() {
   }
 
 
+  function cancelEditCheckMeterGroup() {
+    setEditingCheckGroupId('')
+    setNewCheckGroupName('')
+    setNewCheckGroupSegmentId('')
+    setNewCheckGroupCheckMeterId('')
+    setNewCheckGroupCheckMeterIds([])
+    setNewCheckGroupInputMeterIds([])
+    setCheckGroupMeterSearch('')
+  }
+
+  function startEditCheckMeterGroup(group: any) {
+    const members = balanceCheckGroupMeters.filter((member: any) => String(member.check_group_id || member.group_id || '') === String(group.id))
+    const checkIds = Array.from(new Set([
+      group.check_meter_id,
+      ...members.filter((member: any) => String(member.role || member.meter_role || '').toLowerCase() === 'check').map((member: any) => member.meter_id),
+    ].filter(Boolean).map((id: any) => String(id))))
+    const inputIds = Array.from(new Set(
+      members
+        .filter((member: any) => String(member.role || member.meter_role || 'input').toLowerCase() !== 'check')
+        .map((member: any) => String(member.meter_id || ''))
+        .filter(Boolean)
+        .filter((meterId: string) => !checkIds.includes(meterId))
+    ))
+
+    setEditingCheckGroupId(group.id)
+    setNewCheckGroupName(group.name || '')
+    setNewCheckGroupSegmentId(group.segment_id || '')
+    setNewCheckGroupCheckMeterId('')
+    setNewCheckGroupCheckMeterIds(checkIds)
+    setNewCheckGroupInputMeterIds(inputIds)
+    setCheckGroupMeterSearch('')
+    setAdminSection('checks')
+  }
+
+  function cancelEditBalanceEquation() {
+    setEditingBalanceEquationId('')
+    setNewBalanceEquationName('')
+    setNewBalanceEquationSegmentId('')
+    setNewEquationSideAMeterIds([])
+    setNewEquationSideBMeterIds([])
+    setNewEquationSideACheckGroupIds([])
+    setNewEquationSideBCheckGroupIds([])
+    setNewEquationIncludeTankChange(false)
+    setNewEquationIncludeLineFillChange(false)
+    setEquationMeterSearch('')
+  }
+
+  function startEditBalanceEquation(equation: any) {
+    const items = balanceEquationItems.filter((item: any) => String(item.equation_id || '') === String(equation.id))
+    setEditingBalanceEquationId(equation.id)
+    setNewBalanceEquationName(equation.name || '')
+    setNewBalanceEquationSegmentId(equation.segment_id || '')
+    setNewEquationSideAMeterIds(items.filter((item: any) => item.side === 'A' && item.item_type === 'meter').map((item: any) => String(item.item_id)))
+    setNewEquationSideBMeterIds(items.filter((item: any) => item.side === 'B' && item.item_type === 'meter').map((item: any) => String(item.item_id)))
+    setNewEquationSideACheckGroupIds(items.filter((item: any) => item.side === 'A' && item.item_type === 'check_group').map((item: any) => String(item.item_id)))
+    setNewEquationSideBCheckGroupIds(items.filter((item: any) => item.side === 'B' && item.item_type === 'check_group').map((item: any) => String(item.item_id)))
+    setNewEquationIncludeTankChange(!!equation.include_tank_change)
+    setNewEquationIncludeLineFillChange(!!equation.include_line_fill_change)
+    setEquationMeterSearch('')
+    setAdminSection('equations')
+  }
+
   async function saveCheckMeterGroup() {
     const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
     if (!activeCompanyID) {
@@ -8062,21 +8126,36 @@ async function createCompany() {
 
     const inputMeterIds = newCheckGroupInputMeterIds.filter((meterId) => !checkMeterIds.includes(String(meterId)))
 
-    const { data: groupRow, error: groupError } = await supabase
-      .from('balance_check_groups')
-      .insert({
-        company_id: activeCompanyID,
-        name: newCheckGroupName,
-        segment_id: newCheckGroupSegmentId,
-        check_meter_id: checkMeterIds[0],
-        active: true,
-      })
-      .select('*')
-      .single()
+    const groupPayload = {
+      company_id: activeCompanyID,
+      name: newCheckGroupName,
+      segment_id: newCheckGroupSegmentId,
+      check_meter_id: checkMeterIds[0],
+      active: true,
+    }
 
-    if (groupError) {
-      alert(`Could not create check meter group: ${groupError.message}`)
+    const groupResult = editingCheckGroupId
+      ? await supabase.from('balance_check_groups').update(groupPayload).eq('id', editingCheckGroupId).select('*').single()
+      : await supabase.from('balance_check_groups').insert(groupPayload).select('*').single()
+
+    const groupRow = groupResult.data
+    const groupError = groupResult.error
+
+    if (groupError || !groupRow) {
+      alert(`Could not ${editingCheckGroupId ? 'update' : 'create'} check meter group: ${groupError?.message || 'unknown error'}`)
       return
+    }
+
+    if (editingCheckGroupId) {
+      const { error: deleteMembersError } = await supabase
+        .from('balance_check_group_meters')
+        .delete()
+        .or(`check_group_id.eq.${editingCheckGroupId},group_id.eq.${editingCheckGroupId}`)
+
+      if (deleteMembersError) {
+        alert(`Check group updated, but old meter assignments could not be cleared: ${deleteMembersError.message}`)
+        return
+      }
     }
 
     const memberRows = [
@@ -8090,11 +8169,7 @@ async function createCompany() {
       return
     }
 
-    setNewCheckGroupName('')
-    setNewCheckGroupSegmentId('')
-    setNewCheckGroupCheckMeterId('')
-    setNewCheckGroupCheckMeterIds([])
-    setNewCheckGroupInputMeterIds([])
+    cancelEditCheckMeterGroup()
     await loadAll()
   }
 
@@ -8109,23 +8184,38 @@ async function createCompany() {
       return
     }
 
-    const { data: equationRow, error: equationError } = await supabase
-      .from('balance_equations')
-      .insert({
-        company_id: activeCompanyID,
-        segment_id: newBalanceEquationSegmentId,
-        name: newBalanceEquationName,
-        equation_type: 'side_a_minus_side_b',
-        include_tank_change: newEquationIncludeTankChange,
-        include_line_fill_change: newEquationIncludeLineFillChange,
-        active: true,
-      })
-      .select('*')
-      .single()
+    const equationPayload = {
+      company_id: activeCompanyID,
+      segment_id: newBalanceEquationSegmentId,
+      name: newBalanceEquationName,
+      equation_type: 'side_a_minus_side_b',
+      include_tank_change: newEquationIncludeTankChange,
+      include_line_fill_change: newEquationIncludeLineFillChange,
+      active: true,
+    }
+
+    const equationResult = editingBalanceEquationId
+      ? await supabase.from('balance_equations').update(equationPayload).eq('id', editingBalanceEquationId).select('*').single()
+      : await supabase.from('balance_equations').insert(equationPayload).select('*').single()
+
+    const equationRow = equationResult.data
+    const equationError = equationResult.error
 
     if (equationError || !equationRow) {
-      alert(`Could not create balance equation: ${equationError?.message || 'unknown error'}`)
+      alert(`Could not ${editingBalanceEquationId ? 'update' : 'create'} balance equation: ${equationError?.message || 'unknown error'}`)
       return
+    }
+
+    if (editingBalanceEquationId) {
+      const { error: deleteItemsError } = await supabase
+        .from('balance_equation_items')
+        .delete()
+        .eq('equation_id', editingBalanceEquationId)
+
+      if (deleteItemsError) {
+        alert(`Balance equation updated, but old equation items could not be cleared: ${deleteItemsError.message}`)
+        return
+      }
     }
 
     const memberRows = [
@@ -8143,14 +8233,7 @@ async function createCompany() {
       }
     }
 
-    setNewBalanceEquationName('')
-    setNewBalanceEquationSegmentId('')
-    setNewEquationSideAMeterIds([])
-    setNewEquationSideBMeterIds([])
-    setNewEquationSideACheckGroupIds([])
-    setNewEquationSideBCheckGroupIds([])
-    setNewEquationIncludeTankChange(false)
-    setNewEquationIncludeLineFillChange(false)
+    cancelEditBalanceEquation()
     await loadAll()
   }
 
@@ -10628,10 +10711,11 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     </div>
 
                     <div style={{ ...(adminSection === 'checks' ? card : { display: 'none' }), gridColumn: '1 / -1' }}>
-                      <h3>Check Meter Groups</h3>
+                      <h3>{editingCheckGroupId ? 'Edit Check Meter Group' : 'Check Meter Groups'}</h3>
                       <p style={{ color: '#a8b3bd' }}>
-                        Group receipt/delivery meters and compare them to a selected check meter inside the same segment.
+                        Group receipt/delivery meters and compare them to one or more output/check meters inside the same segment.
                       </p>
+                      {editingCheckGroupId && <div style={{ color: '#fca5a5', marginBottom: 10 }}>Editing existing group. Save to replace the group setup, or cancel to leave it unchanged.</div>}
                       <input style={input} placeholder="Group Name" value={newCheckGroupName} onChange={(e) => setNewCheckGroupName(e.target.value)} />
                       <select style={input} value={newCheckGroupSegmentId} onChange={(e) => { setNewCheckGroupSegmentId(e.target.value); setNewCheckGroupCheckMeterId(''); setNewCheckGroupCheckMeterIds([]); setNewCheckGroupInputMeterIds([]); setCheckGroupMeterSearch('') }}>
                         <option value="">Select Segment</option>
@@ -10683,7 +10767,12 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                           </label>
                         ))}
                       </div>
-                      <button style={button} onClick={() => runSafeAction('Saving check meter group', saveCheckMeterGroup)}>Save Check Meter Group</button>
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                        <button style={button} onClick={() => runSafeAction(editingCheckGroupId ? 'Updating check meter group' : 'Saving check meter group', saveCheckMeterGroup)}>
+                          {editingCheckGroupId ? 'Update Check Meter Group' : 'Save Check Meter Group'}
+                        </button>
+                        {editingCheckGroupId && <button type="button" style={{ ...button, background: '#374151' }} onClick={cancelEditCheckMeterGroup}>Cancel Edit</button>}
+                      </div>
                       <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
                         {balanceCheckGroups.map((group: any) => {
                           const segment = segments.find((s: any) => String(s.id) === String(group.segment_id))
@@ -10696,16 +10785,22 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                             const meter = meters.find((m: any) => String(m.id) === String(meterId))
                             return meter ? getMeterDisplayName(meter).main : meterId
                           }).join(', ')
-                          return <div key={group.id} style={{ color: '#a8b3bd' }}>{group.name} • {segment?.name || 'Segment'} • Outputs/Checks: {checkNames || '—'}</div>
+                          return (
+                            <div key={group.id} style={{ ...box, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                              <span style={{ color: '#a8b3bd' }}>{group.name} • {segment?.name || 'Segment'} • Outputs/Checks: {checkNames || '—'}</span>
+                              <button type="button" style={{ ...button, width: 'auto' }} onClick={() => startEditCheckMeterGroup(group)}>Edit</button>
+                            </div>
+                          )
                         })}
                       </div>
                     </div>
 
                     <div style={{ ...(adminSection === 'equations' ? card : { display: 'none' }), gridColumn: '1 / -1' }}>
-                      <h3>Station / Balance Equations</h3>
+                      <h3>{editingBalanceEquationId ? 'Edit Station / Balance Equation' : 'Station / Balance Equations'}</h3>
                       <p style={{ color: '#a8b3bd' }}>
                         Build equations like Side A = gathering check meters + truck LACTs, Side B = outbound check meters. The app calculates Side A - Side B.
                       </p>
+                      {editingBalanceEquationId && <div style={{ color: '#fca5a5', marginBottom: 10 }}>Editing existing station balance. Save to replace the equation setup, or cancel to leave it unchanged.</div>}
                       <input style={input} placeholder="Equation Name (example: BSRNG Station Outbound)" value={newBalanceEquationName} onChange={(e) => setNewBalanceEquationName(e.target.value)} />
                       <select style={input} value={newBalanceEquationSegmentId} onChange={(e) => { setNewBalanceEquationSegmentId(e.target.value); setNewEquationSideAMeterIds([]); setNewEquationSideBMeterIds([]); setNewEquationSideACheckGroupIds([]); setNewEquationSideBCheckGroupIds([]); setEquationMeterSearch('') }}>
                         <option value="">Select Segment</option>
@@ -10750,11 +10845,21 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         </div>
                         </>
                       )}
-                      <button style={button} onClick={() => runSafeAction('Saving balance equation', saveBalanceEquation)}>Save Balance Equation</button>
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                        <button style={button} onClick={() => runSafeAction(editingBalanceEquationId ? 'Updating balance equation' : 'Saving balance equation', saveBalanceEquation)}>
+                          {editingBalanceEquationId ? 'Update Balance Equation' : 'Save Balance Equation'}
+                        </button>
+                        {editingBalanceEquationId && <button type="button" style={{ ...button, background: '#374151' }} onClick={cancelEditBalanceEquation}>Cancel Edit</button>}
+                      </div>
                       <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
                         {balanceEquations.map((equation: any) => {
                           const segment = segments.find((s: any) => String(s.id) === String(equation.segment_id))
-                          return <div key={equation.id} style={{ color: '#a8b3bd' }}>{equation.name} • {segment?.name || 'Segment'} • Side A - Side B</div>
+                          return (
+                            <div key={equation.id} style={{ ...box, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                              <span style={{ color: '#a8b3bd' }}>{equation.name} • {segment?.name || 'Segment'} • Side A - Side B</span>
+                              <button type="button" style={{ ...button, width: 'auto' }} onClick={() => startEditBalanceEquation(equation)}>Edit</button>
+                            </div>
+                          )
                         })}
                       </div>
                     </div>

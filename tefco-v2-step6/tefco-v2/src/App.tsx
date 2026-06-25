@@ -7439,7 +7439,10 @@ async function createCompany() {
   }
 
   function getTicketReportDate(ticket: any) {
-    return ticket.approved_at || ticket.ticket_date || ticket.created_at || ticket.updated_at || ''
+    const parts = getRowAccountingDateParts(ticket, ['ticket_date', 'approved_at', 'created_at', 'updated_at'])
+    const closeDate = makeLocalDateTime(parts.date, parts.time)
+    if (closeDate) return closeDate.toISOString()
+    return ticket.ticket_date || ticket.approved_at || ticket.created_at || ticket.updated_at || ''
   }
 
   function getReportFilteredTickets(type?: string) {
@@ -8391,154 +8394,138 @@ async function saveUserRole() {
   }
 
   async function exportProducerPdfBundle() {
-    if (!pdfBundleStartDate || !pdfBundleEndDate) {
-      alert('Select a start date and end date.')
+    if (!reportStartDate || !reportEndDate) {
+      alert('Select a report start date and end date.')
       return
     }
 
-    const start = new Date(`${pdfBundleStartDate}T00:00:00`)
-    const end = new Date(`${pdfBundleEndDate}T23:59:59`)
+    const getTicketProducerId = (ticket: any) => {
+      const observed = ticket?.observed_inputs || {}
+      if (ticket.producer_id || ticket.producerId || observed.producer_id) {
+        return ticket.producer_id || ticket.producerId || observed.producer_id
+      }
 
-    const getTicketDate = (ticket: any) =>
-      ticket.ticket_date || ticket.ticketDate || ticket.created_at || ticket.createdAt || ticket.updated_at || ticket.updatedAt || ticket.approved_at || ticket.approvedAt || ''
-
-    const getTicketProducerId = (ticket: any) =>
-      ticket.producer_id || ticket.producerId || ticket.observed_inputs?.producer_id || ticket.calculation_profile_snapshot?.producer_id || ''
-
-    const getProvingDate = (proving: any) =>
-      proving.proving_date || proving.provingDate || proving.created_at || proving.createdAt || proving.approved_at || proving.approvedAt || ''
-
-    const getProvingProducerId = (proving: any) => {
-      if (proving.producer_id || proving.producerId) return proving.producer_id || proving.producerId
-      const lease = leases.find((l: any) => String(l.id) === String(proving.lease_id || proving.leaseId || ''))
+      const lease = leases.find((l: any) => String(l.id || '') === String(ticket.lease_id || observed.lease_id || ''))
       if (lease?.producer_id) return lease.producer_id
-      const meter = meters.find((m: any) => String(m.id) === String(proving.meter_id || proving.meterId || ''))
+
+      const meter = meters.find((m: any) => String(m.id || '') === String(ticket.meter_id || observed.meter_id || ''))
       if (meter?.producer_id) return meter.producer_id
-      const meterLease = leases.find((l: any) => String(l.id) === String(meter?.lease_id || ''))
+
+      const meterLease = leases.find((l: any) => String(l.id || '') === String(meter?.lease_id || ''))
       return meterLease?.producer_id || ''
     }
 
-    const ticketsToExport = getScopedTickets().filter((ticket: any) => {
-      const ticketDateValue = getTicketDate(ticket)
-      const dateOk = ticketDateValue ? new Date(ticketDateValue) >= start && new Date(ticketDateValue) <= end : true
-      const producerOk = pdfBundleProducerId ? getTicketProducerId(ticket) === pdfBundleProducerId : true
-      return ticket.status === 'approved' && dateOk && producerOk
-    })
+    const ticketsToExport = getReportFilteredTickets('meter')
+      .filter((ticket: any) => String(ticket.status || '').toLowerCase() === 'approved')
+      .filter((ticket: any) => reportProducerId ? String(getTicketProducerId(ticket)) === String(reportProducerId) : true)
 
-    const provingsToExport = getScopedProvings().filter((proving: any) => {
-      const dateValue = getProvingDate(proving)
-      const dateOk = dateValue ? new Date(dateValue) >= start && new Date(dateValue) <= end : true
-      const producerOk = pdfBundleProducerId ? getProvingProducerId(proving) === pdfBundleProducerId : true
-      return proving.status === 'approved' && dateOk && producerOk
-    })
-
-    if (ticketsToExport.length === 0 && provingsToExport.length === 0) {
-      alert('No approved tickets or provings found for that producer/date range.')
+    if (ticketsToExport.length === 0) {
+      alert('No approved meter tickets found for the selected report filters.')
       return
     }
 
     const zip = new JSZip()
     let addedTicketCount = 0
-    let addedProvingCount = 0
     const value = (v: any) => v === null || v === undefined || v === '' ? '—' : v
+    const numberValue = (v: any, digits = 2) => {
+      const n = Number(v)
+      return Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—'
+    }
 
     const makeTicketHtml = (ticket: any) => {
-      const producer = producers.find((p: any) => p.id === getTicketProducerId(ticket))
-      const meter = meters.find((m: any) => m.id === ticket.meter_id)
-      const segment = segments.find((s: any) => s.id === ticket.segment_id)
-      const lease = leases.find((l: any) => l.id === ticket.lease_id || l.id === meter?.lease_id)
-      return `<!doctype html><html><head><meta charset="utf-8"><title>${value(ticket.ticket_number || 'Ticket')}</title>
-        <style>body{font-family:Arial,sans-serif;padding:24px;color:#111}.hdr{border-bottom:3px solid #c46a2b;margin-bottom:18px;padding-bottom:10px}h1{margin:0}.grid{display:grid;grid-template-columns:220px 1fr;border:1px solid #ddd}.grid div{padding:8px;border-bottom:1px solid #eee}.label{font-weight:700;background:#fafafa}</style>
-        </head><body><div class="hdr"><h1>${getCompanyDisplayName()}</h1><div>Custody Transfer Ticket</div></div>
-        <h2>${value(ticket.ticket_number || ticket.id)}</h2><div class="grid">
-        <div class="label">Producer</div><div>${value(producer?.name)}</div>
-        <div class="label">Segment</div><div>${value(segment?.name || segment?.segment_name)}</div>
-        <div class="label">Lease</div><div>${value(lease?.lease_name || lease?.name)}</div>
-        <div class="label">Meter</div><div>${value(meter?.meter_number)}</div>
-        <div class="label">Date</div><div>${value(getTicketDate(ticket))}</div>
-        <div class="label">IV</div><div>${value(ticket.observed_inputs?.iv)}</div>
-        <div class="label">CTL</div><div>${value(ticket.observed_inputs?.ctl)}</div>
-        <div class="label">CPL</div><div>${value(ticket.observed_inputs?.cpl)}</div>
-        <div class="label">GSV</div><div>${value(ticket.calculation_results?.gsv)}</div>
-        <div class="label">NSV</div><div>${value(ticket.calculation_results?.nsv || ticket.calculation_results?.net_volume)}</div>
-        </div></body></html>`
+      const observed = ticket.observed_inputs || {}
+      const calc = ticket.calculation_results || {}
+      const producer = producers.find((p: any) => String(p.id || '') === String(getTicketProducerId(ticket)))
+      const meter = meters.find((m: any) => String(m.id || '') === String(ticket.meter_id || observed.meter_id || ''))
+      const segment = segments.find((s: any) => String(s.id || '') === String(ticket.segment_id || observed.segment_id || ''))
+      const lease = leases.find((l: any) => String(l.id || '') === String(ticket.lease_id || observed.lease_id || meter?.lease_id || ''))
+      const ticketDate = getTicketReportDate(ticket)
+      const openDateTime = `${observed.open_date || '—'} ${observed.open_time || ''}`
+      const closeDateTime = `${observed.close_date || '—'} ${observed.close_time || ''}`
+      const revisionNumber = observed.revision_number || calc.revision_number || 0
+
+      return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${value(ticket.ticket_number || 'Ticket')}</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:24px;color:#111}
+    .hdr{border-bottom:3px solid #c46a2b;margin-bottom:18px;padding-bottom:10px}
+    h1{margin:0}
+    .grid{display:grid;grid-template-columns:220px 1fr;border:1px solid #ddd}
+    .grid div{padding:8px;border-bottom:1px solid #eee}
+    .label{font-weight:700;background:#fafafa}
+  </style>
+</head>
+<body>
+  <div class="hdr"><h1>${getCompanyDisplayName()}</h1><div>Producer PDF Bundle Ticket</div></div>
+  <h2>${value(ticket.ticket_number || ticket.id)}</h2>
+  <div class="grid">
+    <div class="label">Status</div><div>${value(ticket.status)}</div>
+    <div class="label">Revision</div><div>${revisionNumber ? `Revision ${revisionNumber}` : 'Original'}</div>
+    <div class="label">Revision Reason</div><div>${value(observed.revision_reason)}</div>
+    <div class="label">Producer</div><div>${value(producer?.name || observed.producer_name)}</div>
+    <div class="label">Segment</div><div>${value(segment?.segment_name || segment?.name || observed.segment_name)}</div>
+    <div class="label">Lease</div><div>${value(lease?.lease_name || lease?.name || observed.lease_name)}</div>
+    <div class="label">Meter</div><div>${value(meter?.meter_number || observed.meter_number)}</div>
+    <div class="label">Open Date / Time</div><div>${openDateTime}</div>
+    <div class="label">Close Date / Time</div><div>${closeDateTime}</div>
+    <div class="label">Report Date</div><div>${ticketDate ? new Date(ticketDate).toLocaleString() : '—'}</div>
+    <div class="label">Opening Reading</div><div>${value(calc.opening_reading ?? observed.opening_reading)}</div>
+    <div class="label">Closing Reading</div><div>${value(calc.closing_reading ?? observed.closing_reading)}</div>
+    <div class="label">IV</div><div>${numberValue(calc.iv ?? observed.iv ?? observed.total_batch_barrels, 2)}</div>
+    <div class="label">CTL</div><div>${numberValue(calc.ctl ?? observed.ctl, 6)}</div>
+    <div class="label">CPL</div><div>${numberValue(calc.cpl ?? observed.cpl, 6)}</div>
+    <div class="label">CTPL</div><div>${numberValue(calc.ctpl ?? observed.ctpl, 6)}</div>
+    <div class="label">MF / CMF</div><div>${numberValue(calc.mf ?? observed.mf, 4)}</div>
+    <div class="label">GSV</div><div>${numberValue(calc.gsv ?? observed.gsv, 2)}</div>
+    <div class="label">NSV</div><div>${numberValue(calc.nsv ?? observed.nsv ?? observed.net_volume_bbl, 2)}</div>
+    <div class="label">BS&W</div><div>${numberValue(calc.bsw_percent ?? observed.bsw_percent ?? observed.bsw, 4)}</div>
+    <div class="label">BSW</div><div>${numberValue(calc.csw ?? observed.csw, 5)}</div>
+  </div>
+</body>
+</html>`
     }
 
+    const groupedByProducer: Record<string, any[]> = {}
     for (const ticket of ticketsToExport as any[]) {
-      const ticketLabel = ticket.ticket_number || ticket.ticket_no || ticket.id || `ticket-${ticketsToExport.indexOf(ticket) + 1}`
-      const safeLabel = sanitizeFileName(ticketLabel, 'ticket')
-      const pdfUrl = ticket.pdf_url || ticket.pdfUrl
-
-      if (pdfUrl) {
-        try {
-          const response = await fetch(pdfUrl)
-          if (response.ok) {
-            const blob = await response.blob()
-            if (blob.size > 0) {
-              zip.file(`Tickets/${safeLabel}.pdf`, blob)
-              addedTicketCount += 1
-              continue
-            }
-          }
-        } catch (error) {
-          console.error('Ticket PDF fetch failed, falling back to HTML:', error)
-        }
-      }
-
-      zip.file(`Tickets/${safeLabel}.html`, makeTicketHtml(ticket))
-      addedTicketCount += 1
+      const producerId = String(getTicketProducerId(ticket) || 'unknown')
+      if (!groupedByProducer[producerId]) groupedByProducer[producerId] = []
+      groupedByProducer[producerId].push(ticket)
     }
 
-    for (const proving of provingsToExport as any[]) {
-      const meter = meters.find((m: any) => String(m.id) === String(proving.meter_id || proving.meterId || ''))
-      const lease = leases.find((l: any) => String(l.id) === String(proving.lease_id || proving.leaseId || meter?.lease_id || ''))
-      const label = [lease?.lease_name || lease?.name || 'Proving', meter?.meter_number || proving.meter_id || proving.id, getProvingDate(proving) || proving.id].filter(Boolean).join('_')
-      const safeLabel = sanitizeFileName(label, 'proving')
-      const filePath = proving.pdf_url || proving.pdfUrl
+    for (const [producerId, rows] of Object.entries(groupedByProducer)) {
+      const producer = producers.find((p: any) => String(p.id || '') === String(producerId))
+      const producerFolder = sanitizeFileName(producer?.name || 'Unknown Producer', 'producer')
 
-      if (filePath) {
-        try {
-          let blob: Blob | null = null
-          if (/^https?:\/\//i.test(filePath)) {
-            const response = await fetch(filePath)
-            if (response.ok) blob = await response.blob()
-          } else {
-            const { data, error } = await supabase.storage.from('proving-reports').download(filePath)
-            if (!error && data) blob = data
-          }
-          if (blob && blob.size > 0) {
-            zip.file(`Provings/${safeLabel}.pdf`, blob)
-            addedProvingCount += 1
-            continue
-          }
-        } catch (error) {
-          console.error('Proving PDF export failed:', error)
-        }
+      for (const ticket of rows as any[]) {
+        const ticketLabel = ticket.ticket_number || ticket.ticket_no || ticket.id || `ticket-${addedTicketCount + 1}`
+        const safeLabel = sanitizeFileName(ticketLabel, 'ticket')
+
+        // We generate a complete HTML ticket into the ZIP. Browser can print/save as PDF.
+        // This avoids stale/missing saved pdf_url files and uses current app ticket data/revisions.
+        zip.file(`${producerFolder}/${safeLabel}.html`, makeTicketHtml(ticket))
+        addedTicketCount += 1
       }
-
-      const summary = [
-        'Proving Report Summary',
-        `Lease: ${lease?.lease_name || lease?.name || ''}`,
-        `Meter: ${meter?.meter_number || ''}`,
-        `Date: ${getProvingDate(proving) || ''}`,
-        `Status: ${proving.status || ''}`,
-        `Accepted ${proving.factor_type || 'MF'}: ${proving.accepted_meter_factor || ''}`,
-        `Witness: ${proving.witness || ''}`,
-        `PDF: ${proving.pdf_file_name || proving.pdfFileName || 'Not stored'}`,
-      ].join('\n')
-      zip.file(`Provings/${safeLabel}.txt`, summary)
-      addedProvingCount += 1
     }
 
     zip.file(
       'README.txt',
-      `Producer Measurement Bundle\nTickets exported: ${addedTicketCount}\nProvings exported: ${addedProvingCount}\nDate range: ${pdfBundleStartDate} to ${pdfBundleEndDate}\n`
+      `Producer Measurement Ticket Bundle
+Tickets exported: ${addedTicketCount}
+Report filters:
+Start: ${reportStartDate}
+End: ${reportEndDate}
+Producer: ${producers.find((p: any) => p.id === reportProducerId)?.name || 'All Producers'}
+Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Segments'}
+`
     )
 
     const blob = await zip.generateAsync({ type: 'blob' })
-    const producer = producers.find((p: any) => p.id === pdfBundleProducerId)
+    const producer = producers.find((p: any) => p.id === reportProducerId)
     const producerName = producer?.name || 'all-producers'
-    const fileName = `producer-package-${sanitizeFileName(producerName)}-${pdfBundleStartDate}-to-${pdfBundleEndDate}.zip`
+    const fileName = `producer-ticket-bundle-${sanitizeFileName(producerName)}-${reportStartDate}-to-${reportEndDate}.zip`
 
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -12195,8 +12182,14 @@ async function saveUserRole() {
             <div style={box}>
               <h2>Report Filters</h2>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-                <input style={input} type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} />
-                <input style={input} type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} />
+                <label>
+                  <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Start Date</div>
+                  <input style={input} type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} />
+                </label>
+                <label>
+                  <div style={{ color: '#a8b3bd', marginBottom: 6 }}>End Date</div>
+                  <input style={input} type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} />
+                </label>
 
                 <select style={input} value={reportProducerId} onChange={(e) => setReportProducerId(e.target.value)}>
                   <option value="">All Producers</option>

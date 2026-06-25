@@ -6812,16 +6812,120 @@ async function createCompany() {
     return true
   }
 
-  function getTicketVolumeForBalance(ticket: any) {
+  function toBalanceNumber(value: any) {
+    if (value === null || value === undefined || value === '') return null
+    const num = Number(value)
+    return Number.isFinite(num) ? num : null
+  }
+
+  function getTicketIvForBalance(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const calc = ticket?.calculation_results || {}
+
+    const opening = toBalanceNumber(
+      ticket?.opening_reading ??
+      ticket?.opening_meter_reading ??
+      observed.opening_reading ??
+      observed.opening_meter_reading ??
+      observed.open_meter_reading ??
+      calc.opening_reading
+    )
+
+    const closing = toBalanceNumber(
+      ticket?.closing_reading ??
+      ticket?.closing_meter_reading ??
+      observed.closing_reading ??
+      observed.closing_meter_reading ??
+      observed.close_meter_reading ??
+      calc.closing_reading
+    )
+
+    if (opening !== null && closing !== null) {
+      const diff = closing - opening
+      if (Number.isFinite(diff) && Math.abs(diff) > 0.000001) return diff
+    }
+
     return Number(
-      ticket.calculation_results?.nsv ??
-      ticket.calculation_results?.tank_nsv ??
-      ticket.calculation_results?.gsv ??
-      ticket.calculation_results?.tank_gsv ??
-      ticket.calculation_results?.gov ??
-      ticket.calculation_results?.tank_gov ??
+      calc.iv ??
+      observed.iv ??
+      observed.total_batch_barrels ??
+      observed.batch_barrels ??
+      observed.gross_observed_volume ??
+      observed.gross_bbls ??
+      calc.gross_bbls ??
+      ticket?.gross_volume ??
       0
     )
+  }
+
+  function getTicketGsvForBalance(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const calc = ticket?.calculation_results || {}
+
+    const iv = getTicketIvForBalance(ticket)
+    const ctl = toBalanceNumber(calc.ctl ?? observed.ctl ?? ticket?.ctl)
+    const cpl = toBalanceNumber(calc.cpl ?? observed.cpl ?? ticket?.cpl)
+    const mf = toBalanceNumber(calc.mf ?? observed.mf ?? ticket?.mf) ?? 1
+    const ctpl = toBalanceNumber(calc.ctpl ?? observed.ctpl)
+
+    if (Number.isFinite(iv)) {
+      if (ctl !== null && cpl !== null) return iv * ctl * cpl * mf
+      if (ctpl !== null) return iv * ctpl * mf
+    }
+
+    return Number(
+      calc.gsv ??
+      calc.tank_gsv ??
+      observed.tank_gsv ??
+      ticket?.gsv ??
+      0
+    )
+  }
+
+  function getTicketNsvForBalance(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const calc = ticket?.calculation_results || {}
+    const gsv = getTicketGsvForBalance(ticket)
+
+    const csw = toBalanceNumber(
+      calc.csw ??
+      observed.csw ??
+      ticket?.csw
+    )
+
+    if (Number.isFinite(gsv) && csw !== null) return gsv * csw
+
+    const bswPercent = toBalanceNumber(
+      calc.bsw_percent ??
+      observed.bsw_percent ??
+      observed.bsw ??
+      ticket?.bsw
+    )
+
+    if (Number.isFinite(gsv) && bswPercent !== null) return gsv * (1 - (bswPercent / 100))
+
+    return Number(
+      calc.nsv ??
+      calc.tank_nsv ??
+      observed.tank_nsv ??
+      ticket?.nsv ??
+      gsv ??
+      0
+    )
+  }
+
+  function getTicketVolumeForBalance(ticket: any) {
+    if (String(ticket?.ticket_type || '').toLowerCase() === 'tank') {
+      return Number(
+        ticket.calculation_results?.tank_nsv ??
+        ticket.calculation_results?.tank_gsv ??
+        ticket.calculation_results?.gov ??
+        ticket.calculation_results?.tank_gov ??
+        0
+      )
+    }
+
+    return getTicketNsvForBalance(ticket)
   }
 
   function normalizeMeterRole(value: any) {
@@ -7660,23 +7764,9 @@ async function createCompany() {
       )
     }
 
-    const getTicketGsv = (ticket: any) => Number(
-      ticket.calculation_results?.gsv ??
-      ticket.calculation_results?.tank_gsv ??
-      ticket.observed_inputs?.tank_gsv ??
-      ticket.gsv ??
-      getTicketVolumeForBalance(ticket) ??
-      0
-    )
+    const getTicketGsv = (ticket: any) => getTicketGsvForBalance(ticket)
 
-    const getTicketNsv = (ticket: any) => Number(
-      ticket.calculation_results?.nsv ??
-      ticket.calculation_results?.tank_nsv ??
-      ticket.observed_inputs?.tank_nsv ??
-      ticket.nsv ??
-      getTicketVolumeForBalance(ticket) ??
-      0
-    )
+    const getTicketNsv = (ticket: any) => getTicketNsvForBalance(ticket)
 
     const getTicketSw = (ticket: any) => {
       const direct = ticket.observed_inputs?.sw_percent ?? ticket.observed_inputs?.bsw ?? ticket.bsw

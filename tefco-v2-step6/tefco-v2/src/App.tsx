@@ -763,6 +763,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [newCheckGroupName, setNewCheckGroupName] = useState('')
   const [newCheckGroupSegmentId, setNewCheckGroupSegmentId] = useState('')
   const [newCheckGroupCheckMeterId, setNewCheckGroupCheckMeterId] = useState('')
+  const [newCheckGroupCheckMeterIds, setNewCheckGroupCheckMeterIds] = useState<string[]>([])
   const [newCheckGroupInputMeterIds, setNewCheckGroupInputMeterIds] = useState<string[]>([])
   const [checkGroupMeterSearch, setCheckGroupMeterSearch] = useState('')
   const [newBalanceEquationName, setNewBalanceEquationName] = useState('')
@@ -7321,16 +7322,25 @@ async function createCompany() {
       .filter((group: any) => group.segment_id === segmentId && group.active !== false)
       .map((group: any) => {
         const members = balanceCheckGroupMeters.filter((member: any) => member.check_group_id === group.id || member.group_id === group.id)
+        const checkMeterIds = Array.from(new Set([
+          group.check_meter_id,
+          ...members
+            .filter((member: any) => String(member.role || member.meter_role || '').toLowerCase() === 'check')
+            .map((member: any) => member.meter_id),
+        ].filter(Boolean).map((id: any) => String(id))))
+
         const inputMeterIds = members
           .filter((member: any) => String(member.role || member.meter_role || 'input').toLowerCase() !== 'check')
           .map((member: any) => member.meter_id)
           .filter(Boolean)
-        const checkMeterId = group.check_meter_id || members.find((member: any) => String(member.role || member.meter_role || '').toLowerCase() === 'check')?.meter_id
+          .filter((meterId: any) => !checkMeterIds.includes(String(meterId)))
+
         const inputTotal = inputMeterIds.reduce((sum: number, meterId: string) => sum + getApprovedMeterVolume(meterId), 0)
-        const checkTotal = checkMeterId ? getApprovedMeterVolume(checkMeterId) : 0
+        const checkTotal = checkMeterIds.reduce((sum: number, meterId: string) => sum + getApprovedMeterVolume(meterId), 0)
+        const checkMeterId = checkMeterIds[0] || ''
         const difference = inputTotal - checkTotal
         const differencePercent = checkTotal ? (difference / Math.abs(checkTotal)) * 100 : 0
-        return { group, inputMeterIds, checkMeterId, inputTotal, checkTotal, difference, differencePercent }
+        return { group, inputMeterIds, checkMeterId, checkMeterIds, inputTotal, checkTotal, difference, differencePercent }
       })
   }
 
@@ -8040,10 +8050,17 @@ async function createCompany() {
       alert('Select a company first.')
       return
     }
-    if (!newCheckGroupName || !newCheckGroupSegmentId || !newCheckGroupCheckMeterId) {
-      alert('Enter group name, segment, and check meter.')
+    const checkMeterIds = Array.from(new Set([
+      ...(newCheckGroupCheckMeterIds.length ? newCheckGroupCheckMeterIds : []),
+      newCheckGroupCheckMeterId,
+    ].filter(Boolean).map((id) => String(id))))
+
+    if (!newCheckGroupName || !newCheckGroupSegmentId || checkMeterIds.length === 0) {
+      alert('Enter group name, segment, and at least one output/check meter.')
       return
     }
+
+    const inputMeterIds = newCheckGroupInputMeterIds.filter((meterId) => !checkMeterIds.includes(String(meterId)))
 
     const { data: groupRow, error: groupError } = await supabase
       .from('balance_check_groups')
@@ -8051,7 +8068,7 @@ async function createCompany() {
         company_id: activeCompanyID,
         name: newCheckGroupName,
         segment_id: newCheckGroupSegmentId,
-        check_meter_id: newCheckGroupCheckMeterId,
+        check_meter_id: checkMeterIds[0],
         active: true,
       })
       .select('*')
@@ -8063,8 +8080,8 @@ async function createCompany() {
     }
 
     const memberRows = [
-      { company_id: activeCompanyID, check_group_id: groupRow.id, meter_id: newCheckGroupCheckMeterId, role: 'check', active: true },
-      ...newCheckGroupInputMeterIds.map((meterId) => ({ company_id: activeCompanyID, check_group_id: groupRow.id, meter_id: meterId, role: 'input', active: true })),
+      ...checkMeterIds.map((meterId) => ({ company_id: activeCompanyID, check_group_id: groupRow.id, meter_id: meterId, role: 'check', active: true })),
+      ...inputMeterIds.map((meterId) => ({ company_id: activeCompanyID, check_group_id: groupRow.id, meter_id: meterId, role: 'input', active: true })),
     ]
 
     const { error: memberError } = await supabase.from('balance_check_group_meters').insert(memberRows)
@@ -8076,6 +8093,7 @@ async function createCompany() {
     setNewCheckGroupName('')
     setNewCheckGroupSegmentId('')
     setNewCheckGroupCheckMeterId('')
+    setNewCheckGroupCheckMeterIds([])
     setNewCheckGroupInputMeterIds([])
     await loadAll()
   }
@@ -10615,18 +10633,46 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         Group receipt/delivery meters and compare them to a selected check meter inside the same segment.
                       </p>
                       <input style={input} placeholder="Group Name" value={newCheckGroupName} onChange={(e) => setNewCheckGroupName(e.target.value)} />
-                      <select style={input} value={newCheckGroupSegmentId} onChange={(e) => { setNewCheckGroupSegmentId(e.target.value); setNewCheckGroupCheckMeterId(''); setNewCheckGroupInputMeterIds([]); setCheckGroupMeterSearch('') }}>
+                      <select style={input} value={newCheckGroupSegmentId} onChange={(e) => { setNewCheckGroupSegmentId(e.target.value); setNewCheckGroupCheckMeterId(''); setNewCheckGroupCheckMeterIds([]); setNewCheckGroupInputMeterIds([]); setCheckGroupMeterSearch('') }}>
                         <option value="">Select Segment</option>
                         {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
                       </select>
+                      <div style={{ margin: '10px 0', color: '#a8b3bd' }}>Output / check meters</div>
                       <select style={input} value={newCheckGroupCheckMeterId} onChange={(e) => setNewCheckGroupCheckMeterId(e.target.value)} disabled={!newCheckGroupSegmentId}>
-                        <option value="">Select Check Meter</option>
-                        {meters.filter((meter: any) => String(meter.segment_id || '') === String(newCheckGroupSegmentId || '')).map((meter: any) => { const label = getMeterDisplayName(meter); return <option key={meter.id} value={meter.id}>{label.main}{label.secondary ? ` (${label.secondary})` : ''}</option> })}
+                        <option value="">Select output/check meter to add</option>
+                        {meters.filter((meter: any) => String(meter.segment_id || '') === String(newCheckGroupSegmentId || '') && !newCheckGroupCheckMeterIds.includes(String(meter.id))).map((meter: any) => { const label = getMeterDisplayName(meter); return <option key={meter.id} value={meter.id}>{label.main}{label.secondary ? ` (${label.secondary})` : ''}</option> })}
                       </select>
-                      <div style={{ margin: '10px 0', color: '#a8b3bd' }}>Included leases / meters</div>
+                      <button
+                        type="button"
+                        style={{ ...button, width: 'auto', marginBottom: 10 }}
+                        disabled={!newCheckGroupCheckMeterId}
+                        onClick={() => {
+                          if (!newCheckGroupCheckMeterId) return
+                          setNewCheckGroupCheckMeterIds((current) => Array.from(new Set([...current, newCheckGroupCheckMeterId])))
+                          setNewCheckGroupInputMeterIds((current) => current.filter((id) => String(id) !== String(newCheckGroupCheckMeterId)))
+                          setNewCheckGroupCheckMeterId('')
+                        }}
+                      >
+                        Add Output / Check Meter
+                      </button>
+                      {newCheckGroupCheckMeterIds.length > 0 && (
+                        <div style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+                          {newCheckGroupCheckMeterIds.map((meterId) => {
+                            const meter = meters.find((m: any) => String(m.id) === String(meterId))
+                            const label = meter ? getMeterDisplayName(meter) : { main: meterId, secondary: '' }
+                            return (
+                              <div key={meterId} style={{ ...box, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                                <span><strong>{label.main}</strong>{label.secondary ? <span style={{ color: '#a8b3bd' }}> • {label.secondary}</span> : null}</span>
+                                <button type="button" style={{ ...button, width: 'auto', background: '#7f1d1d' }} onClick={() => setNewCheckGroupCheckMeterIds((current) => current.filter((id) => id !== meterId))}>Remove</button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                      <div style={{ margin: '10px 0', color: '#a8b3bd' }}>Input / receipt leases / meters</div>
                       <input style={input} placeholder="Search lease or meter..." value={checkGroupMeterSearch} onChange={(e) => setCheckGroupMeterSearch(e.target.value)} disabled={!newCheckGroupSegmentId} />
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
-                        {meters.filter((meter: any) => String(meter.segment_id || '') === String(newCheckGroupSegmentId || '') && String(meter.id) !== String(newCheckGroupCheckMeterId || '') && meterMatchesSearch(meter, checkGroupMeterSearch)).map((meter: any) => (
+                        {meters.filter((meter: any) => String(meter.segment_id || '') === String(newCheckGroupSegmentId || '') && !newCheckGroupCheckMeterIds.includes(String(meter.id)) && String(meter.id) !== String(newCheckGroupCheckMeterId || '') && meterMatchesSearch(meter, checkGroupMeterSearch)).map((meter: any) => (
                           <label key={meter.id} style={{ ...box, display: 'flex', gap: 8, alignItems: 'center' }}>
                             <input
                               type="checkbox"
@@ -10641,8 +10687,16 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
                         {balanceCheckGroups.map((group: any) => {
                           const segment = segments.find((s: any) => String(s.id) === String(group.segment_id))
-                          const checkMeter = meters.find((m: any) => String(m.id) === String(group.check_meter_id))
-                          return <div key={group.id} style={{ color: '#a8b3bd' }}>{group.name} • {segment?.name || 'Segment'} • Check: {checkMeter ? getMeterDisplayName(checkMeter).main : '—'}{checkMeter && getMeterDisplayName(checkMeter).secondary ? ` (${getMeterDisplayName(checkMeter).secondary})` : ''}</div>
+                          const members = balanceCheckGroupMeters.filter((member: any) => String(member.check_group_id || member.group_id || '') === String(group.id))
+                          const checkMeterIds = Array.from(new Set([
+                            group.check_meter_id,
+                            ...members.filter((member: any) => String(member.role || member.meter_role || '').toLowerCase() === 'check').map((member: any) => member.meter_id),
+                          ].filter(Boolean).map((id: any) => String(id))))
+                          const checkNames = checkMeterIds.map((meterId) => {
+                            const meter = meters.find((m: any) => String(m.id) === String(meterId))
+                            return meter ? getMeterDisplayName(meter).main : meterId
+                          }).join(', ')
+                          return <div key={group.id} style={{ color: '#a8b3bd' }}>{group.name} • {segment?.name || 'Segment'} • Outputs/Checks: {checkNames || '—'}</div>
                         })}
                       </div>
                     </div>

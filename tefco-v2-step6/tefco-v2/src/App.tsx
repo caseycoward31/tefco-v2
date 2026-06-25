@@ -8150,7 +8150,7 @@ async function createCompany() {
       const { error: deleteMembersError } = await supabase
         .from('balance_check_group_meters')
         .delete()
-        .or(`check_group_id.eq.${editingCheckGroupId},group_id.eq.${editingCheckGroupId}`)
+        .eq('check_group_id', editingCheckGroupId)
 
       if (deleteMembersError) {
         alert(`Check group updated, but old meter assignments could not be cleared: ${deleteMembersError.message}`)

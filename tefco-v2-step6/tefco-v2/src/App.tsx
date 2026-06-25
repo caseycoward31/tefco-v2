@@ -7340,7 +7340,9 @@ async function createCompany() {
         const inputTotal = inputMeterIds.reduce((sum: number, meterId: string) => sum + getApprovedMeterVolume(meterId), 0)
         const checkTotal = checkMeterIds.reduce((sum: number, meterId: string) => sum + getApprovedMeterVolume(meterId), 0)
         const checkMeterId = checkMeterIds[0] || ''
-        const difference = inputTotal - checkTotal
+        // Check meter group O/S is check meter total minus the grouped meter total.
+        // Example: two outbound check meters - tank movement/truck LACTs/inbound meters.
+        const difference = checkTotal - inputTotal
         const differencePercent = checkTotal ? (difference / Math.abs(checkTotal)) * 100 : 0
         return { group, inputMeterIds, checkMeterId, checkMeterIds, inputTotal, checkTotal, difference, differencePercent }
       })

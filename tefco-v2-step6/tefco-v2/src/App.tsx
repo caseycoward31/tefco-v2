@@ -888,6 +888,7 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [provingPdfFile, setProvingPdfFile] = useState<File | null>(null)
   const [provingPhotoFiles, setProvingPhotoFiles] = useState<File[]>([])
   const [editingProvingId, setEditingProvingId] = useState('')
+  const [editingProvingOriginalStatus, setEditingProvingOriginalStatus] = useState('')
 
   const [potSegment, setPotSegment] = useState('')
   const [potProducer, setPotProducer] = useState('')
@@ -3019,6 +3020,7 @@ function handleProvingAreaSelect(areaId: string) {
 
   function clearProvingForm() {
     setEditingProvingId('')
+    setEditingProvingOriginalStatus('')
     setSelectedProvingArea(getDefaultVisibleAreaId())
     setSelectedProvingSegment('')
     setSelectedProvingLease('')
@@ -3034,12 +3036,8 @@ function handleProvingAreaSelect(areaId: string) {
     setProvingPhotoFiles([])
   }
 
-  function editDraftProving(proving: any) {
+  function editProving(proving: any) {
     if (!proving?.id) return
-    if (String(proving.status || 'draft').toLowerCase() !== 'draft') {
-      alert('Only draft provings can be edited.')
-      return
-    }
 
     const meterRow: any = asArray(meters).find((m: any) => String(m.id || '') === String(proving.meter_id || ''))
     const leaseId = String(proving.lease_id || meterRow?.lease_id || '')
@@ -3049,6 +3047,7 @@ function handleProvingAreaSelect(areaId: string) {
     const areaId = String(proving.area_id || segmentRow?.area_id || getDefaultVisibleAreaId() || '')
 
     setEditingProvingId(String(proving.id))
+    setEditingProvingOriginalStatus(String(proving.status || 'draft').toLowerCase())
     setSelectedProvingArea(areaId)
     setSelectedProvingSegment(segmentId)
     setSelectedProvingLease(leaseId)
@@ -3122,15 +3121,17 @@ function handleProvingAreaSelect(areaId: string) {
       calculated_cmf: provingFactorType === 'CMF' ? calculatedCMF : null,
       factor_type: provingFactorType,
       witness: provingWitness,
-      status: 'draft',
+      status: editingProvingId ? (editingProvingOriginalStatus || 'draft') : 'draft',
     }
 
     const result = editingProvingId
       ? await supabase
           .from('meter_provings')
-          .update(provingPayload)
+          .update({
+            ...provingPayload,
+            updated_at: new Date().toISOString(),
+          })
           .eq('id', editingProvingId)
-          .eq('status', 'draft')
           .select()
           .single()
       : await supabase
@@ -12282,7 +12283,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
                     {!isReadOnly && (
                       <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
-                        <button type="button" style={{ ...button, marginTop: 0, background: '#d97706', border: '1px solid #f59e0b' }} onClick={() => editDraftProving(p)}>Edit Proving</button>
+                        <button type="button" style={{ ...button, marginTop: 0, background: '#d97706', border: '1px solid #f59e0b' }} onClick={() => editProving(p)}>Edit Proving</button>
                         <button type="button" style={{ ...button, marginTop: 0, background: '#7f1d1d', border: '1px solid #ef4444' }} onClick={() => deleteDraftProving(p)}>Delete Proving</button>
                       </div>
                     )}
@@ -12342,6 +12343,15 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                           <div>Approved: {p.approved_at ? new Date(p.approved_at).toLocaleString() : 'No'}</div>
                           <div>{p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>
                           {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
+                          {!isReadOnly && (
+                            <button
+                              type="button"
+                              style={{ ...button, marginTop: 8, background: '#d97706', border: '1px solid #f59e0b' }}
+                              onClick={() => editProving(p)}
+                            >
+                              Edit Approved Proving
+                            </button>
+                          )}
                         </div>
                       )
                     })}

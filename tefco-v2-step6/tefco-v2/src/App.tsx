@@ -8100,10 +8100,10 @@ async function createCompany() {
     setEditingBalanceEquationId(equation.id)
     setNewBalanceEquationName(equation.name || '')
     setNewBalanceEquationSegmentId(equation.segment_id || '')
-    setNewEquationSideAMeterIds(items.filter((item: any) => item.side === 'A' && item.item_type === 'meter').map((item: any) => String(item.item_id)))
-    setNewEquationSideBMeterIds(items.filter((item: any) => item.side === 'B' && item.item_type === 'meter').map((item: any) => String(item.item_id)))
-    setNewEquationSideACheckGroupIds(items.filter((item: any) => item.side === 'A' && item.item_type === 'check_group').map((item: any) => String(item.item_id)))
-    setNewEquationSideBCheckGroupIds(items.filter((item: any) => item.side === 'B' && item.item_type === 'check_group').map((item: any) => String(item.item_id)))
+    setNewEquationSideAMeterIds(items.filter((item: any) => String(item.side || '').toUpperCase() === 'A' && String(item.item_type || '').toLowerCase() === 'meter').map((item: any) => String(item.item_id)))
+    setNewEquationSideBMeterIds(items.filter((item: any) => String(item.side || '').toUpperCase() === 'B' && String(item.item_type || '').toLowerCase() === 'meter').map((item: any) => String(item.item_id)))
+    setNewEquationSideACheckGroupIds(items.filter((item: any) => String(item.side || '').toUpperCase() === 'A' && String(item.item_type || '').toLowerCase() === 'check_group').map((item: any) => String(item.item_id)))
+    setNewEquationSideBCheckGroupIds(items.filter((item: any) => String(item.side || '').toUpperCase() === 'B' && String(item.item_type || '').toLowerCase() === 'check_group').map((item: any) => String(item.item_id)))
     setNewEquationIncludeTankChange(!!equation.include_tank_change)
     setNewEquationIncludeLineFillChange(!!equation.include_line_fill_change)
     setEquationMeterSearch('')
@@ -8229,12 +8229,31 @@ async function createCompany() {
 
     if (memberRows.length) {
       const { error: itemError } = await supabase.from('balance_equation_items').insert(memberRows)
+
       if (itemError) {
-        alert(`Equation created, but item assignment failed: ${itemError.message}`)
-        return
+        // Some older Supabase builds of this app did not have every optional column
+        // on balance_equation_items. If the full insert fails, retry with the core
+        // columns only so the station balance actually saves.
+        const fallbackRows = memberRows.map((row: any) => ({
+          equation_id: row.equation_id,
+          side: row.side,
+          item_type: row.item_type,
+          item_id: row.item_id,
+          active: true,
+        }))
+
+        const { error: fallbackItemError } = await supabase
+          .from('balance_equation_items')
+          .insert(fallbackRows)
+
+        if (fallbackItemError) {
+          alert(`Station balance saved, but item assignment failed: ${fallbackItemError.message}`)
+          return
+        }
       }
     }
 
+    alert(`Station balance ${editingBalanceEquationId ? 'updated' : 'saved'}.`)
     cancelEditBalanceEquation()
     await loadAll()
   }
@@ -10800,7 +10819,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     <div style={{ ...(adminSection === 'equations' ? card : { display: 'none' }), gridColumn: '1 / -1' }}>
                       <h3>{editingBalanceEquationId ? 'Edit Station / Balance Equation' : 'Station / Balance Equations'}</h3>
                       <p style={{ color: '#a8b3bd' }}>
-                        Build equations like Side A = gathering check meters + truck LACTs, Side B = outbound check meters. The app calculates Side A - Side B.
+                        Build equations like Side A = whole field / receipts and Side B = delivery meters. The app calculates Side A - Side B, with optional tank change and line fill change included.
                       </p>
                       {editingBalanceEquationId && <div style={{ color: '#fca5a5', marginBottom: 10 }}>Editing existing station balance. Save to replace the equation setup, or cancel to leave it unchanged.</div>}
                       <input style={input} placeholder="Equation Name (example: BSRNG Station Outbound)" value={newBalanceEquationName} onChange={(e) => setNewBalanceEquationName(e.target.value)} />

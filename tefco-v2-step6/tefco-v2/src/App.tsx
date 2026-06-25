@@ -4334,8 +4334,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name || (ticket.ticket_type === 'meter' ? 'Pipeline Meter' : '—')
     const assignedPot = observed.assigned_pot_label || ticket.assigned_pot_id || (observed.pot_source === 'latest_pot_quality' ? 'Sample POT' : '—')
     const potQualitySource = observed.pot_source === 'latest_pot_quality' ? 'Latest POT Quality' : assignedPot
-    const pdfRvp = observed.rvp || parsePotExtra(observed.notes, 'rvp') || '-'
-    const pdfSulfur = observed.sulfur || parsePotExtra(observed.notes, 'sulfur') || parsePotExtra(observed.notes, 'sulphur') || '-'
+    const pdfRvp = observed.rvp || parsePotExtra(observed.notes, 'rvp') || '—'
+    const pdfSulfur = observed.sulfur || parsePotExtra(observed.notes, 'sulfur') || parsePotExtra(observed.notes, 'sulphur') || '—'
     const sourceTicketCount = uniqueCsvCount(observed.ticket_numbers)
     const sourceBatchCount = uniqueCsvCount(observed.batch_numbers)
     const sourceTruckCount = uniqueCsvCount(observed.truck_numbers)
@@ -4544,16 +4544,16 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     <div class="section">
       <div class="section-title">Ticket Information</div>
       <div class="grid-3">
-        <div class="cell"><div class="small-label">Ticket Type</div><div class="value">${ticket.ticket_type || '-'}</div></div>
+        <div class="cell"><div class="small-label">Ticket Type</div><div class="value">${ticket.ticket_type || '—'}</div></div>
         <div class="cell"><div class="small-label">Created</div><div class="value">${createdAt}</div></div>
         <div class="cell"><div class="small-label">Approved</div><div class="value">${approvedAt}</div></div>
         <div class="cell"><div class="small-label">Revision</div><div class="value">${pdfRevisionNumber ? `Revision ${pdfRevisionNumber}` : 'Original'}</div></div>
-        <div class="cell"><div class="small-label">Revision Reason</div><div class="value">${pdfRevisionReason || '-'}</div></div>
+        <div class="cell"><div class="small-label">Revision Reason</div><div class="value">${pdfRevisionReason || '—'}</div></div>
         <div class="cell"><div class="small-label">Revised At</div><div class="value">${pdfRevisionAt ? new Date(pdfRevisionAt).toLocaleString() : '—'}</div></div>
-        <div class="cell"><div class="small-label">Segment</div><div class="value">${segment?.name || observed.segment_name || '-'}</div></div>
-        <div class="cell"><div class="small-label">Producer</div><div class="value">${producer?.name || observed.producer_name || '-'}</div></div>
-        <div class="cell"><div class="small-label">Lease</div><div class="value">${pdfLeaseName || (isFlowX ? `${sourceLeaseCount || '-'} lease(s)` : '—')}</div></div>
-        <div class="cell"><div class="small-label">Meter / Rack</div><div class="value">${meter?.meter_number || observed.meter_number || '-'}</div></div>
+        <div class="cell"><div class="small-label">Segment</div><div class="value">${segment?.name || observed.segment_name || '—'}</div></div>
+        <div class="cell"><div class="small-label">Producer</div><div class="value">${producer?.name || observed.producer_name || '—'}</div></div>
+        <div class="cell"><div class="small-label">Lease</div><div class="value">${pdfLeaseName || (isFlowX ? `${sourceLeaseCount || '—'} lease(s)` : '—')}</div></div>
+        <div class="cell"><div class="small-label">Meter / Rack</div><div class="value">${meter?.meter_number || observed.meter_number || '—'}</div></div>
         <div class="cell"><div class="small-label">Transporter</div><div class="value">${transporter}</div></div>
         <div class="cell"><div class="small-label">Assigned POT</div><div class="value">${assignedPot}</div></div>
       </div>
@@ -4563,12 +4563,12 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     <div class="section">
       <div class="section-title">Flow-X Transporter Summary</div>
       <div class="grid-3">
-        <div class="cell"><div class="small-label">Source Rows</div><div class="value">${observed.source_rows || '-'}</div></div>
-        <div class="cell"><div class="small-label">Source Ticket Count</div><div class="value">${sourceTicketCount || '-'}</div></div>
-        <div class="cell"><div class="small-label">Source Batch Count</div><div class="value">${sourceBatchCount || '-'}</div></div>
-        <div class="cell"><div class="small-label">Truck Count</div><div class="value">${sourceTruckCount || '-'}</div></div>
-        <div class="cell"><div class="small-label">Lease Count</div><div class="value">${sourceLeaseCount || '-'}</div></div>
-        <div class="cell"><div class="small-label">LACT</div><div class="value">${observed.lact_name || ticket.lact_name || '-'}</div></div>
+        <div class="cell"><div class="small-label">Source Rows</div><div class="value">${observed.source_rows || '—'}</div></div>
+        <div class="cell"><div class="small-label">Source Ticket Count</div><div class="value">${sourceTicketCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">Source Batch Count</div><div class="value">${sourceBatchCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">Truck Count</div><div class="value">${sourceTruckCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">Lease Count</div><div class="value">${sourceLeaseCount || '—'}</div></div>
+        <div class="cell"><div class="small-label">LACT</div><div class="value">${observed.lact_name || ticket.lact_name || '—'}</div></div>
       </div>
     </div>
     ` : ''}
@@ -4578,8 +4578,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       <div class="grid-2">
         <div class="cell"><div class="small-label">Opening Meter Reading</div><div class="value">${pdfOpeningReading !== null ? formatMeasurementNumber(pdfOpeningReading, 0) : '—'}</div></div>
         <div class="cell"><div class="small-label">Closing Meter Reading</div><div class="value">${pdfClosingReading !== null ? formatMeasurementNumber(pdfClosingReading, 0) : '—'}</div></div>
-        <div class="cell"><div class="small-label">Open Date / Time</div><div class="value">${observed.open_date || '-'} ${observed.open_time || ''}</div></div>
-        <div class="cell"><div class="small-label">Close Date / Time</div><div class="value">${observed.close_date || '-'} ${observed.close_time || ''}</div></div>
+        <div class="cell"><div class="small-label">Open Date / Time</div><div class="value">${observed.open_date || '—'} ${observed.open_time || ''}</div></div>
+        <div class="cell"><div class="small-label">Close Date / Time</div><div class="value">${observed.close_date || '—'} ${observed.close_time || ''}</div></div>
       </div>
     </div>
 
@@ -4627,7 +4627,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     <div class="section">
       <div class="section-title">Source Data</div>
       <div class="notes">
-        Source Flow-X CSV retained separately. This ticket is a transporter summary generated from ${observed.source_rows || '-'} source rows.
+        Source Flow-X CSV retained separately. This ticket is a transporter summary generated from ${observed.source_rows || '—'} source rows.
       </div>
     </div>
     ` : ''}
@@ -8437,159 +8437,69 @@ async function saveUserRole() {
       return Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—'
     }
 
-    const pdfPlainText = (value: any) =>
-      String(value ?? '-')
-        .replace(/[\u2013\u2014]/g, '-')
-        .replace(/[\u2018\u2019]/g, "'")
-        .replace(/[\u201C\u201D]/g, '"')
-        .replace(/[^\x20-\x7E]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim() || '-'
+    async function loadHtml2Pdf() {
+      const win = window as any
+      if (win.html2pdf) return win.html2pdf
 
-    const pdfEscape = (value: any) =>
-      pdfPlainText(value)
-        .replace(/\\/g, '\\\\')
-        .replace(/\(/g, '\\(')
-        .replace(/\)/g, '\\)')
+      await new Promise<void>((resolve, reject) => {
+        const existing = document.querySelector('script[data-html2pdf="true"]') as HTMLScriptElement | null
+        if (existing) {
+          existing.addEventListener('load', () => resolve())
+          existing.addEventListener('error', () => reject(new Error('Could not load PDF converter.')))
+          return
+        }
 
-    const makeTicketPdfBlob = (ticket: any) => {
-      const observed = ticket.observed_inputs || {}
-      const calc = ticket.calculation_results || {}
-      const producer = producers.find((p: any) => String(p.id || '') === String(getTicketProducerId(ticket)))
-      const meter = meters.find((m: any) => String(m.id || '') === String(ticket.meter_id || observed.meter_id || ''))
-      const segment = segments.find((s: any) => String(s.id || '') === String(ticket.segment_id || observed.segment_id || ''))
-      const lease = leases.find((l: any) => String(l.id || '') === String(ticket.lease_id || observed.lease_id || meter?.lease_id || ''))
-      const ticketNumber = ticket.ticket_number || ticket.id || 'Ticket'
-      const leaseName = lease?.lease_name || lease?.name || observed.lease_name || 'Lease'
-      const assignedPot = ticket.assigned_pot_name || observed.assigned_pot_name || observed.pot_name || (ticket.ticket_type === 'meter' ? 'Sample POT' : '-')
-      const revisionNumber = observed.revision_number || calc.revision_number || 0
-      const approvedAt = ticket.approved_at ? new Date(ticket.approved_at).toLocaleString() : 'Pending Approval'
+        const script = document.createElement('script')
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'
+        script.async = true
+        script.dataset.html2pdf = 'true'
+        script.onload = () => resolve()
+        script.onerror = () => reject(new Error('Could not load PDF converter. Check internet connection and try again.'))
+        document.head.appendChild(script)
+      })
 
-      const content: string[] = []
-      const writeText = (x: number, y: number, size: number, text: any, font = 'F1') => {
-        content.push(`BT /${font} ${size} Tf ${x} ${y} Td (${pdfEscape(text)}) Tj ET`)
+      if (!win.html2pdf) throw new Error('PDF converter did not initialize.')
+      return win.html2pdf
+    }
+
+    async function renderActualTicketPdfBlob(ticket: any) {
+      const html2pdf = await loadHtml2Pdf()
+      const html = buildTicketPdfHtml(ticket)
+
+      const doc = document.implementation.createHTMLDocument('ticket-pdf')
+      doc.open()
+      doc.write(html)
+      doc.close()
+
+      const page = doc.querySelector('.page') as HTMLElement | null
+      if (!page) throw new Error('Ticket PDF layout was not found.')
+
+      const wrapper = document.createElement('div')
+      wrapper.style.position = 'fixed'
+      wrapper.style.left = '-10000px'
+      wrapper.style.top = '0'
+      wrapper.style.width = '8.5in'
+      wrapper.style.background = '#ffffff'
+      wrapper.appendChild(page.cloneNode(true))
+      document.body.appendChild(wrapper)
+
+      try {
+        const blob = await html2pdf()
+          .set({
+            margin: 0,
+            filename: 'ticket.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+            jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+          })
+          .from(wrapper.firstElementChild)
+          .outputPdf('blob')
+
+        return blob as Blob
+      } finally {
+        wrapper.remove()
       }
-      const drawLine = (x1: number, y1: number, x2: number, y2: number, width = 0.5) => {
-        content.push(`${width} w ${x1} ${y1} m ${x2} ${y2} l S`)
-      }
-      const drawRect = (x: number, y: number, w: number, h: number, width = 0.5) => {
-        content.push(`${width} w ${x} ${y} ${w} ${h} re S`)
-      }
-      const fillRect = (x: number, y: number, w: number, h: number, gray = 0.08) => {
-        content.push(`${gray} g ${x} ${y} ${w} ${h} re f 0 g`)
-      }
-
-      const pageLeft = 54
-      const pageRight = 558
-      const pageWidth = pageRight - pageLeft
-
-      // Header closely matches the app customer ticket layout.
-      writeText(pageLeft, 732, 20, getCompanyDisplayName(), 'F2')
-      writeText(pageLeft, 714, 9, 'MEASUREMENT TICKET')
-      drawLine(pageLeft, 698, pageRight, 698, 2)
-
-      drawRect(410, 720, 130, 48, 1)
-      writeText(438, 750, 7, 'TICKET NUMBER')
-      writeText(428, 733, 13, ticketNumber, 'F2')
-      writeText(462, 723, 7, String(ticket.status || 'draft').toUpperCase())
-
-      const sectionTitle = (title: string, y: number) => {
-        fillRect(pageLeft, y, pageWidth, 14, 0.05)
-        writeText(pageLeft + 6, y + 4, 8, title.toUpperCase(), 'F2')
-      }
-
-      const cell = (x: number, y: number, w: number, h: number, label: string, value: any) => {
-        drawRect(x, y, w, h, 0.25)
-        writeText(x + 5, y + h - 9, 5.6, label.toUpperCase())
-        writeText(x + 5, y + 7, 8, value, 'F2')
-      }
-
-      sectionTitle('Ticket Information', 674)
-      const infoY1 = 640
-      const infoH = 34
-      const cW = pageWidth / 3
-      cell(pageLeft, infoY1, cW, infoH, 'Ticket Type', ticket.ticket_type || '-')
-      cell(pageLeft + cW, infoY1, cW, infoH, 'Created', ticket.created_at ? new Date(ticket.created_at).toLocaleString() : '-')
-      cell(pageLeft + cW * 2, infoY1, cW, infoH, 'Approved', approvedAt)
-      cell(pageLeft, infoY1 - infoH, cW, infoH, 'Segment', segment?.segment_name || segment?.name || observed.segment_name || '-')
-      cell(pageLeft + cW, infoY1 - infoH, cW, infoH, 'Producer', producer?.name || observed.producer_name || '-')
-      cell(pageLeft + cW * 2, infoY1 - infoH, cW, infoH, 'Lease', leaseName)
-      cell(pageLeft, infoY1 - infoH * 2, cW, infoH, 'Meter / Rack', meter?.meter_number || observed.meter_number || '-')
-      cell(pageLeft + cW, infoY1 - infoH * 2, cW, infoH, 'Transporter', observed.transporter_name || 'Pipeline Meter')
-      cell(pageLeft + cW * 2, infoY1 - infoH * 2, cW, infoH, 'Assigned POT', assignedPot)
-      cell(pageLeft, infoY1 - infoH * 3, cW, infoH, 'Revision', revisionNumber ? `Revision ${revisionNumber}` : 'Original')
-      cell(pageLeft + cW, infoY1 - infoH * 3, cW * 2, infoH, 'Revision Reason', observed.revision_reason || '-')
-
-      sectionTitle('Meter Readings', 494)
-      const mrY = 460
-      cell(pageLeft, mrY, pageWidth / 2, infoH, 'Opening Meter Reading', calc.opening_reading ?? observed.opening_reading ?? '-')
-      cell(pageLeft + pageWidth / 2, mrY, pageWidth / 2, infoH, 'Closing Meter Reading', calc.closing_reading ?? observed.closing_reading ?? '-')
-      cell(pageLeft, mrY - infoH, pageWidth / 2, infoH, 'Open Date / Time', `${observed.open_date || '-'} ${observed.open_time || ''}`)
-      cell(pageLeft + pageWidth / 2, mrY - infoH, pageWidth / 2, infoH, 'Close Date / Time', `${observed.close_date || '-'} ${observed.close_time || ''}`)
-
-      sectionTitle('Volumes', 384)
-      const row = (y: number, label: string, value: any, bold = false) => {
-        drawRect(pageLeft, y, pageWidth, 24, 0.25)
-        writeText(pageLeft + 8, y + 8, 8, label, bold ? 'F2' : 'F1')
-        writeText(pageRight - 120, y + 8, 9, value, 'F2')
-      }
-      row(354, 'Gross Observed / IV', numberValue(calc.iv ?? observed.iv ?? observed.total_batch_barrels, 2))
-      row(330, 'Gross Standard / GSV', numberValue(calc.gsv ?? observed.gsv, 2))
-      row(306, 'Net Standard / NSV', numberValue(calc.nsv ?? observed.nsv ?? observed.net_volume_bbl, 2), true)
-
-      sectionTitle('Quality / Corrections', 270)
-      const qY = 236
-      const qH = 28
-      cell(pageLeft, qY, cW, qH, 'Observed API', numberValue(observed.observed_api_gravity ?? observed.api_observed, 2))
-      cell(pageLeft + cW, qY, cW, qH, 'API Gravity @ 60F', numberValue(calc.api_gravity_60 ?? observed.api_gravity_60, 2))
-      cell(pageLeft + cW * 2, qY, cW, qH, 'BS&W', numberValue(calc.bsw_percent ?? observed.bsw_percent ?? observed.bsw, 4))
-      cell(pageLeft, qY - qH, cW, qH, 'Observed Temp F', numberValue(observed.observed_temperature, 2))
-      cell(pageLeft + cW, qY - qH, cW, qH, 'Average Temp F', numberValue(calc.average_temperature ?? observed.average_temperature, 2))
-      cell(pageLeft + cW * 2, qY - qH, cW, qH, 'Average Pressure', numberValue(calc.average_pressure ?? observed.average_pressure, 2))
-      cell(pageLeft, qY - qH * 2, cW, qH, 'CTL', numberValue(calc.ctl ?? observed.ctl, 6))
-      cell(pageLeft + cW, qY - qH * 2, cW, qH, 'CPL', numberValue(calc.cpl ?? observed.cpl, 6))
-      cell(pageLeft + cW * 2, qY - qH * 2, cW, qH, 'CTPL', numberValue(calc.ctpl ?? observed.ctpl, 6))
-      cell(pageLeft, qY - qH * 3, cW, qH, 'MF / CMF', numberValue(calc.mf ?? observed.mf, 4))
-      cell(pageLeft + cW, qY - qH * 3, cW, qH, 'BSW', numberValue(calc.csw ?? observed.csw, 5))
-      cell(pageLeft + cW * 2, qY - qH * 3, cW, qH, 'Calculation Method', observed.calculation_method || ticket.calculation_profile_snapshot?.selected_calculation_method || 'CTPL')
-
-      sectionTitle('Notes', 102)
-      drawRect(pageLeft, 72, pageWidth, 30, 0.25)
-      writeText(pageLeft + 6, 88, 8, ticket.notes || observed.notes || '-')
-
-      drawLine(pageLeft, 48, pageLeft + 170, 48, 0.5)
-      drawLine(pageLeft + 250, 48, pageLeft + 420, 48, 0.5)
-      writeText(pageLeft, 36, 7, 'PREPARED BY')
-      writeText(pageLeft + 250, 36, 7, 'APPROVED BY')
-      writeText(pageLeft, 18, 6, `Generated by TEFCO Measurement Platform`)
-      writeText(pageRight - 150, 18, 6, new Date().toLocaleString())
-
-      const byteLength = (value: string) => new TextEncoder().encode(value).length
-      const stream = content.join('\n')
-      const streamLength = byteLength(stream)
-      const objects = [
-        '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj',
-        '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj',
-        '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>\nendobj',
-        '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj',
-        '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj',
-        `6 0 obj\n<< /Length ${streamLength} >>\nstream\n${stream}\nendstream\nendobj`,
-      ]
-
-      let pdf = '%PDF-1.4\n'
-      const offsets: number[] = [0]
-      for (const obj of objects) {
-        offsets.push(byteLength(pdf))
-        pdf += obj + '\n'
-      }
-      const xrefStart = byteLength(pdf)
-      pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
-      for (let i = 1; i < offsets.length; i++) {
-        pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`
-      }
-      pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`
-
-      return new Blob([new TextEncoder().encode(pdf)], { type: 'application/pdf' })
     }
 
     const makeTicketHtml = (ticket: any) => {
@@ -8600,8 +8510,8 @@ async function saveUserRole() {
       const segment = segments.find((s: any) => String(s.id || '') === String(ticket.segment_id || observed.segment_id || ''))
       const lease = leases.find((l: any) => String(l.id || '') === String(ticket.lease_id || observed.lease_id || meter?.lease_id || ''))
       const ticketDate = getTicketReportDate(ticket)
-      const openDateTime = `${observed.open_date || '-'} ${observed.open_time || ''}`
-      const closeDateTime = `${observed.close_date || '-'} ${observed.close_time || ''}`
+      const openDateTime = `${observed.open_date || '—'} ${observed.open_time || ''}`
+      const closeDateTime = `${observed.close_date || '—'} ${observed.close_time || ''}`
       const revisionNumber = observed.revision_number || calc.revision_number || 0
 
       return `<!doctype html>
@@ -8670,14 +8580,15 @@ async function saveUserRole() {
         const closeDate = observed.close_date || (getTicketReportDate(ticket) ? new Date(getTicketReportDate(ticket)).toISOString().slice(0, 10) : 'no-date')
         const fileBase = sanitizeFileName(`${leaseName}_${closeDate}_${ticketLabel}`, 'ticket')
 
-        zip.file(`${producerFolder}/${fileBase}.pdf`, makeTicketPdfBlob(ticket))
+        const actualPdfBlob = await renderActualTicketPdfBlob(ticket)
+        zip.file(`${producerFolder}/${fileBase}.pdf`, actualPdfBlob)
         addedTicketCount += 1
       }
     }
 
     zip.file(
       'README.txt',
-      `Producer Measurement Ticket Bundle
+      `Producer Measurement Ticket PDF Bundle
 Tickets exported: ${addedTicketCount}
 Report filters:
 Start: ${reportStartDate}
@@ -9322,16 +9233,16 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
   }
 
   function getTicketAssignedPotLabel(ticket: any) {
-    return ticket?.observed_inputs?.assigned_pot_label || ticket?.assigned_pot_id || '-'
+    return ticket?.observed_inputs?.assigned_pot_label || ticket?.assigned_pot_id || '—'
   }
 
   function getTicketContractName(ticket: any) {
-    return ticket?.observed_inputs?.contract_name || ticket?.calculation_profile_snapshot?.contract_name || '-'
+    return ticket?.observed_inputs?.contract_name || ticket?.calculation_profile_snapshot?.contract_name || '—'
   }
 
   function getTicketApiVersionLabel(ticket: any) {
     const observed = ticket?.observed_inputs || {}
-    return observed.api_version_label || getApiVersionLabel(observed.api_version || ticket?.api_version || '') || '-'
+    return observed.api_version_label || getApiVersionLabel(observed.api_version || ticket?.api_version || '') || '—'
   }
 
   function compactTicketTitle(ticket: any) {
@@ -11138,8 +11049,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                             <strong>{display.main}</strong>
                             {display.secondary && <div style={{ color: '#a8b3bd' }}>{display.secondary}</div>}
                             <div style={{ color: '#a8b3bd' }}>Date: {new Date(row.reading_date || row.created_at || Date.now()).toLocaleString()}</div>
-                            <div>Open: {row.opening_reading ?? row.opening_meter_reading ?? row.open_reading ?? '-'} • Close: {row.closing_reading ?? row.closing_meter_reading ?? row.close_reading ?? '-'}</div>
-                            <div>Avg Temp: {row.avg_temp ?? row.average_temperature ?? '-'} • Avg Pressure: {row.avg_pressure ?? row.average_pressure ?? '-'}</div>
+                            <div>Open: {row.opening_reading ?? row.opening_meter_reading ?? row.open_reading ?? '—'} • Close: {row.closing_reading ?? row.closing_meter_reading ?? row.close_reading ?? '—'}</div>
+                            <div>Avg Temp: {row.avg_temp ?? row.average_temperature ?? '—'} • Avg Pressure: {row.avg_pressure ?? row.average_pressure ?? '—'}</div>
                             {!isReadOnly && (
                               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
                                 <button style={{ ...button, padding: '8px 12px', width: 'auto', background: 'linear-gradient(135deg,#f97316,#9a3412)' }} onClick={() => editOperatorReading(row)}>
@@ -11232,7 +11143,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     <div style={card}><strong>Formula</strong><br />{result.formula}</div>
                     <div style={card}><strong>Correction Path</strong><br />{result.uses_combined_correction_factor ? 'Combined CCF' : 'Separate CTL × CPL × MF'}</div>
                     <div style={card}><strong>Source</strong><br />{result.correction_source}</div>
-                    <div style={card}><strong>Rounding Profile</strong><br />{result.rounding_profile?.label || '-'}</div>
+                    <div style={card}><strong>Rounding Profile</strong><br />{result.rounding_profile?.label || '—'}</div>
                   </div>
                 )
               })()}
@@ -11356,10 +11267,10 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <div>
                         <strong>{profileLease?.lease_name || profileLease?.name || profile.contract_name || profile.name}</strong>
                         <div style={{ color: '#a8b3bd', marginTop: 4 }}>
-                          {profileArea?.name || 'Area —'} • {profileSegment?.name || profileSegment?.segment_name || 'Segment —'} • Producer: {profileProducer?.name || profile.transporter_name || '-'}
+                          {profileArea?.name || 'Area —'} • {profileSegment?.name || profileSegment?.segment_name || 'Segment —'} • Producer: {profileProducer?.name || profile.transporter_name || '—'}
                         </div>
                         <div style={{ color: '#a8b3bd', marginTop: 4 }}>
-                          Product: {profile.product_group || 'crude'} • Method: {profile.calculation_method || 'chapter12_2021'} • API: {profile.standard || getApiVersionLabel(profile.api_version || '') || profile.api_version || '-'} • CTL/CPL: {profile.correction_source || 'app_calculated'} • Factor: {profile.meter_factor || 1}
+                          Product: {profile.product_group || 'crude'} • Method: {profile.calculation_method || 'chapter12_2021'} • API: {profile.standard || getApiVersionLabel(profile.api_version || '') || profile.api_version || '—'} • CTL/CPL: {profile.correction_source || 'app_calculated'} • Factor: {profile.meter_factor || 1}
                         </div>
                       </div>
                       <button style={{ ...button, background: '#dc2626', width: 120 }} onClick={() => deleteContractProfile(profile.id)}>Delete</button>
@@ -11563,15 +11474,15 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                           <div key={p.id} style={{ ...card, margin: 0 }}>
                             <strong>{display.main}</strong>
                             {display.secondary && <div style={{ color: '#a8b3bd' }}>{display.secondary}</div>}
-                            <div>Producer: {prod?.name || p.producer_name || '-'}</div>
-                            <div>Date: {p.sample_date || '-'}</div>
+                            <div>Producer: {prod?.name || p.producer_name || '—'}</div>
+                            <div>Date: {p.sample_date || '—'}</div>
                             <div>Observed API Gravity: {p.observed_api_gravity ?? p.api_gravity}</div>
                             <div>Observed Temp: {p.observed_temperature ?? p.sample_temperature}</div>
                             <div>API Gravity @60: {p.api_gravity_60 ?? p.api_gravity}</div>
                             <div>BS&W: {formatPotBswPercent(p)}</div>
                             <div>CSW: {p.csw}</div>
-                            <div>RVP: {((p as any).rvp ?? parsePotExtra(p.notes, 'rvp')) || '-'}</div>
-                            <div>Sulphur: {((p as any).sulfur ?? parsePotExtra(p.notes, 'sulfur')) || '-'}</div>
+                            <div>RVP: {((p as any).rvp ?? parsePotExtra(p.notes, 'rvp')) || '—'}</div>
+                            <div>Sulphur: {((p as any).sulfur ?? parsePotExtra(p.notes, 'sulfur')) || '—'}</div>
                             <div>Notes: {cleanPotNotes(p.notes) || ''}</div>
                             {!isReadOnly && (
                               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
@@ -11836,11 +11747,11 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         const status = getScheduleStatus(row)
                         return (
                           <tr key={row.id || `${row.month_key}_${row.meter_id}`}>
-                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{lease?.lease_name || lease?.name || lease?.lease_number || '-'}</td>
-                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{meter?.meter_number || meter?.meter_name || '-'}</td>
-                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.due_date || '-'}</td>
+                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{lease?.lease_name || lease?.name || lease?.lease_number || '—'}</td>
+                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{meter?.meter_number || meter?.meter_name || '—'}</td>
+                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.due_date || '—'}</td>
                             <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.frequency || 'monthly'}</td>
-                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.assigned_to || '-'}</td>
+                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.assigned_to || '—'}</td>
                             <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}><strong style={{ color: status.color }}>{status.label}</strong></td>
                           </tr>
                         )
@@ -12675,13 +12586,13 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <div style={{ ...card, marginTop: 14, borderColor: '#7c3aed' }}>
                     <h3 style={{ marginTop: 0 }}>Revision History</h3>
                     <div><strong>Current:</strong> Revision {(selectedTicket!.observed_inputs as any).revision_number}</div>
-                    <div><strong>Last Reason:</strong> {(selectedTicket!.observed_inputs as any).revision_reason || '-'}</div>
+                    <div><strong>Last Reason:</strong> {(selectedTicket!.observed_inputs as any).revision_reason || '—'}</div>
                     <div><strong>Last Revised:</strong> {(selectedTicket!.observed_inputs as any).revised_at ? new Date((selectedTicket!.observed_inputs as any).revised_at).toLocaleString() : '—'}</div>
                     <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
                       {(((selectedTicket!.observed_inputs as any).revision_history || []) as any[]).slice().reverse().map((rev: any, index: number) => (
                         <div key={index} style={{ ...card, margin: 0, background: 'rgba(124,58,237,0.10)' }}>
                           <strong>Revision {rev.revision_number || ((selectedTicket!.observed_inputs as any).revision_number - index)}</strong>
-                          <div>Reason: {rev.reason || '-'}</div>
+                          <div>Reason: {rev.reason || '—'}</div>
                           <div>Revised: {rev.revised_at ? new Date(rev.revised_at).toLocaleString() : '—'}</div>
                         </div>
                       ))}
@@ -12738,11 +12649,11 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       leases.find((l: any) => String(l.id) === String(selectedTicket!.lease_id || '')),
                       selectedTicket!.observed_inputs || {}
                     ) || 'No lease linked'}</div>
-                    <div><strong>Type:</strong> {selectedTicket!.ticket_type || '-'}</div>
+                    <div><strong>Type:</strong> {selectedTicket!.ticket_type || '—'}</div>
                     <div><strong>Status:</strong> {selectedTicket!.status || 'draft'}</div>
-                    <div><strong>Transporter:</strong> {selectedTicket!.observed_inputs?.transporter_name || (selectedTicket as any).transporter_name || (selectedTicket as any).customer_name || '-'}</div>
-                    <div><strong>LACT:</strong> {selectedTicket!.observed_inputs?.lact_name || (selectedTicket as any).lact_name || '-'}</div>
-                    <div><strong>Source Rows:</strong> {selectedTicket!.observed_inputs?.source_rows || '-'}</div>
+                    <div><strong>Transporter:</strong> {selectedTicket!.observed_inputs?.transporter_name || (selectedTicket as any).transporter_name || (selectedTicket as any).customer_name || '—'}</div>
+                    <div><strong>LACT:</strong> {selectedTicket!.observed_inputs?.lact_name || (selectedTicket as any).lact_name || '—'}</div>
+                    <div><strong>Source Rows:</strong> {selectedTicket!.observed_inputs?.source_rows || '—'}</div>
                   </div>
 
                   <div style={card}>
@@ -12779,7 +12690,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <div style={card}>
                     <h3>POT Assignment</h3>
                     <div><strong>Assigned POT:</strong> {getTicketAssignedPotLabel(selectedTicket)}</div>
-                    <div><strong>POT ID:</strong> {(selectedTicket as any).assigned_pot_id || selectedTicket!.observed_inputs?.assigned_pot_id || '-'}</div>
+                    <div><strong>POT ID:</strong> {(selectedTicket as any).assigned_pot_id || selectedTicket!.observed_inputs?.assigned_pot_id || '—'}</div>
                     <div><strong>POT Source:</strong> {selectedTicket!.observed_inputs?.pot_source || 'Transporter POT Map'}</div>
                   </div>
 
@@ -12787,17 +12698,17 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     <h3>Contract Information</h3>
                     <div><strong>Contract:</strong> {getTicketContractName(selectedTicket)}</div>
                     <div><strong>API Version:</strong> {getTicketApiVersionLabel(selectedTicket)}</div>
-                    <div><strong>Method:</strong> {selectedTicket!.observed_inputs?.calculation_method || (selectedTicket as any).calculation_method || '-'}</div>
-                    <div><strong>Formula:</strong> {selectedTicket!.observed_inputs?.calculation_formula || selectedTicket!.calculation_results?.formula || '-'}</div>
-                    <div><strong>Correction Source:</strong> {selectedTicket!.observed_inputs?.correction_source || (selectedTicket as any).correction_source || '-'}</div>
+                    <div><strong>Method:</strong> {selectedTicket!.observed_inputs?.calculation_method || (selectedTicket as any).calculation_method || '—'}</div>
+                    <div><strong>Formula:</strong> {selectedTicket!.observed_inputs?.calculation_formula || selectedTicket!.calculation_results?.formula || '—'}</div>
+                    <div><strong>Correction Source:</strong> {selectedTicket!.observed_inputs?.correction_source || (selectedTicket as any).correction_source || '—'}</div>
                   </div>
 
                   <div style={card}>
                     <h3>Source Summary</h3>
-                    <div><strong>Ticket Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.ticket_numbers) || '-'}</div>
-                    <div><strong>Batch Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.batch_numbers) || '-'}</div>
-                    <div><strong>Truck Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.truck_numbers) || '-'}</div>
-                    <div><strong>Lease Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.leases) || '-'}</div>
+                    <div><strong>Ticket Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.ticket_numbers) || '—'}</div>
+                    <div><strong>Batch Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.batch_numbers) || '—'}</div>
+                    <div><strong>Truck Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.truck_numbers) || '—'}</div>
+                    <div><strong>Lease Count:</strong> {uniqueCsvCount(selectedTicket!.observed_inputs?.leases) || '—'}</div>
                   </div>
                 </div>
 

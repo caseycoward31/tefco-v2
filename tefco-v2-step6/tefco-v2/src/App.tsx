@@ -6975,6 +6975,16 @@ async function createCompany() {
     return { main, secondary }
   }
 
+  function getMeterSegmentForBalance(meter: any) {
+    if (meter?.segment_id) return meter.segment_id
+    const lease = getLeaseById(meter?.lease_id)
+    return lease?.segment_id || ''
+  }
+
+  function getBalanceMetersForSegment(segmentId: string) {
+    return meters.filter((meter: any) => String(getMeterSegmentForBalance(meter) || '') === String(segmentId || ''))
+  }
+
 
   function getProvingDisplayName(proving: any) {
     const meter = getMeterById(proving?.meter_id || proving?.meterId || '')
@@ -8241,6 +8251,11 @@ async function createCompany() {
       ...newEquationSideACheckGroupIds.map((id) => ({ company_id: activeCompanyID, equation_id: equationRow.id, side: 'A', item_type: 'check_group', item_id: id, value_mode: 'check_total', active: true })),
       ...newEquationSideBCheckGroupIds.map((id) => ({ company_id: activeCompanyID, equation_id: equationRow.id, side: 'B', item_type: 'check_group', item_id: id, value_mode: 'check_total', active: true })),
     ]
+
+    if (!memberRows.length && !newEquationIncludeTankChange && !newEquationIncludeLineFillChange) {
+      alert('Choose at least one meter/check group, or include tank change/line fill change.')
+      return
+    }
 
     if (memberRows.length) {
       const { error: itemError } = await supabase.from('balance_equation_items').insert(memberRows)
@@ -10857,11 +10872,17 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       {newBalanceEquationSegmentId && (
                         <>
                         <input style={input} placeholder="Search lease or meter for equation..." value={equationMeterSearch} onChange={(e) => setEquationMeterSearch(e.target.value)} />
+                        <div style={{ ...box, color: '#a8b3bd', fontSize: 12 }}>
+                          Available meters in this segment: {getBalanceMetersForSegment(newBalanceEquationSegmentId).length} •
+                          Side A selected: {newEquationSideAMeterIds.length + newEquationSideACheckGroupIds.length} •
+                          Side B selected: {newEquationSideBMeterIds.length + newEquationSideBCheckGroupIds.length}
+                          {(newEquationIncludeTankChange || newEquationIncludeLineFillChange) ? ` • Adjustments: ${newEquationIncludeTankChange ? 'Tank Change ' : ''}${newEquationIncludeLineFillChange ? 'Line Fill Change' : ''}` : ''}
+                        </div>
                         <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                           <div style={box}>
                             <strong>Side A Adders</strong>
                             <div style={{ color: '#a8b3bd', margin: '6px 0' }}>Meters</div>
-                            {meters.filter((meter: any) => String(meter.segment_id || '') === String(newBalanceEquationSegmentId) && meterMatchesSearch(meter, equationMeterSearch)).map((meter: any) => (
+                            {getBalanceMetersForSegment(newBalanceEquationSegmentId).filter((meter: any) => meterMatchesSearch(meter, equationMeterSearch)).map((meter: any) => (
                               <label key={`a-meter-${meter.id}`} style={{ ...box, display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
                                 <input type="checkbox" checked={newEquationSideAMeterIds.includes(meter.id)} onChange={(e) => toggleStringSelection(setNewEquationSideAMeterIds, meter.id, e.target.checked)} /> <MeterChoiceLabel meter={meter} />
                               </label>
@@ -10878,7 +10899,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                           <div style={box}>
                             <strong>Side B Subtractors</strong>
                             <div style={{ color: '#a8b3bd', margin: '6px 0' }}>Meters</div>
-                            {meters.filter((meter: any) => String(meter.segment_id || '') === String(newBalanceEquationSegmentId) && meterMatchesSearch(meter, equationMeterSearch)).map((meter: any) => (
+                            {getBalanceMetersForSegment(newBalanceEquationSegmentId).filter((meter: any) => meterMatchesSearch(meter, equationMeterSearch)).map((meter: any) => (
                               <label key={`b-meter-${meter.id}`} style={{ ...box, display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
                                 <input type="checkbox" checked={newEquationSideBMeterIds.includes(meter.id)} onChange={(e) => toggleStringSelection(setNewEquationSideBMeterIds, meter.id, e.target.checked)} /> <MeterChoiceLabel meter={meter} />
                               </label>
@@ -10902,13 +10923,22 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
                         {balanceEquations.map((equation: any) => {
                           const segment = segments.find((s: any) => String(s.id) === String(equation.segment_id))
+                          const items = balanceEquationItems.filter((item: any) => String(item.equation_id || '') === String(equation.id))
+                          const sideACount = items.filter((item: any) => String(item.side || '').toUpperCase() === 'A').length
+                          const sideBCount = items.filter((item: any) => String(item.side || '').toUpperCase() === 'B').length
+                          const row = getOverShortRows().find((osRow: any) => String(osRow.segment.id || '') === String(equation.segment_id || ''))
+                          const calcRow = row?.stationEquationRows?.find((eqRow: any) => String(eqRow.equation.id || '') === String(equation.id || ''))
                           return (
                             <div key={equation.id} style={{ ...box, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-                              <span style={{ color: '#a8b3bd' }}>{equation.name} • {segment?.name || 'Segment'} • Side A - Side B</span>
+                              <span style={{ color: '#a8b3bd' }}>
+                                {equation.name} • {segment?.name || 'Segment'} • A items: {sideACount} • B items: {sideBCount}
+                                {calcRow ? ` • Current O/S: ${Number(calcRow.difference || 0).toFixed(2)}` : ' • No current calculation yet'}
+                              </span>
                               <button type="button" style={{ ...button, width: 'auto' }} onClick={() => startEditBalanceEquation(equation)}>Edit</button>
                             </div>
                           )
                         })}
+                        {balanceEquations.length === 0 && <div style={{ color: '#a8b3bd' }}>No station balance equations saved yet.</div>}
                       </div>
                     </div>
 

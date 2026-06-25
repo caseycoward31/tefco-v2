@@ -6784,12 +6784,18 @@ async function createCompany() {
     return date ? date.toISOString() : (ticket.approved_at || ticket.ticket_date || ticket.created_at || ticket.updated_at || '')
   }
 
+  function formatDateInputValue(date: Date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  }
+
   function getCurrentOverShortRange() {
     if (overShortStartDate || overShortEndDate) {
+      const start = overShortStartDate ? new Date(`${overShortStartDate}T07:01:00`) : null
+      const end = overShortEndDate ? new Date(`${overShortEndDate}T07:00:00`) : null
       return {
-        start: overShortStartDate ? new Date(`${overShortStartDate}T00:00:00`) : null,
-        end: overShortEndDate ? new Date(`${overShortEndDate}T23:59:59`) : null,
-        label: overShortStartDate || overShortEndDate ? `${overShortStartDate || 'Beginning'} to ${overShortEndDate || 'Now'}` : 'All Dates',
+        start,
+        end,
+        label: overShortStartDate || overShortEndDate ? `${overShortStartDate || 'Beginning'} 07:01 to ${overShortEndDate || 'Now'} 07:00` : 'All Dates',
       }
     }
 
@@ -6801,6 +6807,15 @@ async function createCompany() {
     const end = new Date(accountingNow.getFullYear(), accountingNow.getMonth() + 1, 1, 7, 0, 0, 0)
     const label = accountingNow.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
     return { start, end, label }
+  }
+
+  function setOverShortAccountingMonth(monthOffset = 0) {
+    const now = new Date()
+    const accountingNow = getAccountingDateFromValue(now.toISOString()) || now
+    const start = new Date(accountingNow.getFullYear(), accountingNow.getMonth() + monthOffset, 1)
+    const end = new Date(accountingNow.getFullYear(), accountingNow.getMonth() + monthOffset + 1, 1)
+    setOverShortStartDate(formatDateInputValue(start))
+    setOverShortEndDate(formatDateInputValue(end))
   }
 
   function isTicketInOverShortRange(ticket: any) {
@@ -9969,6 +9984,13 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <div style={{ color: '#a8b3bd', fontSize: 12 }}>Receipts, deliveries, inventory, check meters, and butane shrinkage by segment.</div>
                   <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 4 }}>Period: {getCurrentOverShortRange().label}</div>
                 </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <button type="button" style={{ ...button, width: 'auto' }} onClick={() => setOverShortAccountingMonth(-1)}>Last Month</button>
+                  <button type="button" style={{ ...button, width: 'auto' }} onClick={() => setOverShortAccountingMonth(0)}>This Month</button>
+                  <button type="button" style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => { setOverShortStartDate(''); setOverShortEndDate('') }}>Auto</button>
+                  <input style={{ ...input, width: 155 }} type="date" value={overShortStartDate} onChange={(e) => setOverShortStartDate(e.target.value)} />
+                  <input style={{ ...input, width: 155 }} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
+                </div>
               </div>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12 }}>
                 {dashboardOverShortRows.map((row: any) => (
@@ -9979,6 +10001,11 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     </div>
                     <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 8 }}>Book {row.bookInventory.toFixed(2)} • Actual {row.actualInventory.toFixed(2)}</div>
                     <div style={{ color: '#a8b3bd', fontSize: 12 }}>Receipts {row.receipts.toFixed(2)} • Deliveries {row.deliveries.toFixed(2)}</div>
+                    {(row.stationEquationRows || []).slice(0, 2).map((equation: any) => (
+                      <div key={equation.equation.id} style={{ color: Math.abs(equation.difference) > 0.01 ? '#fca5a5' : '#86efac', fontSize: 12, marginTop: 4 }}>
+                        {equation.equation.name}: {Number(equation.difference || 0).toFixed(2)}
+                      </div>
+                    ))}
                     {row.butaneEnabled && <div style={{ color: '#fef3c7', fontSize: 12 }}>Butane Blend {row.butaneAdjustment.blendPercent.toFixed(4)}% • Shrink {row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2)}</div>}
                   </div>
                 ))}

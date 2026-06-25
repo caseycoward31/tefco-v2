@@ -5237,8 +5237,183 @@ async function createCompany() {
     return output
   }
 
+  async function loadPdfJsForStrapping() {
+    const win = window as any
+    if (win.pdfjsLib) return win.pdfjsLib
+
+    await new Promise<void>((resolve, reject) => {
+      const existing = document.querySelector('script[data-pdfjs-strapping="true"]') as HTMLScriptElement | null
+      if (existing) {
+        existing.addEventListener('load', () => resolve())
+        existing.addEventListener('error', () => reject(new Error('Could not load PDF parser.')))
+        return
+      }
+
+      const script = document.createElement('script')
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
+      script.async = true
+      script.dataset.pdfjsStrapping = 'true'
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('Could not load PDF parser. Check internet connection and try again.'))
+      document.head.appendChild(script)
+    })
+
+    if (!win.pdfjsLib) throw new Error('PDF parser did not initialize.')
+    win.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+    return win.pdfjsLib
+  }
+
+  function parseStrappingNumber(value: any) {
+    const num = Number(String(value ?? '').replace(/,/g, '').trim())
+    return Number.isFinite(num) ? num : null
+  }
+
+  function extractAmSpecStrappingRowsFromPdfLines(lines: string[]) {
+    const rows: any[] = []
+    const numberPattern = /^-?\d{1,3}(?:,\d{3})*(?:\.\d+)?$|^-?\d+(?:\.\d+)?$/
+
+    for (const rawLine of lines) {
+      const line = String(rawLine || '').replace(/\s+/g, ' ').trim()
+      if (!line) continue
+      if (/GALLONS/i.test(line)) continue
+      if (/FRACTIONS|FLOATING|TABLE NOTES|AMSPEC|DATE|NOTE:/i.test(line)) continue
+
+      const tokens = line
+        .split(' ')
+        .map((token) => token.trim())
+        .filter(Boolean)
+        .filter((token) => numberPattern.test(token))
+
+      if (tokens.length < 2) continue
+
+      let i = 0
+      while (i < tokens.length - 1) {
+        const heightToken = tokens[i]
+        const barrelToken = tokens[i + 1]
+        const height = parseStrappingNumber(heightToken)
+        const barrels = parseStrappingNumber(barrelToken)
+
+        if (height === null || barrels === null) {
+          i += 1
+          continue
+        }
+
+        // AmSpec PDF lines have pairs like:
+        // first table row: FT + BARRELS, then following rows: IN + BARRELS under each FT column.
+        // A valid barrel value on this chart is decimal and reasonably large.
+        if (!String(barrelToken).includes('.') || barrels < 1) {
+          i += 1
+          continue
+        }
+
+        const isFootRow = i === 0 || height > 11
+        let feet = 0
+        let inches = 0
+
+        if (isFootRow) {
+          feet = height
+          inches = 0
+        } else {
+          // Use the nearest previous foot heading from this same line if available.
+          // For PDF text extraction, lines are ordered left-to-right by columns.
+          const previousFootCandidates = tokens.slice(0, i).map(parseStrappingNumber).filter((n: any) => n !== null && n > 11) as number[]
+          feet = previousFootCandidates.length ? previousFootCandidates[previousFootCandidates.length - 1] : 0
+          inches = height
+        }
+
+        // Better reconstruction for standard AmSpec rows:
+        // each line contains repeated pairs across seven-foot column groups.
+        // The row number token is the inch for every column except the row-start foot headers.
+        if (!isFootRow) {
+          const pairIndex = Math.floor(i / 2)
+          const footHeaders = tokens
+            .filter((_, tokenIndex) => tokenIndex % 2 === 0)
+            .map(parseStrappingNumber)
+            .filter((n: any) => n !== null && n > 11) as number[]
+
+          if (footHeaders[pairIndex] !== undefined) feet = footHeaders[pairIndex]
+        }
+
+        const gaugeDecimal = feet + (inches / 12)
+        if (Number.isFinite(gaugeDecimal) && Number.isFinite(barrels)) {
+          rows.push({
+            gauge_decimal: Number(gaugeDecimal.toFixed(6)),
+            gauge_feet: feet,
+            gauge_inches: inches,
+            gauge_fraction: null,
+            barrels,
+            increment_bbl: null,
+            notes: 'Imported from PDF strapping chart',
+          })
+        }
+
+        i += 2
+      }
+    }
+
+    // If line reconstruction above misses the repeated columns, use a second pass that knows the
+    // AmSpec page is arranged in 7-foot column groups with rows 0-11 inches.
+    const unique = new Map<string, any>()
+    rows.forEach((row) => {
+      const key = Number(row.gauge_decimal).toFixed(6)
+      if (!unique.has(key) || Number(row.barrels || 0) > Number(unique.get(key).barrels || 0)) unique.set(key, row)
+    })
+
+    return Array.from(unique.values())
+      .filter((row) => row.barrels > 0 && row.gauge_decimal >= 0)
+      .sort((a, b) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
+  }
+
+  async function extractPdfTextLinesForStrapping(file: File) {
+    const pdfjsLib = await loadPdfJsForStrapping()
+    const data = await file.arrayBuffer()
+    const pdf = await pdfjsLib.getDocument({ data }).promise
+    const allLines: string[] = []
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber)
+      const content = await page.getTextContent()
+      const buckets = new Map<number, any[]>()
+
+      ;(content.items || []).forEach((item: any) => {
+        const transform = item.transform || []
+        const x = Number(transform[4] || 0)
+        const y = Number(transform[5] || 0)
+        const yKey = Math.round(y)
+        if (!buckets.has(yKey)) buckets.set(yKey, [])
+        buckets.get(yKey)!.push({ x, text: item.str || '' })
+      })
+
+      Array.from(buckets.entries())
+        .sort((a, b) => b[0] - a[0])
+        .forEach(([, items]) => {
+          const line = items
+            .sort((a, b) => a.x - b.x)
+            .map((item) => item.text)
+            .join(' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+
+          if (line) allLines.push(line)
+        })
+    }
+
+    return allLines
+  }
+
   async function parseStrappingFileRows(file: File) {
     const lowerName = file.name.toLowerCase()
+
+    if (lowerName.endsWith('.pdf')) {
+      const lines = await extractPdfTextLinesForStrapping(file)
+      const rows = extractAmSpecStrappingRowsFromPdfLines(lines)
+
+      if (rows.length === 0) {
+        console.warn('No PDF strapping rows parsed. First extracted lines:', lines.slice(0, 50))
+      }
+
+      return rows
+    }
 
     if (lowerName.endsWith('.xlsx')) {
       const sheets = await readXlsxSheets(file)
@@ -5266,7 +5441,7 @@ async function createCompany() {
 
   async function importTankStrappingCsv() {
     if (!selectedStrappingTankId || !strappingCsvFile) {
-      alert('Select a tank and CSV/XLSX file.')
+      alert('Select a tank and CSV/XLSX/PDF file.')
       return
     }
 
@@ -5335,7 +5510,7 @@ async function createCompany() {
 
     if (insertRows.length === 0) {
       await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
-      alert('No valid strapping rows found.')
+      alert('No valid strapping rows found. For PDFs, make sure it is a text-based AmSpec-style strapping chart, not a scanned image.')
       return
     }
 
@@ -11096,7 +11271,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   )}
                 </div>
 
-                      <input style={input} type="file" accept=".csv,text/csv" onChange={(e) => setFlowxCsvFile(e.target.files?.[0] || null)} />
+                      <input style={input} type="file" accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setFlowxCsvFile(e.target.files?.[0] || null)} />
 
                       <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Importing transporter summary tickets', importFlowXTransporterSummaryTickets)}>
                         Import Transporter Summary Tickets
@@ -11134,9 +11309,9 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </div>
 
                       <div style={card}>
-                        <h4>Upload Tank Strapping Chart CSV/XLSX</h4>
+                        <h4>Upload Tank Strapping Chart CSV/XLSX/PDF</h4>
                         <p style={{ color: '#a8b3bd' }}>
-                          CSV headers supported: gauge_decimal, gauge_feet, gauge_inches, gauge_fraction, barrels, increment_bbl, notes. XLSX refinery strapping tables with FT-IN/Barrels pairs are detected automatically.
+                          CSV headers supported: gauge_decimal, gauge_feet, gauge_inches, gauge_fraction, barrels, increment_bbl, notes. XLSX refinery strapping tables and text-based AmSpec PDF innage tables with FT-IN/Barrels pairs are detected automatically.
                         </p>
                         <select style={input} value={selectedStrappingTankId} onChange={(e) => setSelectedStrappingTankId(e.target.value)}>
                           <option value="">Select Tank</option>

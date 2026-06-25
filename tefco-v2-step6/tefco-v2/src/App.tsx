@@ -4227,7 +4227,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     )
   }
 
-  function buildTicketPdfHtml(ticket: any) {
+  function generatePdfPreview(ticket: any) {
     const producer = producers.find((item: any) => item.id === ticket.producer_id)
     const meter = meters.find((item: any) => item.id === ticket.meter_id)
     const segment = segments.find((item: any) => item.id === ticket.segment_id)
@@ -4655,11 +4655,6 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
 </body>
 </html>`
 
-    return html
-  }
-
-  function generatePdfPreview(ticket: any) {
-    const html = buildTicketPdfHtml(ticket)
     const printWindow = window.open('', '_blank')
     if (!printWindow) {
       alert('Popup blocked. Allow popups to preview PDF.')
@@ -7444,10 +7439,7 @@ async function createCompany() {
   }
 
   function getTicketReportDate(ticket: any) {
-    const parts = getRowAccountingDateParts(ticket, ['ticket_date', 'approved_at', 'created_at', 'updated_at'])
-    const closeDate = makeLocalDateTime(parts.date, parts.time)
-    if (closeDate) return closeDate.toISOString()
-    return ticket.ticket_date || ticket.approved_at || ticket.created_at || ticket.updated_at || ''
+    return ticket.approved_at || ticket.ticket_date || ticket.created_at || ticket.updated_at || ''
   }
 
   function getReportFilteredTickets(type?: string) {
@@ -8399,43 +8391,56 @@ async function saveUserRole() {
   }
 
   async function exportProducerPdfBundle() {
-    if (!reportStartDate || !reportEndDate) {
-      alert('Select a report start date and end date.')
+    if (!pdfBundleStartDate || !pdfBundleEndDate) {
+      alert('Select a start date and end date.')
       return
     }
 
-    const getTicketProducerId = (ticket: any) => {
-      const observed = ticket?.observed_inputs || {}
-      if (ticket.producer_id || ticket.producerId || observed.producer_id) {
-        return ticket.producer_id || ticket.producerId || observed.producer_id
-      }
+    const start = new Date(`${pdfBundleStartDate}T00:00:00`)
+    const end = new Date(`${pdfBundleEndDate}T23:59:59`)
 
-      const lease = leases.find((l: any) => String(l.id || '') === String(ticket.lease_id || observed.lease_id || ''))
+    const getTicketDate = (ticket: any) =>
+      ticket.ticket_date || ticket.ticketDate || ticket.created_at || ticket.createdAt || ticket.updated_at || ticket.updatedAt || ticket.approved_at || ticket.approvedAt || ''
+
+    const getTicketProducerId = (ticket: any) =>
+      ticket.producer_id || ticket.producerId || ticket.observed_inputs?.producer_id || ticket.calculation_profile_snapshot?.producer_id || ''
+
+    const getProvingDate = (proving: any) =>
+      proving.proving_date || proving.provingDate || proving.created_at || proving.createdAt || proving.approved_at || proving.approvedAt || ''
+
+    const getProvingProducerId = (proving: any) => {
+      if (proving.producer_id || proving.producerId) return proving.producer_id || proving.producerId
+      const lease = leases.find((l: any) => String(l.id) === String(proving.lease_id || proving.leaseId || ''))
       if (lease?.producer_id) return lease.producer_id
-
-      const meter = meters.find((m: any) => String(m.id || '') === String(ticket.meter_id || observed.meter_id || ''))
+      const meter = meters.find((m: any) => String(m.id) === String(proving.meter_id || proving.meterId || ''))
       if (meter?.producer_id) return meter.producer_id
-
-      const meterLease = leases.find((l: any) => String(l.id || '') === String(meter?.lease_id || ''))
+      const meterLease = leases.find((l: any) => String(l.id) === String(meter?.lease_id || ''))
       return meterLease?.producer_id || ''
     }
 
-    const ticketsToExport = getReportFilteredTickets('meter')
-      .filter((ticket: any) => String(ticket.status || '').toLowerCase() === 'approved')
-      .filter((ticket: any) => reportProducerId ? String(getTicketProducerId(ticket)) === String(reportProducerId) : true)
+    const ticketsToExport = getScopedTickets().filter((ticket: any) => {
+      const ticketDateValue = getTicketDate(ticket)
+      const dateOk = ticketDateValue ? new Date(ticketDateValue) >= start && new Date(ticketDateValue) <= end : true
+      const producerOk = pdfBundleProducerId ? getTicketProducerId(ticket) === pdfBundleProducerId : true
+      return ticket.status === 'approved' && dateOk && producerOk
+    })
 
-    if (ticketsToExport.length === 0) {
-      alert('No approved meter tickets found for the selected report filters.')
+    const provingsToExport = getScopedProvings().filter((proving: any) => {
+      const dateValue = getProvingDate(proving)
+      const dateOk = dateValue ? new Date(dateValue) >= start && new Date(dateValue) <= end : true
+      const producerOk = pdfBundleProducerId ? getProvingProducerId(proving) === pdfBundleProducerId : true
+      return proving.status === 'approved' && dateOk && producerOk
+    })
+
+    if (ticketsToExport.length === 0 && provingsToExport.length === 0) {
+      alert('No approved tickets or provings found for that producer/date range.')
       return
     }
 
     const zip = new JSZip()
     let addedTicketCount = 0
+    let addedProvingCount = 0
     const value = (v: any) => v === null || v === undefined || v === '' ? '—' : v
-    const numberValue = (v: any, digits = 2) => {
-      const n = Number(v)
-      return Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—'
-    }
 
     async function loadHtml2Pdf() {
       const win = window as any
@@ -8462,173 +8467,146 @@ async function saveUserRole() {
       return win.html2pdf
     }
 
-    async function renderActualTicketPdfBlob(ticket: any) {
+    async function htmlToPdfBlob(html: string) {
       const html2pdf = await loadHtml2Pdf()
-      const html = buildTicketPdfHtml(ticket)
 
-      // Render the exact customer ticket HTML inside a hidden iframe so the <style>
-      // block from buildTicketPdfHtml is applied before html2canvas captures it.
-      const iframe = document.createElement('iframe')
-      iframe.style.position = 'fixed'
-      iframe.style.left = '-10000px'
-      iframe.style.top = '0'
-      iframe.style.width = '8.5in'
-      iframe.style.height = '11in'
-      iframe.style.border = '0'
-      iframe.style.background = '#ffffff'
-      document.body.appendChild(iframe)
+      const wrapper = document.createElement('div')
+      wrapper.style.position = 'fixed'
+      wrapper.style.left = '-10000px'
+      wrapper.style.top = '0'
+      wrapper.style.width = '8.5in'
+      wrapper.style.background = '#ffffff'
+      wrapper.innerHTML = html
+      document.body.appendChild(wrapper)
 
       try {
-        const doc = iframe.contentDocument || iframe.contentWindow?.document
-        if (!doc) throw new Error('Could not create PDF render frame.')
-
-        doc.open()
-        doc.write(html)
-        doc.close()
-
-        await new Promise<void>((resolve) => {
-          const done = () => resolve()
-          if (iframe.contentWindow) {
-            iframe.contentWindow.requestAnimationFrame(() => {
-              iframe.contentWindow?.requestAnimationFrame(done)
-            })
-          } else {
-            setTimeout(done, 250)
-          }
-        })
-
-        const page = doc.querySelector('.page') as HTMLElement | null
-        if (!page) throw new Error('Ticket PDF layout was not found.')
-
-        const backButton = doc.querySelector('.pdf-back-button') as HTMLElement | null
+        const target = (wrapper.querySelector('.page') as HTMLElement) || wrapper
+        const backButton = wrapper.querySelector('.pdf-back-button') as HTMLElement | null
         if (backButton) backButton.style.display = 'none'
+
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
 
         const blob = await html2pdf()
           .set({
             margin: 0,
             filename: 'ticket.pdf',
             image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: {
-              scale: 2,
-              useCORS: true,
-              allowTaint: true,
-              logging: false,
-              backgroundColor: '#ffffff',
-              windowWidth: 816,
-              windowHeight: 1056,
-            },
+            html2canvas: { scale: 2, useCORS: true, allowTaint: true, backgroundColor: '#ffffff' },
             jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
             pagebreak: { mode: ['css', 'legacy'] },
           })
-          .from(page)
+          .from(target)
           .outputPdf('blob')
 
         return blob as Blob
       } finally {
-        iframe.remove()
+        wrapper.remove()
       }
     }
 
     const makeTicketHtml = (ticket: any) => {
-      const observed = ticket.observed_inputs || {}
-      const calc = ticket.calculation_results || {}
-      const producer = producers.find((p: any) => String(p.id || '') === String(getTicketProducerId(ticket)))
-      const meter = meters.find((m: any) => String(m.id || '') === String(ticket.meter_id || observed.meter_id || ''))
-      const segment = segments.find((s: any) => String(s.id || '') === String(ticket.segment_id || observed.segment_id || ''))
-      const lease = leases.find((l: any) => String(l.id || '') === String(ticket.lease_id || observed.lease_id || meter?.lease_id || ''))
-      const ticketDate = getTicketReportDate(ticket)
-      const openDateTime = `${observed.open_date || '—'} ${observed.open_time || ''}`
-      const closeDateTime = `${observed.close_date || '—'} ${observed.close_time || ''}`
-      const revisionNumber = observed.revision_number || calc.revision_number || 0
-
-      return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>${value(ticket.ticket_number || 'Ticket')}</title>
-  <style>
-    body{font-family:Arial,sans-serif;padding:24px;color:#111}
-    .hdr{border-bottom:3px solid #c46a2b;margin-bottom:18px;padding-bottom:10px}
-    h1{margin:0}
-    .grid{display:grid;grid-template-columns:220px 1fr;border:1px solid #ddd}
-    .grid div{padding:8px;border-bottom:1px solid #eee}
-    .label{font-weight:700;background:#fafafa}
-  </style>
-</head>
-<body>
-  <div class="hdr"><h1>${getCompanyDisplayName()}</h1><div>Producer PDF Bundle Ticket</div></div>
-  <h2>${value(ticket.ticket_number || ticket.id)}</h2>
-  <div class="grid">
-    <div class="label">Status</div><div>${value(ticket.status)}</div>
-    <div class="label">Revision</div><div>${revisionNumber ? `Revision ${revisionNumber}` : 'Original'}</div>
-    <div class="label">Revision Reason</div><div>${value(observed.revision_reason)}</div>
-    <div class="label">Producer</div><div>${value(producer?.name || observed.producer_name)}</div>
-    <div class="label">Segment</div><div>${value(segment?.segment_name || segment?.name || observed.segment_name)}</div>
-    <div class="label">Lease</div><div>${value(lease?.lease_name || lease?.name || observed.lease_name)}</div>
-    <div class="label">Meter</div><div>${value(meter?.meter_number || observed.meter_number)}</div>
-    <div class="label">Open Date / Time</div><div>${openDateTime}</div>
-    <div class="label">Close Date / Time</div><div>${closeDateTime}</div>
-    <div class="label">Report Date</div><div>${ticketDate ? new Date(ticketDate).toLocaleString() : '—'}</div>
-    <div class="label">Opening Reading</div><div>${value(calc.opening_reading ?? observed.opening_reading)}</div>
-    <div class="label">Closing Reading</div><div>${value(calc.closing_reading ?? observed.closing_reading)}</div>
-    <div class="label">IV</div><div>${numberValue(calc.iv ?? observed.iv ?? observed.total_batch_barrels, 2)}</div>
-    <div class="label">CTL</div><div>${numberValue(calc.ctl ?? observed.ctl, 6)}</div>
-    <div class="label">CPL</div><div>${numberValue(calc.cpl ?? observed.cpl, 6)}</div>
-    <div class="label">CTPL</div><div>${numberValue(calc.ctpl ?? observed.ctpl, 6)}</div>
-    <div class="label">MF / CMF</div><div>${numberValue(calc.mf ?? observed.mf, 4)}</div>
-    <div class="label">GSV</div><div>${numberValue(calc.gsv ?? observed.gsv, 2)}</div>
-    <div class="label">NSV</div><div>${numberValue(calc.nsv ?? observed.nsv ?? observed.net_volume_bbl, 2)}</div>
-    <div class="label">BS&W</div><div>${numberValue(calc.bsw_percent ?? observed.bsw_percent ?? observed.bsw, 4)}</div>
-    <div class="label">BSW</div><div>${numberValue(calc.csw ?? observed.csw, 5)}</div>
-  </div>
-</body>
-</html>`
+      const producer = producers.find((p: any) => p.id === getTicketProducerId(ticket))
+      const meter = meters.find((m: any) => m.id === ticket.meter_id)
+      const segment = segments.find((s: any) => s.id === ticket.segment_id)
+      const lease = leases.find((l: any) => l.id === ticket.lease_id || l.id === meter?.lease_id)
+      return `<!doctype html><html><head><meta charset="utf-8"><title>${value(ticket.ticket_number || 'Ticket')}</title>
+        <style>body{font-family:Arial,sans-serif;padding:24px;color:#111}.hdr{border-bottom:3px solid #c46a2b;margin-bottom:18px;padding-bottom:10px}h1{margin:0}.grid{display:grid;grid-template-columns:220px 1fr;border:1px solid #ddd}.grid div{padding:8px;border-bottom:1px solid #eee}.label{font-weight:700;background:#fafafa}</style>
+        </head><body><div class="hdr"><h1>${getCompanyDisplayName()}</h1><div>Custody Transfer Ticket</div></div>
+        <h2>${value(ticket.ticket_number || ticket.id)}</h2><div class="grid">
+        <div class="label">Producer</div><div>${value(producer?.name)}</div>
+        <div class="label">Segment</div><div>${value(segment?.name || segment?.segment_name)}</div>
+        <div class="label">Lease</div><div>${value(lease?.lease_name || lease?.name)}</div>
+        <div class="label">Meter</div><div>${value(meter?.meter_number)}</div>
+        <div class="label">Date</div><div>${value(getTicketDate(ticket))}</div>
+        <div class="label">IV</div><div>${value(ticket.observed_inputs?.iv)}</div>
+        <div class="label">CTL</div><div>${value(ticket.observed_inputs?.ctl)}</div>
+        <div class="label">CPL</div><div>${value(ticket.observed_inputs?.cpl)}</div>
+        <div class="label">GSV</div><div>${value(ticket.calculation_results?.gsv)}</div>
+        <div class="label">NSV</div><div>${value(ticket.calculation_results?.nsv || ticket.calculation_results?.net_volume)}</div>
+        </div></body></html>`
     }
 
-    const groupedByProducer: Record<string, any[]> = {}
     for (const ticket of ticketsToExport as any[]) {
-      const producerId = String(getTicketProducerId(ticket) || 'unknown')
-      if (!groupedByProducer[producerId]) groupedByProducer[producerId] = []
-      groupedByProducer[producerId].push(ticket)
+      const ticketLabel = ticket.ticket_number || ticket.ticket_no || ticket.id || `ticket-${ticketsToExport.indexOf(ticket) + 1}`
+      const meter = meters.find((m: any) => String(m.id || '') === String(ticket.meter_id || ticket.observed_inputs?.meter_id || ''))
+      const lease = leases.find((l: any) => String(l.id || '') === String(ticket.lease_id || ticket.observed_inputs?.lease_id || meter?.lease_id || ''))
+      const leaseName = lease?.lease_name || lease?.name || ticket.observed_inputs?.lease_name || 'Lease'
+      const closeDate = ticket.observed_inputs?.close_date || ticket.observed_inputs?.closing_date || (getTicketDate(ticket) ? new Date(getTicketDate(ticket)).toISOString().slice(0, 10) : 'no-date')
+      const safeLabel = sanitizeFileName(`${leaseName}_${closeDate}_${ticketLabel}`, 'ticket')
+      const pdfUrl = ticket.pdf_url || ticket.pdfUrl
+
+      if (pdfUrl) {
+        try {
+          const response = await fetch(pdfUrl)
+          if (response.ok) {
+            const blob = await response.blob()
+            if (blob.size > 0) {
+              zip.file(`Tickets/${safeLabel}.pdf`, blob)
+              addedTicketCount += 1
+              continue
+            }
+          }
+        } catch (error) {
+          console.error('Ticket PDF fetch failed, falling back to HTML:', error)
+        }
+      }
+
+      const html = makeTicketHtml(ticket)
+      const pdfBlob = await htmlToPdfBlob(html)
+      zip.file(`Tickets/${safeLabel}.pdf`, pdfBlob)
+      addedTicketCount += 1
     }
 
-    for (const [producerId, rows] of Object.entries(groupedByProducer)) {
-      const producer = producers.find((p: any) => String(p.id || '') === String(producerId))
-      const producerFolder = sanitizeFileName(producer?.name || 'Unknown Producer', 'producer')
+    for (const proving of provingsToExport as any[]) {
+      const meter = meters.find((m: any) => String(m.id) === String(proving.meter_id || proving.meterId || ''))
+      const lease = leases.find((l: any) => String(l.id) === String(proving.lease_id || proving.leaseId || meter?.lease_id || ''))
+      const label = [lease?.lease_name || lease?.name || 'Proving', meter?.meter_number || proving.meter_id || proving.id, getProvingDate(proving) || proving.id].filter(Boolean).join('_')
+      const safeLabel = sanitizeFileName(label, 'proving')
+      const filePath = proving.pdf_url || proving.pdfUrl
 
-      for (const ticket of rows as any[]) {
-        const ticketLabel = ticket.ticket_number || ticket.ticket_no || ticket.id || `ticket-${addedTicketCount + 1}`
-        const safeLabel = sanitizeFileName(ticketLabel, 'ticket')
-
-        const observed = ticket.observed_inputs || {}
-        const meter = meters.find((m: any) => String(m.id || '') === String(ticket.meter_id || observed.meter_id || ''))
-        const lease = leases.find((l: any) => String(l.id || '') === String(ticket.lease_id || observed.lease_id || meter?.lease_id || ''))
-        const leaseName = lease?.lease_name || lease?.name || observed.lease_name || 'Lease'
-        const closeDate = observed.close_date || (getTicketReportDate(ticket) ? new Date(getTicketReportDate(ticket)).toISOString().slice(0, 10) : 'no-date')
-        const fileBase = sanitizeFileName(`${leaseName}_${closeDate}_${ticketLabel}`, 'ticket')
-
-        const actualPdfBlob = await renderActualTicketPdfBlob(ticket)
-        zip.file(`${producerFolder}/${fileBase}.pdf`, actualPdfBlob)
-        addedTicketCount += 1
+      if (filePath) {
+        try {
+          let blob: Blob | null = null
+          if (/^https?:\/\//i.test(filePath)) {
+            const response = await fetch(filePath)
+            if (response.ok) blob = await response.blob()
+          } else {
+            const { data, error } = await supabase.storage.from('proving-reports').download(filePath)
+            if (!error && data) blob = data
+          }
+          if (blob && blob.size > 0) {
+            zip.file(`Provings/${safeLabel}.pdf`, blob)
+            addedProvingCount += 1
+            continue
+          }
+        } catch (error) {
+          console.error('Proving PDF export failed:', error)
+        }
       }
+
+      const summary = [
+        'Proving Report Summary',
+        `Lease: ${lease?.lease_name || lease?.name || ''}`,
+        `Meter: ${meter?.meter_number || ''}`,
+        `Date: ${getProvingDate(proving) || ''}`,
+        `Status: ${proving.status || ''}`,
+        `Accepted ${proving.factor_type || 'MF'}: ${proving.accepted_meter_factor || ''}`,
+        `Witness: ${proving.witness || ''}`,
+        `PDF: ${proving.pdf_file_name || proving.pdfFileName || 'Not stored'}`,
+      ].join('\n')
+      zip.file(`Provings/${safeLabel}.txt`, summary)
+      addedProvingCount += 1
     }
 
     zip.file(
       'README.txt',
-      `Producer Measurement Ticket PDF Bundle
-Tickets exported: ${addedTicketCount}
-Report filters:
-Start: ${reportStartDate}
-End: ${reportEndDate}
-Producer: ${producers.find((p: any) => p.id === reportProducerId)?.name || 'All Producers'}
-Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Segments'}
-`
+      `Producer Measurement Bundle\nTickets exported: ${addedTicketCount}\nProvings exported: ${addedProvingCount}\nDate range: ${pdfBundleStartDate} to ${pdfBundleEndDate}\n`
     )
 
     const blob = await zip.generateAsync({ type: 'blob' })
-    const producer = producers.find((p: any) => p.id === reportProducerId)
+    const producer = producers.find((p: any) => p.id === pdfBundleProducerId)
     const producerName = producer?.name || 'all-producers'
-    const fileName = `producer-ticket-bundle-${sanitizeFileName(producerName)}-${reportStartDate}-to-${reportEndDate}.zip`
+    const fileName = `producer-package-${sanitizeFileName(producerName)}-${pdfBundleStartDate}-to-${pdfBundleEndDate}.zip`
 
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -12285,14 +12263,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
             <div style={box}>
               <h2>Report Filters</h2>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-                <label>
-                  <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Start Date</div>
-                  <input style={input} type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} />
-                </label>
-                <label>
-                  <div style={{ color: '#a8b3bd', marginBottom: 6 }}>End Date</div>
-                  <input style={input} type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} />
-                </label>
+                <input style={input} type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} />
+                <input style={input} type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} />
 
                 <select style={input} value={reportProducerId} onChange={(e) => setReportProducerId(e.target.value)}>
                   <option value="">All Producers</option>

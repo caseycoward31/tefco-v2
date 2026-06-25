@@ -8437,68 +8437,6 @@ async function saveUserRole() {
       return Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—'
     }
 
-    async function loadHtml2Pdf() {
-      const win = window as any
-      if (win.html2pdf) return win.html2pdf
-
-      await new Promise<void>((resolve, reject) => {
-        const existing = document.querySelector('script[data-html2pdf="true"]') as HTMLScriptElement | null
-        if (existing) {
-          existing.addEventListener('load', () => resolve())
-          existing.addEventListener('error', () => reject(new Error('Could not load PDF converter.')))
-          return
-        }
-
-        const script = document.createElement('script')
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'
-        script.async = true
-        script.dataset.html2pdf = 'true'
-        script.onload = () => resolve()
-        script.onerror = () => reject(new Error('Could not load PDF converter. Check internet connection and try again.'))
-        document.head.appendChild(script)
-      })
-
-      if (!win.html2pdf) throw new Error('PDF converter did not initialize.')
-      return win.html2pdf
-    }
-
-    async function htmlToPdfBlob(html: string) {
-      const html2pdf = await loadHtml2Pdf()
-
-      const wrapper = document.createElement('div')
-      wrapper.style.position = 'fixed'
-      wrapper.style.left = '-10000px'
-      wrapper.style.top = '0'
-      wrapper.style.width = '8.5in'
-      wrapper.style.background = '#ffffff'
-      wrapper.innerHTML = html
-      document.body.appendChild(wrapper)
-
-      try {
-        const target = (wrapper.querySelector('.page') as HTMLElement) || wrapper
-        const backButton = wrapper.querySelector('.pdf-back-button') as HTMLElement | null
-        if (backButton) backButton.style.display = 'none'
-
-        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-
-        const blob = await html2pdf()
-          .set({
-            margin: 0,
-            filename: 'ticket.pdf',
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, allowTaint: true, backgroundColor: '#ffffff' },
-            jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
-            pagebreak: { mode: ['css', 'legacy'] },
-          })
-          .from(target)
-          .outputPdf('blob')
-
-        return blob as Blob
-      } finally {
-        wrapper.remove()
-      }
-    }
-
     const makeTicketHtml = (ticket: any) => {
       const observed = ticket.observed_inputs || {}
       const calc = ticket.calculation_results || {}
@@ -8571,13 +8509,12 @@ async function saveUserRole() {
         const observed = ticket.observed_inputs || {}
         const meter = meters.find((m: any) => String(m.id || '') === String(ticket.meter_id || observed.meter_id || ''))
         const lease = leases.find((l: any) => String(l.id || '') === String(ticket.lease_id || observed.lease_id || meter?.lease_id || ''))
-        const leaseName = lease?.lease_name || lease?.name || observed.lease_name || observed.lease || 'Lease'
-        const closeDate = observed.close_date || observed.closing_date || (getTicketReportDate(ticket) ? new Date(getTicketReportDate(ticket)).toISOString().slice(0, 10) : 'no-date')
+        const leaseName = lease?.lease_name || lease?.name || observed.lease_name || 'Lease'
+        const closeDate = observed.close_date || (getTicketReportDate(ticket) ? new Date(getTicketReportDate(ticket)).toISOString().slice(0,10) : 'no-date')
         const safeLabel = sanitizeFileName(`${leaseName}_${closeDate}_${ticketLabel}`, 'ticket')
 
-        const ticketHtml = buildTicketPdfHtml(ticket)
-        const ticketPdfBlob = await htmlToPdfBlob(ticketHtml)
-        zip.file(`${producerFolder}/${safeLabel}.pdf`, ticketPdfBlob)
+        // Use the exact same ticket PDF HTML/layout as the app's Generate Customer PDF button.
+        zip.file(`${producerFolder}/${safeLabel}.html`, buildTicketPdfHtml(ticket))
         addedTicketCount += 1
       }
     }

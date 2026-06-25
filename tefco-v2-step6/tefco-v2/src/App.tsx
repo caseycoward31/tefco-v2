@@ -4227,7 +4227,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     )
   }
 
-  function generatePdfPreview(ticket: any) {
+  function buildTicketPdfHtml(ticket: any) {
     const producer = producers.find((item: any) => item.id === ticket.producer_id)
     const meter = meters.find((item: any) => item.id === ticket.meter_id)
     const segment = segments.find((item: any) => item.id === ticket.segment_id)
@@ -4655,6 +4655,11 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
 </body>
 </html>`
 
+    return html
+  }
+
+  function generatePdfPreview(ticket: any) {
+    const html = buildTicketPdfHtml(ticket)
     const printWindow = window.open('', '_blank')
     if (!printWindow) {
       alert('Popup blocked. Allow popups to preview PDF.')
@@ -8503,9 +8508,8 @@ async function saveUserRole() {
         const ticketLabel = ticket.ticket_number || ticket.ticket_no || ticket.id || `ticket-${addedTicketCount + 1}`
         const safeLabel = sanitizeFileName(ticketLabel, 'ticket')
 
-        // We generate a complete HTML ticket into the ZIP. Browser can print/save as PDF.
-        // This avoids stale/missing saved pdf_url files and uses current app ticket data/revisions.
-        zip.file(`${producerFolder}/${safeLabel}.html`, makeTicketHtml(ticket))
+        // Use the exact same ticket PDF HTML/layout as the app's Generate Customer PDF button.
+        zip.file(`${producerFolder}/${safeLabel}.html`, buildTicketPdfHtml(ticket))
         addedTicketCount += 1
       }
     }

@@ -837,6 +837,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [selectedTicketArea, setSelectedTicketArea] = useState('')
   const [ticketType, setTicketType] = useState('meter')
   const [selectedTank, setSelectedTank] = useState('')
+  const [selectedTankCalibrationVersionId, setSelectedTankCalibrationVersionId] = useState('')
   const [selectedLineFill, setSelectedLineFill] = useState('')
   const [openingGauge, setOpeningGauge] = useState('')
   const [closingGauge, setClosingGauge] = useState('')
@@ -3217,20 +3218,30 @@ function handleProvingAreaSelect(areaId: string) {
     return feetValue
   }
 
-  function getActiveTankCalibration(tankId: string) {
+  function getActiveTankCalibration(tankId: string, calibrationVersionId = '') {
     return (
-      tankCalibrationVersions.find((version: any) => version.tank_id === tankId && version.active !== false) ||
-      tankCalibrationVersions.find((version: any) => version.tank_id === tankId)
+      (calibrationVersionId ? tankCalibrationVersions.find((version: any) => String(version.id) === String(calibrationVersionId) && String(version.tank_id) === String(tankId)) : null) ||
+      (selectedTankCalibrationVersionId && String(selectedTank) === String(tankId)
+        ? tankCalibrationVersions.find((version: any) => String(version.id) === String(selectedTankCalibrationVersionId) && String(version.tank_id) === String(tankId))
+        : null) ||
+      tankCalibrationVersions.find((version: any) => String(version.tank_id) === String(tankId) && version.active !== false) ||
+      tankCalibrationVersions.find((version: any) => String(version.tank_id) === String(tankId))
     )
   }
 
-  function getTankBarrelsAtGauge(tankId: string, gauge: number) {
-    const calibration = getActiveTankCalibration(tankId)
+  function getTankCalibrationLabel(version: any) {
+    const rawName = version?.name || version?.calibration_name || version?.strap_name || `Version ${version?.version_number || ''}`
+    const leg = version?.leg_type || version?.strap_type || version?.table_type || version?.roof_leg || ''
+    return `${rawName}${leg ? ` - ${leg}` : ''}`.trim()
+  }
+
+  function getTankBarrelsAtGauge(tankId: string, gauge: number, calibrationVersionId = '') {
+    const calibration = getActiveTankCalibration(tankId, calibrationVersionId)
 
     if (!calibration || !Number.isFinite(gauge)) return 0
 
     const rows = tankStrappingRows
-      .filter((row: any) => row.tank_id === tankId && row.calibration_version_id === calibration.id)
+      .filter((row: any) => String(row.tank_id) === String(tankId) && String(row.calibration_version_id) === String(calibration.id))
       .sort((a: any, b: any) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
 
     if (rows.length === 0) return 0
@@ -3256,15 +3267,15 @@ function handleProvingAreaSelect(areaId: string) {
     return lowerBbl + ((upperBbl - lowerBbl) * ratio)
   }
 
-  function getDeadwoodAdjustment(tankId: string, gauge: number) {
-    const calibration = getActiveTankCalibration(tankId)
+  function getDeadwoodAdjustment(tankId: string, gauge: number, calibrationVersionId = '') {
+    const calibration = getActiveTankCalibration(tankId, calibrationVersionId)
 
     if (!calibration) return 0
 
     return tankDeadwoodRules
       .filter((rule: any) =>
-        rule.tank_id === tankId &&
-        rule.calibration_version_id === calibration.id &&
+        String(rule.tank_id) === String(tankId) &&
+        String(rule.calibration_version_id) === String(calibration.id) &&
         Number(rule.start_gauge || 0) <= gauge &&
         Number(rule.end_gauge || 0) >= gauge
       )
@@ -3371,10 +3382,11 @@ function handleProvingAreaSelect(areaId: string) {
     const mode = String(tankRoofCorrectionMode || 'none').toLowerCase()
     if (mode === 'none') return 0
 
+    const calibration: any = selectedTank ? getActiveTankCalibration(selectedTank) : null
     const api60 = Number(tankObservedGravity || 0)
-    const roofReferenceApi = Number(tankRoofReferenceApi || 0)
-    const bblPerApi = Number(tankRoofBblPerApi || 0)
-    const roofWeightLbs = Number(tankRoofWeightLbs || 0)
+    const roofReferenceApi = Number(tankRoofReferenceApi || calibration?.roof_reference_api || calibration?.floating_roof_reference_api || calibration?.reference_api || 0)
+    const bblPerApi = Number(tankRoofBblPerApi || calibration?.roof_bbl_per_api || calibration?.floating_roof_bbl_per_api || calibration?.bbl_per_api || 0)
+    const roofWeightLbs = Number(tankRoofWeightLbs || calibration?.roof_weight_lbs || calibration?.floating_roof_weight_lbs || calibration?.roof_weight || 0)
 
     if (mode === 'fra') {
       if (!Number.isFinite(api60) || !Number.isFinite(roofReferenceApi) || !Number.isFinite(bblPerApi) || bblPerApi === 0) return 0
@@ -3402,8 +3414,10 @@ function handleProvingAreaSelect(areaId: string) {
   }
 
   function calculateTankObservedPoint(tankId: string, gaugeDecimal: number, waterGaugeDecimal: number, roofAdjustmentBbl: number) {
-    const tov = getTankBarrelsAtGauge(tankId, gaugeDecimal) + getDeadwoodAdjustment(tankId, gaugeDecimal)
-    const fw = waterGaugeDecimal > 0 ? getTankBarrelsAtGauge(tankId, waterGaugeDecimal) + getDeadwoodAdjustment(tankId, waterGaugeDecimal) : 0
+    const calibration = getActiveTankCalibration(tankId)
+    const calibrationId = calibration?.id || ''
+    const tov = getTankBarrelsAtGauge(tankId, gaugeDecimal, calibrationId) + getDeadwoodAdjustment(tankId, gaugeDecimal, calibrationId)
+    const fw = waterGaugeDecimal > 0 ? getTankBarrelsAtGauge(tankId, waterGaugeDecimal, calibrationId) + getDeadwoodAdjustment(tankId, waterGaugeDecimal, calibrationId) : 0
     const netObservedBeforeShell = tov - fw
     const ctsh = calculateTankShellCorrectionFactor()
     const shellCorrected = netObservedBeforeShell * ctsh
@@ -3423,6 +3437,66 @@ function handleProvingAreaSelect(areaId: string) {
     }
   }
 
+  function getPreviousTankOpeningStandardPoint(tankId: string) {
+    const previous: any = getPreviousTankTicket(tankId)
+    if (!previous) return null
+
+    const observed = previous.observed_inputs || {}
+    const calc = previous.calculation_results || {}
+
+    const gov = Number(
+      observed.tank_closing_gov ??
+      observed.closing_gov ??
+      calc.tank_closing_gov ??
+      calc.tank_closing_bbl ??
+      observed.tank_closing_bbl ??
+      0
+    )
+
+    const gsv = Number(
+      observed.tank_closing_gsv ??
+      observed.tank_gsv ??
+      calc.tank_closing_gsv ??
+      calc.gsv ??
+      0
+    )
+
+    const nsv = Number(
+      observed.tank_closing_nsv ??
+      observed.tank_nsv ??
+      calc.tank_closing_nsv ??
+      calc.nsv ??
+      0
+    )
+
+    const waterGaugeDecimal = Number(
+      observed.closing_water_gauge_decimal ??
+      observed.tank_closing_water_gauge_decimal ??
+      0
+    )
+
+    const tov = Number(
+      observed.tank_closing_tov ??
+      calc.tank_closing_tov ??
+      observed.tank_closing_bbl ??
+      calc.tank_closing_bbl ??
+      0
+    )
+
+    const fw = Number(observed.tank_closing_free_water_bbl ?? calc.tank_closing_free_water_bbl ?? 0)
+
+    return {
+      sourceTicketNumber: previous.ticket_number || previous.ticket_no || '',
+      gaugeDecimal: Number(getPreviousTankClosingGauge(tankId) || 0),
+      waterGaugeDecimal,
+      tov,
+      fw,
+      gov,
+      gsv,
+      nsv,
+    }
+  }
+
   function calculateTankTicketSnapshot(tankId: string) {
     const openingGaugeDecimal = Number(getPreviousTankClosingGauge(tankId) || openingGauge || 0)
     const closingGaugeDecimal = gaugePartsToDecimal(tankClosingFeet, tankClosingInches, tankClosingEighths)
@@ -3437,9 +3511,25 @@ function handleProvingAreaSelect(areaId: string) {
       ? Number(tankClosingRoofAdjustment || 0)
       : calculateAutomaticTankRoofAdjustment(closingGaugeDecimal)
 
-    const openingPoint = tankId
+    const calculatedOpeningPoint = tankId
       ? calculateTankObservedPoint(tankId, openingGaugeDecimal, openingWaterGaugeDecimal, openingRoofAdjustment)
       : { tov: 0, fw: 0, gov: 0, shellCorrected: 0, ctsh: 1, shellTemp: 60, roofAdjustmentBbl: 0, netObservedBeforeShell: 0, gaugeDecimal: 0, waterGaugeDecimal: 0 }
+
+    const previousOpeningStandard = !openingGauge ? getPreviousTankOpeningStandardPoint(tankId) : null
+
+    const openingPoint = previousOpeningStandard
+      ? {
+          ...calculatedOpeningPoint,
+          tov: previousOpeningStandard.tov || calculatedOpeningPoint.tov,
+          fw: previousOpeningStandard.fw || calculatedOpeningPoint.fw,
+          gov: previousOpeningStandard.gov || calculatedOpeningPoint.gov,
+          gsv: previousOpeningStandard.gsv || 0,
+          nsv: previousOpeningStandard.nsv || 0,
+          sourceTicketNumber: previousOpeningStandard.sourceTicketNumber,
+          waterGaugeDecimal: previousOpeningStandard.waterGaugeDecimal || calculatedOpeningPoint.waterGaugeDecimal,
+          source: 'previous_approved_tank_ticket',
+        }
+      : { ...calculatedOpeningPoint, source: 'calculated_from_opening_gauge' }
 
     const closingPoint = tankId
       ? calculateTankObservedPoint(tankId, closingGaugeDecimal, closingWaterGaugeDecimal, closingRoofAdjustment)
@@ -3475,8 +3565,12 @@ function handleProvingAreaSelect(areaId: string) {
     const ctlp = roundTo(corrections.ctlp, 5)
     const ccf = corrections.ccf
     const swDecimal = Number(tankSwPercent || 0) / 100
-    const gsv = gov * ccf
-    const nsv = gsv * (1 - swDecimal)
+    const closingGsv = closingPoint.gov * ccf
+    const closingNsv = closingGsv * (1 - swDecimal)
+    const openingGsv = Number((openingPoint as any).gsv || (openingPoint.gov * ccf))
+    const openingNsv = Number((openingPoint as any).nsv || (openingGsv * (1 - swDecimal)))
+    const gsv = Math.abs(sign * (closingGsv - openingGsv))
+    const nsv = Math.abs(sign * (closingNsv - openingNsv))
 
     return {
       openingGaugeDecimal,
@@ -3492,6 +3586,13 @@ function handleProvingAreaSelect(areaId: string) {
       cpl,
       ctlp,
       ccf,
+      selectedCalibration: getActiveTankCalibration(tankId),
+      openingGsv,
+      closingGsv,
+      openingNsv,
+      closingNsv,
+      openingSource: (openingPoint as any).source || '',
+      openingSourceTicketNumber: (openingPoint as any).sourceTicketNumber || '',
       ctsh: openingPoint.ctsh,
       tankShellTemp: openingPoint.shellTemp,
       tovMovement: Math.abs(tovMovement),
@@ -3690,6 +3791,8 @@ function handleProvingAreaSelect(areaId: string) {
         close_time: ticketCloseTime || null,
         previous_closing_source: previousClosingReading ? 'previous_approved_ticket_for_lease' : 'none',
         tank_id: selectedTank || null,
+        tank_calibration_version_id: tankTicketSnapshot?.selectedCalibration?.id || selectedTankCalibrationVersionId || null,
+        tank_calibration_name: tankTicketSnapshot?.selectedCalibration ? getTankCalibrationLabel(tankTicketSnapshot.selectedCalibration) : null,
         line_fill_id: selectedLineFill || null,
         opening_gauge: openingGauge || null,
         closing_gauge: closingGauge || null,
@@ -3710,6 +3813,12 @@ function handleProvingAreaSelect(areaId: string) {
         tank_closing_free_water_bbl: tankTicketSnapshot?.closingPoint?.fw ?? null,
         tank_opening_gov: tankTicketSnapshot?.openingPoint?.gov ?? null,
         tank_closing_gov: tankTicketSnapshot?.closingPoint?.gov ?? null,
+        tank_opening_gsv: tankTicketSnapshot?.openingGsv ?? null,
+        tank_closing_gsv: tankTicketSnapshot?.closingGsv ?? null,
+        tank_opening_nsv: tankTicketSnapshot?.openingNsv ?? null,
+        tank_closing_nsv: tankTicketSnapshot?.closingNsv ?? null,
+        tank_opening_source: tankTicketSnapshot?.openingSource ?? null,
+        tank_opening_source_ticket_number: tankTicketSnapshot?.openingSourceTicketNumber ?? null,
         tank_shell_temp: tankTicketSnapshot?.tankShellTemp ?? null,
         tank_shell_reference_temp: tankShellReferenceTemp || null,
         tank_shell_correction_factor: tankTicketSnapshot?.ctsh ?? null,
@@ -3765,6 +3874,10 @@ function handleProvingAreaSelect(areaId: string) {
         tank_movement_bbl: tankCalculation?.movementBbl ?? null,
         tank_tov_movement_bbl: tankTicketSnapshot?.tovMovement ?? null,
         tank_free_water_movement_bbl: tankTicketSnapshot?.fwMovement ?? null,
+        tank_opening_gsv: tankTicketSnapshot?.openingGsv ?? null,
+        tank_closing_gsv: tankTicketSnapshot?.closingGsv ?? null,
+        tank_opening_nsv: tankTicketSnapshot?.openingNsv ?? null,
+        tank_closing_nsv: tankTicketSnapshot?.closingNsv ?? null,
         tank_ctsh: tankTicketSnapshot?.ctsh ?? null,
         tank_shell_temp: tankTicketSnapshot?.tankShellTemp ?? null,
         gsv: roundTo(gsv, volumeRounding),
@@ -13533,7 +13646,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
               {(ticketType === 'tank' || ticketType === 'transfer') && (
                 <div style={card}>
                   <h3>Tank Ticket Inputs</h3>
-                  <select style={input} value={selectedTank} onChange={(e) => setSelectedTank(e.target.value)}>
+                  <select style={input} value={selectedTank} onChange={(e) => { setSelectedTank(e.target.value); setSelectedTankCalibrationVersionId('') }}>
                     <option value="">Select Tank</option>
                     {tanks
                       .filter((tank: any) => !selectedSegment || tank.segment_id === selectedSegment)
@@ -13543,6 +13656,19 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         </option>
                       ))}
                   </select>
+
+                  {selectedTank && (
+                    <select style={input} value={selectedTankCalibrationVersionId} onChange={(e) => setSelectedTankCalibrationVersionId(e.target.value)}>
+                      <option value="">Use Active Strapping Chart / Leg</option>
+                      {tankCalibrationVersions
+                        .filter((version: any) => String(version.tank_id) === String(selectedTank))
+                        .map((version: any) => (
+                          <option key={version.id} value={version.id}>
+                            {getTankCalibrationLabel(version)}{version.active !== false ? ' (Active)' : ''}
+                          </option>
+                        ))}
+                    </select>
+                  )}
 
                   <select style={input} value={tankMovementDirection} onChange={(e) => setTankMovementDirection(e.target.value)}>
                     <option value="delivery">Delivery / Drawdown</option>
@@ -13624,6 +13750,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   {selectedTank && tankClosingFeet !== '' && (
                     <div style={card}>
                       <h4>Tank Calculation Preview</h4>
+                      <div>Strapping Chart / Leg: {calculateTankTicketSnapshot(selectedTank).selectedCalibration ? getTankCalibrationLabel(calculateTankTicketSnapshot(selectedTank).selectedCalibration) : 'None'}</div>
+                      <div>Opening Source: {calculateTankTicketSnapshot(selectedTank).openingSource === 'previous_approved_tank_ticket' ? `Previous Approved Ticket ${calculateTankTicketSnapshot(selectedTank).openingSourceTicketNumber || ''}` : 'Calculated from opening gauge'}</div>
                       <div>Opening Gauge: {calculateTankTicketSnapshot(selectedTank).openingGaugeDecimal.toFixed(4)}</div>
                       <div>Closing Gauge: {calculateTankTicketSnapshot(selectedTank).closingGaugeDecimal.toFixed(4)}</div>
                       <div>Opening TOV: {calculateTankTicketSnapshot(selectedTank).openingPoint.tov.toFixed(2)}</div>
@@ -13638,6 +13766,10 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <div>Opening GOV: {calculateTankTicketSnapshot(selectedTank).openingPoint.gov.toFixed(2)}</div>
                       <div>Closing GOV: {calculateTankTicketSnapshot(selectedTank).closingPoint.gov.toFixed(2)}</div>
                       <div>Transferred GOV: {calculateTankTicketSnapshot(selectedTank).gov.toFixed(2)}</div>
+                      <div>Opening GSV: {calculateTankTicketSnapshot(selectedTank).openingGsv.toFixed(2)}</div>
+                      <div>Closing GSV: {calculateTankTicketSnapshot(selectedTank).closingGsv.toFixed(2)}</div>
+                      <div>Opening NSV: {calculateTankTicketSnapshot(selectedTank).openingNsv.toFixed(2)}</div>
+                      <div>Closing NSV: {calculateTankTicketSnapshot(selectedTank).closingNsv.toFixed(2)}</div>
                       <div>API @60: {calculateTankTicketSnapshot(selectedTank).corrections.api_gravity_60.toFixed(1)}</div>
                       <div>CTL/CTPL: {calculateTankTicketSnapshot(selectedTank).ctl.toFixed(5)}</div>
                       <div>GSV: {calculateTankTicketSnapshot(selectedTank).gsv.toFixed(2)}</div>

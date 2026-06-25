@@ -8290,6 +8290,35 @@ async function createCompany() {
     await loadAll()
   }
 
+  async function deleteBalanceEquation(equation: any) {
+    if (!equation?.id) return
+    const confirmed = window.confirm(`Delete station balance equation "${equation.name || 'Station Balance'}"?`)
+    if (!confirmed) return
+
+    const { error: itemError } = await supabase
+      .from('balance_equation_items')
+      .delete()
+      .eq('equation_id', equation.id)
+
+    if (itemError) {
+      alert(`Could not delete equation items: ${itemError.message}`)
+      return
+    }
+
+    const { error: equationError } = await supabase
+      .from('balance_equations')
+      .delete()
+      .eq('id', equation.id)
+
+    if (equationError) {
+      alert(`Could not delete station equation: ${equationError.message}`)
+      return
+    }
+
+    if (editingBalanceEquationId === equation.id) cancelEditBalanceEquation()
+    await loadAll()
+  }
+
   async function updateMeterMasterField(meterId: string, patch: any) {
     const { error } = await supabase.from('meters').update(patch).eq('id', meterId)
     if (error) {
@@ -10936,7 +10965,10 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                                 {equation.name} • {segment?.name || 'Segment'} • A items: {sideACount} • B items: {sideBCount}
                                 {calcRow ? ` • Current O/S: ${Number(calcRow.difference || 0).toFixed(2)}` : ' • No current calculation yet'}
                               </span>
-                              <button type="button" style={{ ...button, width: 'auto' }} onClick={() => startEditBalanceEquation(equation)}>Edit</button>
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <button type="button" style={{ ...button, width: 'auto' }} onClick={() => startEditBalanceEquation(equation)}>Edit</button>
+                                <button type="button" style={{ ...button, width: 'auto', background: '#7f1d1d' }} onClick={() => runSafeAction('Deleting station equation', () => deleteBalanceEquation(equation))}>Delete</button>
+                              </div>
                             </div>
                           )
                         })}

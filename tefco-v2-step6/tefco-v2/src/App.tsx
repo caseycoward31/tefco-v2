@@ -4703,6 +4703,207 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const sourceTruckCount = uniqueCsvCount(observed.truck_numbers)
     const sourceLeaseCount = uniqueCsvCount(observed.leases)
 
+    const isTankTicketPdf = String(ticket.ticket_type || observed.ticket_type || '').toLowerCase() === 'tank' || observed.tank_id || calc.tank_gov || calc.tank_nsv
+    if (isTankTicketPdf) {
+      const tank = tanks.find((item: any) => String(item.id) === String(observed.tank_id || ticket.tank_id || ''))
+      const tankCalibration = tankCalibrationVersions.find((item: any) =>
+        String(item.id) === String(observed.tank_calibration_version_id || calc.tank_calibration_version_id || '')
+      )
+      const tankName = tank
+        ? `${tank.tank_number || ''}${tank.tank_name ? ` - ${tank.tank_name}` : ''}`.trim()
+        : (observed.tank_name || observed.tank_number || 'Tank Ticket')
+      const strapName = observed.tank_calibration_name || (tankCalibration ? getTankCalibrationLabel(tankCalibration) : '—')
+
+      const tankNum = (...values: any[]) => pdfNum(...values)
+      const openingGauge = tankNum(observed.opening_gauge_decimal, observed.tank_opening_gauge_decimal, calc.tank_opening_gauge_decimal)
+      const closingGauge = tankNum(observed.closing_gauge_decimal, observed.tank_closing_gauge_decimal, calc.tank_closing_gauge_decimal)
+      const openingTov = tankNum(observed.tank_opening_tov, calc.tank_opening_tov)
+      const closingTov = tankNum(observed.tank_closing_tov, calc.tank_closing_tov)
+      const openingFw = tankNum(observed.tank_opening_free_water_bbl, calc.tank_opening_free_water_bbl)
+      const closingFw = tankNum(observed.tank_closing_free_water_bbl, calc.tank_closing_free_water_bbl)
+      const openingGov = tankNum(observed.tank_opening_gov, calc.tank_opening_gov)
+      const closingGov = tankNum(observed.tank_closing_gov, calc.tank_closing_gov)
+      const openingGsv = tankNum(observed.tank_opening_gsv, calc.tank_opening_gsv)
+      const closingGsv = tankNum(observed.tank_closing_gsv, calc.tank_closing_gsv)
+      const openingNsv = tankNum(observed.tank_opening_nsv, calc.tank_opening_nsv)
+      const closingNsv = tankNum(observed.tank_closing_nsv, calc.tank_closing_nsv)
+      const tankGov = tankNum(calc.tank_gov, observed.tank_gov, calc.gov, observed.gov)
+      const tankGsv = tankNum(calc.gsv, observed.gsv, calc.tank_gsv, observed.tank_gsv)
+      const tankNsv = tankNum(calc.nsv, observed.nsv, calc.tank_nsv, observed.tank_nsv)
+      const tankTovMovement = tankNum(observed.tank_tov_movement_bbl, calc.tank_tov_movement_bbl)
+      const tankFwMovement = tankNum(observed.tank_free_water_movement_bbl, calc.tank_free_water_movement_bbl)
+      const tankCtsh = tankNum(calc.tank_ctsh, observed.tank_ctsh)
+      const tankShellTemp = tankNum(calc.tank_shell_temp, observed.tank_shell_temp, observed.tank_shell_temperature)
+      const tankFRAOpen = tankNum(observed.tank_opening_roof_adjustment_bbl, calc.tank_opening_roof_adjustment_bbl)
+      const tankFRAClose = tankNum(observed.tank_closing_roof_adjustment_bbl, calc.tank_closing_roof_adjustment_bbl)
+      const roofWeight = tankNum(observed.tank_roof_weight_lbs, calc.tank_roof_weight_lbs, tankCalibration?.roof_weight_lbs)
+      const referenceApi = tankNum(observed.tank_roof_reference_api, calc.tank_roof_reference_api, tankCalibration?.roof_reference_api)
+      const referenceSg = tankNum(observed.tank_roof_reference_sg, calc.tank_roof_reference_sg, tankCalibration?.roof_reference_sg)
+      const api60 = tankNum(calc.api_gravity_60, observed.api_gravity_60, calc.api_gravity, observed.api_gravity)
+      const actualSg = api60 ? apiToSpecificGravity(api60) : null
+      const swPercent = tankNum(calc.bsw_percent, observed.bsw_percent, observed.bsw, observed.tank_sw_percent)
+      const cswValue = tankNum(calc.csw, observed.csw)
+      const ctlValue = tankNum(calc.ctl, observed.ctl, calc.ccf, observed.ccf)
+      const criticalGaugeStart = tankNum(tankCalibration?.roof_critical_gauge, observed.tank_roof_critical_gauge)
+      const criticalGaugeEnd = tankNum(tankCalibration?.roof_critical_gauge_end, observed.tank_roof_critical_gauge_end)
+
+      const html = `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${ticketNumber} Tank Ticket</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f4f5f7; color: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 12px; }
+    .pdf-back-button { position: fixed; top: 10px; left: 10px; z-index: 9999; background: #c00000; color: white; border: none; border-radius: 8px; padding: 10px 16px; font-size: 14px; cursor: pointer; }
+    .page { width: 8.5in; min-height: 11in; margin: 0 auto; background: #fff; padding: 0.38in; }
+    .header { display: grid; grid-template-columns: 1fr auto; gap: 18px; border-bottom: 4px solid #c46a2b; padding-bottom: 12px; margin-bottom: 12px; align-items: center; }
+    .logo { width: 105px; max-height: 58px; object-fit: contain; }
+    .brand-title { font-size: 22px; font-weight: 900; margin-bottom: 4px; }
+    .brand-subtitle { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.2px; }
+    .ticket-box { border: 2px solid #111827; padding: 10px 14px; text-align: right; min-width: 220px; }
+    .ticket-box .label { color: #6b7280; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+    .ticket-box .number { font-size: 18px; font-weight: 900; margin-top: 4px; }
+    .status { display: inline-block; margin-top: 6px; padding: 4px 8px; border-radius: 999px; background: ${ticket.status === 'approved' ? '#dcfce7' : '#fef3c7'}; color: ${ticket.status === 'approved' ? '#166534' : '#92400e'}; font-weight: 800; text-transform: uppercase; font-size: 10px; }
+    .section { border: 1px solid #d1d5db; margin-top: 10px; break-inside: avoid; }
+    .section-title { background: #111827; color: #fff; font-weight: 900; padding: 7px 9px; text-transform: uppercase; letter-spacing: 0.7px; font-size: 10px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+    .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; }
+    .cell { padding: 7px 9px; border-right: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; min-height: 36px; }
+    .grid-2 .cell:nth-child(2n), .grid-3 .cell:nth-child(3n), .grid-4 .cell:nth-child(4n) { border-right: 0; }
+    .small-label { color: #6b7280; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 3px; }
+    .value { font-size: 12px; font-weight: 800; word-break: break-word; }
+    .big-value { font-size: 18px; font-weight: 900; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #f3f4f6; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #374151; padding: 7px 8px; border-bottom: 1px solid #d1d5db; }
+    td { padding: 7px 8px; border-bottom: 1px solid #e5e7eb; font-weight: 700; }
+    .right { text-align: right; }
+    .notes { white-space: pre-wrap; min-height: 38px; padding: 9px; }
+    .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 30px; }
+    .sig-line { border-top: 1px solid #111827; padding-top: 7px; color: #374151; font-size: 11px; text-transform: uppercase; letter-spacing: 0.7px; }
+    .footer { margin-top: 18px; border-top: 1px solid #d1d5db; padding-top: 8px; display: flex; justify-content: space-between; color: #6b7280; font-size: 10px; }
+    @media print { body { background: #fff; } .pdf-back-button { display: none; } .page { margin: 0; width: auto; min-height: auto; } @page { size: letter; margin: 0.35in; } }
+  </style>
+</head>
+<body>
+<button class="pdf-back-button" onclick="window.close();setTimeout(()=>history.back(),100)">← Back to App</button>
+  <div class="page">
+    <div class="header">
+      <div>
+        ${logoUrl ? `<img class="logo" src="${logoUrl}" />` : ''}
+        <div class="brand-title">${companyName}</div>
+        <div class="brand-subtitle">API 12.1 Tank Ticket</div>
+      </div>
+      <div class="ticket-box">
+        <div class="label">Tank Ticket Number</div>
+        <div class="number">${ticketNumber}</div>
+        <div class="status">${ticket.status || 'draft'}</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Tank Ticket Information</div>
+      <div class="grid-3">
+        <div class="cell"><div class="small-label">Tank</div><div class="value">${tankName}</div></div>
+        <div class="cell"><div class="small-label">Segment</div><div class="value">${segment?.name || observed.segment_name || '—'}</div></div>
+        <div class="cell"><div class="small-label">Movement</div><div class="value">${observed.tank_movement_direction || observed.movement_direction || '—'}</div></div>
+        <div class="cell"><div class="small-label">Open Date / Time</div><div class="value">${observed.open_date || '—'} ${observed.open_time || ''}</div></div>
+        <div class="cell"><div class="small-label">Close Date / Time</div><div class="value">${observed.close_date || '—'} ${observed.close_time || ''}</div></div>
+        <div class="cell"><div class="small-label">Approved</div><div class="value">${approvedAt}</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Final Volumes</div>
+      <div class="grid-3">
+        <div class="cell"><div class="small-label">Transferred GOV</div><div class="big-value">${tankGov !== null ? formatBbl(tankGov) : '—'}</div></div>
+        <div class="cell"><div class="small-label">Transferred GSV</div><div class="big-value">${tankGsv !== null ? formatBbl(tankGsv) : '—'}</div></div>
+        <div class="cell"><div class="small-label">Transferred NSV</div><div class="big-value">${tankNsv !== null ? formatBbl(tankNsv) : '—'}</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Tank Gauging / Volume Detail</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th class="right">Opening Previous</th>
+            <th class="right">Closing Calculated</th>
+            <th class="right">Movement</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Oil Gauge Decimal Feet</td><td class="right">${openingGauge !== null ? formatMeasurementNumber(openingGauge, 4) : '—'}</td><td class="right">${closingGauge !== null ? formatMeasurementNumber(closingGauge, 4) : '—'}</td><td class="right">—</td></tr>
+          <tr><td>Total Observed Volume / TOV</td><td class="right">${openingTov !== null ? formatBbl(openingTov) : '—'}</td><td class="right">${closingTov !== null ? formatBbl(closingTov) : '—'}</td><td class="right">${tankTovMovement !== null ? formatBbl(tankTovMovement) : '—'}</td></tr>
+          <tr><td>Free Water / FW</td><td class="right">${openingFw !== null ? formatBbl(openingFw) : '—'}</td><td class="right">${closingFw !== null ? formatBbl(closingFw) : '—'}</td><td class="right">${tankFwMovement !== null ? formatBbl(tankFwMovement) : '—'}</td></tr>
+          <tr><td>Floating Roof Adjustment / FRA</td><td class="right">${tankFRAOpen !== null ? formatBbl(tankFRAOpen) : '—'}</td><td class="right">${tankFRAClose !== null ? formatBbl(tankFRAClose) : '—'}</td><td class="right">${tankFRAOpen !== null && tankFRAClose !== null ? formatBbl(Math.abs(tankFRAClose - tankFRAOpen)) : '—'}</td></tr>
+          <tr><td>Gross Observed Volume / GOV</td><td class="right">${openingGov !== null ? formatBbl(openingGov) : '—'}</td><td class="right">${closingGov !== null ? formatBbl(closingGov) : '—'}</td><td class="right">${tankGov !== null ? formatBbl(tankGov) : '—'}</td></tr>
+          <tr><td>Gross Standard Volume / GSV</td><td class="right">${openingGsv !== null ? formatBbl(openingGsv) : '—'}</td><td class="right">${closingGsv !== null ? formatBbl(closingGsv) : '—'}</td><td class="right">${tankGsv !== null ? formatBbl(tankGsv) : '—'}</td></tr>
+          <tr><td>Net Standard Volume / NSV</td><td class="right">${openingNsv !== null ? formatBbl(openingNsv) : '—'}</td><td class="right">${closingNsv !== null ? formatBbl(closingNsv) : '—'}</td><td class="right">${tankNsv !== null ? formatBbl(tankNsv) : '—'}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">API 12.1 Corrections</div>
+      <div class="grid-4">
+        <div class="cell"><div class="small-label">Observed API</div><div class="value">${formatMeasurementNumber(observed.observed_api_gravity || observed.tank_observed_gravity || observed.api_observed, 2)}</div></div>
+        <div class="cell"><div class="small-label">Observed Temp °F</div><div class="value">${formatMeasurementNumber(observed.observed_temperature || observed.tank_observed_temp, 2)}</div></div>
+        <div class="cell"><div class="small-label">API @60</div><div class="value">${api60 !== null ? formatMeasurementNumber(api60, 1) : '—'}</div></div>
+        <div class="cell"><div class="small-label">Actual SG @60</div><div class="value">${actualSg !== null ? formatMeasurementNumber(actualSg, 6) : '—'}</div></div>
+        <div class="cell"><div class="small-label">Average Liquid Temp</div><div class="value">${formatMeasurementNumber(observed.tank_average_temp || observed.average_temperature || calc.average_temperature, 2)}</div></div>
+        <div class="cell"><div class="small-label">Ambient Temp</div><div class="value">${formatMeasurementNumber(observed.tank_ambient_temp || observed.ambient_temperature, 2)}</div></div>
+        <div class="cell"><div class="small-label">Shell Temp</div><div class="value">${tankShellTemp !== null ? formatMeasurementNumber(tankShellTemp, 2) : '—'}</div></div>
+        <div class="cell"><div class="small-label">CTSh</div><div class="value">${tankCtsh !== null ? formatMeasurementNumber(tankCtsh, 6) : '—'}</div></div>
+        <div class="cell"><div class="small-label">CTL / VCF</div><div class="value">${ctlValue !== null ? formatMeasurementNumber(ctlValue, 6) : '—'}</div></div>
+        <div class="cell"><div class="small-label">S&W %</div><div class="value">${swPercent !== null ? formatMeasurementNumber(swPercent, 4) : '—'}</div></div>
+        <div class="cell"><div class="small-label">CSW</div><div class="value">${cswValue !== null ? formatMeasurementNumber(cswValue, 6) : '—'}</div></div>
+        <div class="cell"><div class="small-label">Pressure Correction</div><div class="value">1.000000</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Strapping / Floating Roof Setup</div>
+      <div class="grid-3">
+        <div class="cell"><div class="small-label">Strap / Leg</div><div class="value">${strapName}</div></div>
+        <div class="cell"><div class="small-label">Roof Correction Mode</div><div class="value">${observed.tank_roof_correction_mode || tankCalibration?.roof_correction_mode || 'FRA'}</div></div>
+        <div class="cell"><div class="small-label">Roof Weight</div><div class="value">${roofWeight !== null ? `${formatMeasurementNumber(roofWeight, 0)} lb` : '—'}</div></div>
+        <div class="cell"><div class="small-label">Reference API</div><div class="value">${referenceApi !== null ? formatMeasurementNumber(referenceApi, 1) : '—'}</div></div>
+        <div class="cell"><div class="small-label">Reference SG</div><div class="value">${referenceSg !== null ? formatMeasurementNumber(referenceSg, 6) : '—'}</div></div>
+        <div class="cell"><div class="small-label">Critical Zone</div><div class="value">${criticalGaugeStart !== null ? `${formatMeasurementNumber(criticalGaugeStart, 4)} ft${criticalGaugeEnd !== null ? ` to ${formatMeasurementNumber(criticalGaugeEnd, 4)} ft` : ''}` : '—'}</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">FRA Formula</div>
+      <div class="notes">FRA = Roof Weight ÷ (350.16 × Reference SG) − Roof Weight ÷ (350.16 × Actual SG). Actual SG is derived from corrected API @60.</div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Notes</div>
+      <div class="notes">${ticket.notes || observed.notes || ''}</div>
+    </div>
+
+    <div class="signatures">
+      <div class="sig-line">Prepared By</div>
+      <div class="sig-line">Approved By</div>
+    </div>
+
+    <div class="footer">
+      <div>Generated by TEFCO Measurement Platform</div>
+      <div>${new Date().toLocaleString()}</div>
+    </div>
+  </div>
+  <script>window.onload = () => { window.focus(); };</script>
+</body>
+</html>`
+
+      return html
+    }
+
     const html = `
 <!doctype html>
 <html>

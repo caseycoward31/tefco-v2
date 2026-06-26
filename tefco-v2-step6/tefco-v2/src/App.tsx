@@ -5721,6 +5721,57 @@ async function createCompany() {
     return allLines
   }
 
+  function convertIncrementStrapRowsToCumulativeIfNeeded(rows: any[]) {
+    const cleanRows = rows
+      .map((row: any) => ({
+        ...row,
+        gauge_decimal: Number(row.gauge_decimal ?? row.gauge ?? 0),
+        barrels: Number(row.barrels ?? row.bbl ?? row.volume_bbl ?? row.volume ?? 0),
+      }))
+      .filter((row: any) => Number.isFinite(row.gauge_decimal) && Number.isFinite(row.barrels))
+      .sort((a: any, b: any) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
+
+    if (cleanRows.length < 24) return rows
+
+    const maxBbl = Math.max(...cleanRows.map((row: any) => Number(row.barrels || 0)))
+    const maxGauge = Math.max(...cleanRows.map((row: any) => Number(row.gauge_decimal || 0)))
+
+    // If a full tank strapping chart imports with every row under a few hundred barrels,
+    // it is almost certainly the INCREMENT/BBL-per-inch table, not cumulative TOV.
+    // Convert it to cumulative TOV so 13'3" becomes the sum of all lower increments,
+    // not just the single inch increment.
+    if (maxGauge > 5 && maxBbl > 0 && maxBbl < 500) {
+      let cumulative = 0
+
+      return cleanRows.map((row: any, index: number) => {
+        const gauge = Number(row.gauge_decimal || 0)
+        const increment = Number(row.barrels || 0)
+
+        if (index === 0 || gauge === 0) {
+          cumulative = increment
+        } else {
+          cumulative += increment
+        }
+
+        const feet = Math.floor(gauge)
+        const totalInches = (gauge - feet) * 12
+        const inches = Math.round(totalInches)
+
+        return {
+          ...row,
+          gauge_decimal: gauge,
+          gauge_feet: row.gauge_feet ?? feet,
+          gauge_inches: row.gauge_inches ?? inches,
+          barrels: Number(cumulative.toFixed(2)),
+          increment_bbl: increment,
+          notes: `${row.notes || 'Imported strapping row'} - converted from increment table to cumulative TOV`,
+        }
+      })
+    }
+
+    return rows
+  }
+
   async function parseStrappingFileRows(file: File) {
     const lowerName = file.name.toLowerCase()
 
@@ -5732,7 +5783,7 @@ async function createCompany() {
         console.warn('No PDF strapping rows parsed. First extracted lines:', lines.slice(0, 50))
       }
 
-      return rows
+      return convertIncrementStrapRowsToCumulativeIfNeeded(rows)
     }
 
     if (lowerName.endsWith('.xlsx')) {
@@ -5752,11 +5803,11 @@ async function createCompany() {
         if (!unique.has(key)) unique.set(key, row)
       })
 
-      return Array.from(unique.values()).sort((a, b) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
+      return convertIncrementStrapRowsToCumulativeIfNeeded(Array.from(unique.values()).sort((a, b) => Number(a.gauge_decimal) - Number(b.gauge_decimal)))
     }
 
     const csvText = await file.text()
-    return parseMeterCsv(csvText)
+    return convertIncrementStrapRowsToCumulativeIfNeeded(parseMeterCsv(csvText))
   }
 
   async function importTankStrappingCsv() {

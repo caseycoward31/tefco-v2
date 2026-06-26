@@ -1264,6 +1264,31 @@ useEffect(() => {
     const activeCompanyIdForLoad = scope.isSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : scope.companyId
     const applyCompanyScope = (query: any) => activeCompanyIdForLoad ? query.eq('company_id', activeCompanyIdForLoad) : query
 
+    async function loadCompanyRows(tableName: string, orderColumn = 'id') {
+      const allRows: any[] = []
+      const pageSize = 1000
+      let from = 0
+
+      while (true) {
+        let query = supabase.from(tableName).select('*').order(orderColumn)
+        if (activeCompanyIdForLoad) query = query.eq('company_id', activeCompanyIdForLoad)
+        const { data, error } = await query.range(from, from + pageSize - 1)
+
+        if (error) {
+          console.warn(`${tableName} paged load error:`, error)
+          break
+        }
+
+        const pageRows = Array.isArray(data) ? data : []
+        allRows.push(...pageRows)
+
+        if (pageRows.length < pageSize) break
+        from += pageSize
+      }
+
+      return allRows
+    }
+
     const companiesQuery = scope.isSuperAdmin || !activeCompanyIdForLoad
       ? supabase.from('companies').select('*').order('name')
       : supabase.from('companies').select('*').eq('id', activeCompanyIdForLoad).order('name')
@@ -1355,7 +1380,7 @@ useEffect(() => {
     const { data: lineFillData } = await applyCompanyScope(supabase.from('line_fills').select('*')).order('line_name')
     const { data: meterAssetConfigData } = await applyCompanyScope(supabase.from('meter_asset_config').select('*'))
     const { data: tankCalibrationData } = await applyCompanyScope(supabase.from('tank_calibration_versions').select('*')).order('created_at', { ascending: false })
-    const { data: tankStrappingData } = await applyCompanyScope(supabase.from('tank_strapping_rows').select('*')).order('gauge_decimal')
+    const tankStrappingData = await loadCompanyRows('tank_strapping_rows', 'gauge_decimal')
     const { data: tankDeadwoodData } = await applyCompanyScope(supabase.from('tank_deadwood_rules').select('*').eq('active', true))
 
     // Balance Center tables are optional. If the SQL has not been run yet, the app keeps working with empty balance setup.

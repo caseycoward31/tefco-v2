@@ -5458,6 +5458,54 @@ async function createCompany() {
     return Number.isFinite(numeric) ? numeric : null
   }
 
+  function extractHeaderStrappingRowsFromSheet(rows: any[][]) {
+    const output: any[] = []
+
+    const headerRowIndex = rows.findIndex((row) => {
+      const safeRow = Array.isArray(row) ? row : []
+      const headers = safeRow.map((value) => String(value ?? '').trim().toLowerCase())
+
+      return (
+        headers.includes('gauge_decimal') &&
+        headers.some((header) => ['barrels', 'bbl', 'volume_bbl', 'volume'].includes(header))
+      )
+    })
+
+    if (headerRowIndex < 0) return output
+
+    const headers = (rows[headerRowIndex] || []).map((value) => String(value ?? '').trim().toLowerCase())
+    const gaugeDecimalIndex = headers.indexOf('gauge_decimal')
+    const gaugeFeetIndex = headers.indexOf('gauge_feet')
+    const gaugeInchesIndex = headers.indexOf('gauge_inches')
+    const gaugeFractionIndex = headers.indexOf('gauge_fraction')
+    const barrelsIndex = headers.findIndex((header) => ['barrels', 'bbl', 'volume_bbl', 'volume'].includes(header))
+    const incrementIndex = headers.findIndex((header) => ['increment_bbl', 'increment', 'inc_bbl'].includes(header))
+    const notesIndex = headers.indexOf('notes')
+
+    for (let r = headerRowIndex + 1; r < rows.length; r += 1) {
+      const row = rows[r] || []
+      const gaugeDecimal = Number(row[gaugeDecimalIndex])
+      const gaugeFeet = gaugeFeetIndex >= 0 ? row[gaugeFeetIndex] : null
+      const gaugeInches = gaugeInchesIndex >= 0 ? row[gaugeInchesIndex] : null
+      const gaugeFraction = gaugeFractionIndex >= 0 ? row[gaugeFractionIndex] : null
+      const barrels = Number(row[barrelsIndex])
+
+      if (!Number.isFinite(gaugeDecimal) || !Number.isFinite(barrels)) continue
+
+      output.push({
+        gauge_decimal: gaugeDecimal,
+        gauge_feet: gaugeFeet,
+        gauge_inches: gaugeInches,
+        gauge_fraction: gaugeFraction,
+        barrels,
+        increment_bbl: incrementIndex >= 0 ? row[incrementIndex] : null,
+        notes: notesIndex >= 0 ? row[notesIndex] : 'Imported from header-based strapping sheet',
+      })
+    }
+
+    return output
+  }
+
   function extractRefineryStrappingRowsFromSheet(rows: any[][]) {
     const output: any[] = []
 
@@ -5878,10 +5926,11 @@ async function createCompany() {
       let rows: any[] = []
 
       for (const sheet of sheets) {
+        const headerRows = extractHeaderStrappingRowsFromSheet(sheet.rows)
         const refineryRows = extractRefineryStrappingRowsFromSheet(sheet.rows)
         const ifsRows = extractIncrementFactorSheetRows(sheet.rows)
 
-        rows = [...rows, ...refineryRows, ...ifsRows]
+        rows = [...rows, ...headerRows, ...refineryRows, ...ifsRows]
       }
 
       const unique = new Map<string, any>()

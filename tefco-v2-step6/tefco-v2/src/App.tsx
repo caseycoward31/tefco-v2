@@ -13419,9 +13419,6 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                                       </div>
                                     )
                                   })}
-                                      </div>
-                                    </details>
-                                  ))}
                                 </div>
                               </details>
                             ))}

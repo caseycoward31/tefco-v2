@@ -3275,7 +3275,9 @@ function handleProvingAreaSelect(areaId: string) {
     if (upperGauge === lowerGauge) return lowerBbl
 
     const ratio = (gauge - lowerGauge) / (upperGauge - lowerGauge)
-    return lowerBbl + ((upperBbl - lowerBbl) * ratio)
+    const interpolated = lowerBbl + ((upperBbl - lowerBbl) * ratio)
+
+    return interpolated
   }
 
   function getDeadwoodAdjustment(tankId: string, gauge: number, calibrationVersionId = '') {
@@ -3481,26 +3483,6 @@ function handleProvingAreaSelect(areaId: string) {
     }
   }
 
-  function getBlankTankPoint() {
-    return {
-      gaugeDecimal: 0,
-      waterGaugeDecimal: 0,
-      tov: 0,
-      fw: 0,
-      netObservedBeforeShell: 0,
-      ctsh: 1,
-      shellTemp: calculateTankShellTemp(),
-      shellCorrected: 0,
-      roofAdjustmentBbl: 0,
-      gov: 0,
-      gsv: 0,
-      nsv: 0,
-      source: 'none',
-      sourceTicketNumber: '',
-      hasOpening: false,
-    }
-  }
-
   function getPreviousTankOpeningStandardPoint(tankId: string) {
     const previous: any = getPreviousTankTicket(tankId)
     if (!previous) return null
@@ -3558,46 +3540,46 @@ function handleProvingAreaSelect(areaId: string) {
       gov,
       gsv,
       nsv,
-      hasOpening: true,
     }
   }
 
   function calculateTankTicketSnapshot(tankId: string) {
     const previousOpeningStandard = getPreviousTankOpeningStandardPoint(tankId)
-    const hasPreviousOpening = !!previousOpeningStandard?.hasOpening
-    const openingGaugeDecimal = hasPreviousOpening ? Number(previousOpeningStandard?.gaugeDecimal || 0) : 0
+    const openingGaugeDecimal = Number(previousOpeningStandard?.gaugeDecimal || 0)
     const closingGaugeDecimal = gaugePartsToDecimal(tankClosingFeet, tankClosingInches, tankClosingEighths)
-    const openingWaterGaugeDecimal = hasPreviousOpening ? Number(previousOpeningStandard?.waterGaugeDecimal || 0) : 0
+    const openingWaterGaugeDecimal = Number(previousOpeningStandard?.waterGaugeDecimal || 0)
     const closingWaterGaugeDecimal = gaugePartsToDecimal(tankClosingWaterFeet, tankClosingWaterInches, tankClosingWaterEighths)
 
-    const openingRoofAdjustment = hasPreviousOpening ? calculateAutomaticTankRoofAdjustment(openingGaugeDecimal) : 0
+    const openingRoofAdjustment = calculateAutomaticTankRoofAdjustment(openingGaugeDecimal)
     const closingRoofAdjustment = calculateAutomaticTankRoofAdjustment(closingGaugeDecimal)
 
-    const openingPoint = hasPreviousOpening
+    const calculatedOpeningPoint = tankId
+      ? calculateTankObservedPoint(tankId, openingGaugeDecimal, openingWaterGaugeDecimal, openingRoofAdjustment)
+      : { tov: 0, fw: 0, gov: 0, shellCorrected: 0, ctsh: 1, shellTemp: 60, roofAdjustmentBbl: 0, netObservedBeforeShell: 0, gaugeDecimal: 0, waterGaugeDecimal: 0 }
+
+    const openingPoint = previousOpeningStandard
       ? {
-          ...getBlankTankPoint(),
-          gaugeDecimal: openingGaugeDecimal,
-          waterGaugeDecimal: openingWaterGaugeDecimal,
-          tov: Number(previousOpeningStandard.tov || 0),
-          fw: Number(previousOpeningStandard.fw || 0),
-          gov: Number(previousOpeningStandard.gov || 0),
-          gsv: Number(previousOpeningStandard.gsv || 0),
-          nsv: Number(previousOpeningStandard.nsv || 0),
+          ...calculatedOpeningPoint,
+          tov: previousOpeningStandard.tov || calculatedOpeningPoint.tov,
+          fw: previousOpeningStandard.fw || calculatedOpeningPoint.fw,
+          gov: previousOpeningStandard.gov || calculatedOpeningPoint.gov,
+          gsv: previousOpeningStandard.gsv || 0,
+          nsv: previousOpeningStandard.nsv || 0,
           sourceTicketNumber: previousOpeningStandard.sourceTicketNumber,
+          waterGaugeDecimal: previousOpeningStandard.waterGaugeDecimal || calculatedOpeningPoint.waterGaugeDecimal,
           source: 'previous_approved_tank_ticket',
-          hasOpening: true,
         }
-      : getBlankTankPoint()
+      : { ...calculatedOpeningPoint, source: 'calculated_from_opening_gauge' }
 
     const closingPoint = tankId
       ? calculateTankObservedPoint(tankId, closingGaugeDecimal, closingWaterGaugeDecimal, closingRoofAdjustment)
-      : getBlankTankPoint()
+      : { tov: 0, fw: 0, gov: 0, shellCorrected: 0, ctsh: 1, shellTemp: 60, roofAdjustmentBbl: 0, netObservedBeforeShell: 0, gaugeDecimal: 0, waterGaugeDecimal: 0 }
 
     const sign = tankMovementDirection === 'receipt' ? 1 : -1
-    const tovMovement = hasPreviousOpening ? sign * (closingPoint.tov - openingPoint.tov) : 0
-    const fwMovement = hasPreviousOpening ? sign * (closingPoint.fw - openingPoint.fw) : 0
-    const govSigned = hasPreviousOpening ? sign * (closingPoint.gov - openingPoint.gov) : closingPoint.gov
-    const gov = hasPreviousOpening ? Math.abs(govSigned) : closingPoint.gov
+    const tovMovement = sign * (closingPoint.tov - openingPoint.tov)
+    const fwMovement = sign * (closingPoint.fw - openingPoint.fw)
+    const govSigned = sign * (closingPoint.gov - openingPoint.gov)
+    const gov = Math.abs(govSigned)
 
     const movement = {
       openingGross: openingPoint.tov,
@@ -3625,10 +3607,10 @@ function handleProvingAreaSelect(areaId: string) {
     const swDecimal = Number(tankSwPercent || 0) / 100
     const closingGsv = closingPoint.gov * ccf
     const closingNsv = closingGsv * (1 - swDecimal)
-    const openingGsv = hasPreviousOpening ? Number((openingPoint as any).gsv || 0) : 0
-    const openingNsv = hasPreviousOpening ? Number((openingPoint as any).nsv || 0) : 0
-    const gsv = hasPreviousOpening ? Math.abs(sign * (closingGsv - openingGsv)) : closingGsv
-    const nsv = hasPreviousOpening ? Math.abs(sign * (closingNsv - openingNsv)) : closingNsv
+    const openingGsv = Number((openingPoint as any).gsv || (openingPoint.gov * ccf))
+    const openingNsv = Number((openingPoint as any).nsv || (openingGsv * (1 - swDecimal)))
+    const gsv = Math.abs(sign * (closingGsv - openingGsv))
+    const nsv = Math.abs(sign * (closingNsv - openingNsv))
 
     return {
       openingGaugeDecimal,
@@ -3649,7 +3631,6 @@ function handleProvingAreaSelect(areaId: string) {
       closingGsv,
       openingNsv,
       closingNsv,
-      hasPreviousOpening,
       openingSource: (openingPoint as any).source || '',
       openingSourceTicketNumber: (openingPoint as any).sourceTicketNumber || '',
       roofConfig: getTankRoofConfig(),
@@ -5690,7 +5671,12 @@ async function createCompany() {
     const unique = new Map<string, any>()
     rows.forEach((row) => {
       const key = Number(row.gauge_decimal).toFixed(6)
-      if (!unique.has(key) || Number(row.barrels || 0) > Number(unique.get(key).barrels || 0)) unique.set(key, row)
+
+      // IMPORTANT:
+      // PDF extraction can create duplicate gauges from nearby table columns.
+      // Keeping the largest duplicate can make a low gauge pull a high-column volume
+      // (example: 13 ft showing 23,000+ bbl). Keep the first valid row instead.
+      if (!unique.has(key)) unique.set(key, row)
     })
 
     return Array.from(unique.values())
@@ -5735,165 +5721,15 @@ async function createCompany() {
     return allLines
   }
 
-  function parseFeetInchesToDecimalFromText(value: string) {
-    const textValue = String(value || '').trim()
-    const ftMatch = textValue.match(/(-?\d+(?:\.\d+)?)\s*ft(?:\s+(-?\d+(?:\.\d+)?)\s*in)?/i)
-    if (ftMatch) return Number(ftMatch[1]) + (Number(ftMatch[2] || 0) / 12)
-
-    const primeMatch = textValue.match(/(-?\d+(?:\.\d+)?)\s*'\s*(-?\d+(?:\.\d+)?)?/)
-    if (primeMatch) return Number(primeMatch[1]) + (Number(primeMatch[2] || 0) / 12)
-
-    const inchMatch = textValue.match(/(-?\d+(?:\.\d+)?)\s*(?:in|")/i)
-    if (inchMatch) return Number(inchMatch[1]) / 12
-
-    const num = Number(textValue.replace(/[^0-9.-]/g, ''))
-    return Number.isFinite(num) ? num : 0
-  }
-
-  function extractNumberAfterPattern(lines: string[], pattern: RegExp) {
-    for (const line of lines) {
-      const match = String(line || '').match(pattern)
-      if (match) {
-        const value = Number(String(match[1] || '').replace(/,/g, ''))
-        if (Number.isFinite(value)) return value
-      }
-    }
-    return null
-  }
-
-  function extractQi2TankCalibrationMetadata(lines: string[], fallbackName: string) {
-    const joined = lines.join(' ')
-    const firstPage = lines.slice(0, 80).join(' ')
-    const legFromText =
-      /high\s+leg/i.test(joined) ? 'High Leg' :
-      /low\s+leg/i.test(joined) ? 'Low Leg' :
-      ''
-
-    const tankMatch =
-      joined.match(/Tank Identification\s+Tank\s+([A-Za-z0-9-]+)/i) ||
-      joined.match(/Tank\s+(\d+)\s+[–-]\s+Delek/i) ||
-      fallbackName.match(/Tank\s*([A-Za-z0-9-]+)/i)
-
-    const roofWeightLbs = extractNumberAfterPattern(lines, /Weight\s+([0-9,]+(?:\.\d+)?)\s*lb/i)
-    const referenceApi =
-      extractNumberAfterPattern(lines, /Specific Gravity\s+([0-9]+(?:\.\d+)?)\s*°?\s*API/i) ??
-      extractNumberAfterPattern(lines, /Fill density\s+([0-9]+(?:\.\d+)?)\s*°?\s*API/i) ??
-      extractNumberAfterPattern(lines, /([0-9]+(?:\.\d+)?)\s*°?\s*API observed/i)
-
-    const deductedRoofBbl = extractNumberAfterPattern(lines, /([0-9,]+(?:\.\d+)?)\s*bbl\s+(?:has been|were)\s+deducted/i)
-    const bblPerApi =
-      extractNumberAfterPattern(lines, /below\s+[0-9.]+°?API observed,\s*add\s+([0-9]+(?:\.\d+)?)\s*bbl/i) ??
-      extractNumberAfterPattern(lines, /above\s+[0-9.]+°?API observed,\s*subtract\s+([0-9]+(?:\.\d+)?)\s*bbl/i)
-
-    let criticalLow = 0
-    let criticalHigh = 0
-    const criticalLine = lines.find((line) => /critical zone/i.test(line) && /between/i.test(line)) || ''
-    const criticalMatch = criticalLine.match(/between\s+(.+?)\s+and\s+(.+?)\s+above/i)
-    if (criticalMatch) {
-      criticalLow = parseFeetInchesToDecimalFromText(criticalMatch[1])
-      criticalHigh = parseFeetInchesToDecimalFromText(criticalMatch[2])
-    } else {
-      const highLegMatch = joined.match(/HIGH LEG\s+([0-9]+)\s*ft\s+([0-9.]+)\s*in\s+to\s+([0-9]+)\s*ft\s+([0-9.]+)\s*in/i)
-      const lowLegMatch = joined.match(/LOW LEG\s+([0-9]+)\s*ft\s+([0-9.]+)\s*in\s+to\s+([0-9]+)\s*ft\s+([0-9.]+)\s*in/i)
-      const chosen = /high/i.test(legFromText) ? highLegMatch : lowLegMatch
-      if (chosen) {
-        criticalLow = Number(chosen[1]) + Number(chosen[2]) / 12
-        criticalHigh = Number(chosen[3]) + Number(chosen[4]) / 12
-      }
-    }
-
-    const diameterMatch = joined.match(/Diameter\s+([0-9]+)\s*FT\s+([0-9.]+)\s*IN/i) || joined.match(/Shell inner diameter\s+([0-9]+)\s*ft\s+([0-9.]+)\s*in/i)
-    const heightMatch = joined.match(/Height\s+([0-9]+)\s*ft\s+([0-9.]+)\s*in/i) || joined.match(/Shell height\s+([0-9]+)\s*ft\s+([0-9.]+)\s*in/i)
-    const gaugeHeightMatch = joined.match(/Gauge height.*?([0-9]+)\s*ft\s+([0-9.]+)\s*in/i)
-    const maxFillMatch = joined.match(/Max fill height.*?([0-9]+)\s*ft\s+([0-9.]+)\s*in/i)
-
-    return {
-      tankNumber: tankMatch ? `Tank ${tankMatch[1]}` : '',
-      legType: legFromText,
-      roofMode: roofWeightLbs ? 'fra' : 'none',
-      roofWeightLbs: roofWeightLbs || null,
-      roofReferenceApi: referenceApi || null,
-      roofReferenceSg: referenceApi ? apiToSpecificGravity(referenceApi) : null,
-      roofCriticalLowGauge: criticalLow || null,
-      roofCriticalHighGauge: criticalHigh || null,
-      roofCriticalGauge: criticalLow || null,
-      roofDeductedBbl: deductedRoofBbl || null,
-      roofBblPerApi: bblPerApi || null,
-      diameterFt: diameterMatch ? Number(diameterMatch[1]) + Number(diameterMatch[2]) / 12 : null,
-      heightFt: heightMatch ? Number(heightMatch[1]) + Number(heightMatch[2]) / 12 : null,
-      gaugeHeightFt: gaugeHeightMatch ? Number(gaugeHeightMatch[1]) + Number(gaugeHeightMatch[2]) / 12 : null,
-      safeFillFt: maxFillMatch ? Number(maxFillMatch[1]) + Number(maxFillMatch[2]) / 12 : null,
-      rawMetadata: {
-        source: 'Qi2 PDF calibration report',
-        first_page_text: firstPage.slice(0, 1000),
-      },
-    }
-  }
-
-  function extractQi2StrappingRowsFromPdfLines(lines: string[]) {
-    const rows: any[] = []
-    let currentFeet: number | null = null
-    let inTable = false
-
-    for (const rawLine of lines) {
-      const line = String(rawLine || '').replace(/\s+/g, ' ').trim()
-      if (!line) continue
-
-      const ftHeader = line.match(/^---\s*(\d+)\s*ft\s*---/i)
-      if (ftHeader) {
-        currentFeet = Number(ftHeader[1])
-        inTable = true
-        continue
-      }
-
-      if (!inTable || currentFeet === null) continue
-      if (/Table\s+7|Average fractional|Table\s+8|Incremental factor/i.test(line)) break
-
-      const match = line.match(/^(\d+(?:\.\d+)?)\s+([0-9,]+(?:\.\d+)?)/)
-      if (!match) continue
-
-      const inches = Number(match[1])
-      const barrels = Number(match[2].replace(/,/g, ''))
-      if (!Number.isFinite(inches) || !Number.isFinite(barrels)) continue
-
-      rows.push({
-        gauge_decimal: Number((currentFeet + inches / 12).toFixed(6)),
-        gauge_feet: currentFeet,
-        gauge_inches: inches,
-        gauge_fraction: null,
-        barrels,
-        increment_bbl: null,
-        zone: /H\b/.test(line) ? 'H' : /L\b/.test(line) ? 'L' : /F\b/.test(line) ? 'F' : /X\b/.test(line) ? 'X' : '',
-        notes: 'Imported from Qi2 PDF calibration report',
-      })
-    }
-
-    const unique = new Map<string, any>()
-    rows.forEach((row) => {
-      const key = Number(row.gauge_decimal).toFixed(6)
-      if (!unique.has(key)) unique.set(key, row)
-    })
-
-    return Array.from(unique.values()).sort((a, b) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
-  }
-
-  async function parseTankCalibrationPdf(file: File) {
-    const lines = await extractPdfTextLinesForStrapping(file)
-    const qi2Rows = extractQi2StrappingRowsFromPdfLines(lines)
-    const fallbackRows = qi2Rows.length ? qi2Rows : extractAmSpecStrappingRowsFromPdfLines(lines)
-    const metadata = extractQi2TankCalibrationMetadata(lines, file.name)
-    return { rows: fallbackRows, metadata, lines }
-  }
-
   async function parseStrappingFileRows(file: File) {
     const lowerName = file.name.toLowerCase()
 
     if (lowerName.endsWith('.pdf')) {
-      const parsed = await parseTankCalibrationPdf(file)
-      const rows = parsed.rows
+      const lines = await extractPdfTextLinesForStrapping(file)
+      const rows = extractAmSpecStrappingRowsFromPdfLines(lines)
 
       if (rows.length === 0) {
-        console.warn('No PDF strapping rows parsed. First extracted lines:', parsed.lines.slice(0, 50))
+        console.warn('No PDF strapping rows parsed. First extracted lines:', lines.slice(0, 50))
       }
 
       return rows
@@ -5940,42 +5776,18 @@ async function createCompany() {
 
     const nextVersion = Number(latestVersions?.[0]?.version_number || 0) + 1
 
-    let parsedPdfMetadata: any = null
-    let parsedPdfRows: any[] | null = null
-    if (strappingCsvFile.name.toLowerCase().endsWith('.pdf')) {
-      const parsedPdf = await parseTankCalibrationPdf(strappingCsvFile)
-      parsedPdfMetadata = parsedPdf.metadata
-      parsedPdfRows = parsedPdf.rows
-    }
-
-    const importedLegType = strappingLegType || parsedPdfMetadata?.legType || ''
-    const importedRoofMode = strappingRoofMode || parsedPdfMetadata?.roofMode || 'fra'
-    const importedRoofWeightLbs = strappingRoofWeightLbs ? Number(strappingRoofWeightLbs) : parsedPdfMetadata?.roofWeightLbs
-    const importedReferenceApi = strappingRoofReferenceApi ? Number(strappingRoofReferenceApi) : parsedPdfMetadata?.roofReferenceApi
-    const importedReferenceSg = strappingRoofReferenceSg ? Number(strappingRoofReferenceSg) : (parsedPdfMetadata?.roofReferenceSg || (importedReferenceApi ? apiToSpecificGravity(Number(importedReferenceApi)) : null))
-    const importedCriticalGauge = strappingRoofCriticalGauge ? Number(strappingRoofCriticalGauge) : parsedPdfMetadata?.roofCriticalGauge
-
     const calibrationPayload: any = {
       company_id: activeCompanyID,
       tank_id: selectedStrappingTankId,
       version_number: nextVersion,
-      name: importedLegType ? `${importedLegType} - Version ${nextVersion}` : `Version ${nextVersion}`,
-      leg_type: importedLegType || null,
-      strap_type: importedLegType || null,
-      roof_correction_mode: importedRoofMode || 'fra',
-      roof_weight_lbs: importedRoofWeightLbs || null,
-      roof_reference_api: importedReferenceApi || null,
-      roof_reference_sg: importedReferenceSg || null,
-      roof_critical_gauge: importedCriticalGauge || null,
-      roof_critical_low_gauge: parsedPdfMetadata?.roofCriticalLowGauge || importedCriticalGauge || null,
-      roof_critical_high_gauge: parsedPdfMetadata?.roofCriticalHighGauge || null,
-      roof_displacement_bbl: parsedPdfMetadata?.roofDeductedBbl || null,
-      roof_bbl_per_api: parsedPdfMetadata?.roofBblPerApi || null,
-      diameter_ft: parsedPdfMetadata?.diameterFt || null,
-      height_ft: parsedPdfMetadata?.heightFt || null,
-      gauge_height_ft: parsedPdfMetadata?.gaugeHeightFt || null,
-      safe_fill_ft: parsedPdfMetadata?.safeFillFt || null,
-      metadata: parsedPdfMetadata?.rawMetadata || null,
+      name: strappingLegType ? `${strappingLegType} - Version ${nextVersion}` : `Version ${nextVersion}`,
+      leg_type: strappingLegType || null,
+      strap_type: strappingLegType || null,
+      roof_correction_mode: strappingRoofMode || 'fra',
+      roof_weight_lbs: strappingRoofWeightLbs ? Number(strappingRoofWeightLbs) : null,
+      roof_reference_api: strappingRoofReferenceApi ? Number(strappingRoofReferenceApi) : null,
+      roof_reference_sg: strappingRoofReferenceSg ? Number(strappingRoofReferenceSg) : (strappingRoofReferenceApi ? apiToSpecificGravity(Number(strappingRoofReferenceApi)) : null),
+      roof_critical_gauge: strappingRoofCriticalGauge ? Number(strappingRoofCriticalGauge) : null,
       active: true,
     }
 
@@ -6015,7 +5827,7 @@ async function createCompany() {
       .eq('tank_id', selectedStrappingTankId)
       .neq('id', version.id)
 
-    const rows = parsedPdfRows || await parseStrappingFileRows(strappingCsvFile)
+    const rows = await parseStrappingFileRows(strappingCsvFile)
 
     const insertRows = rows
       .map((row: any) => {
@@ -6066,7 +5878,7 @@ async function createCompany() {
     setStrappingRoofReferenceApi('')
     setStrappingRoofReferenceSg('')
     setStrappingRoofCriticalGauge('')
-    alert(`Imported ${insertRows.length} strapping rows as calibration ${calibrationPayload.name}.`)
+    alert(`Imported ${insertRows.length} strapping rows as calibration ${calibrationPayload.name}. If this replaces a bad PDF import, select this new strap/leg on the tank ticket.`)
     await loadAll()
   }
 
@@ -11853,7 +11665,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <div style={card}>
                         <h4>Upload Tank Strapping Chart CSV/XLSX/PDF</h4>
                         <p style={{ color: '#a8b3bd' }}>
-                          CSV headers supported: gauge_decimal, gauge_feet, gauge_inches, gauge_fraction, barrels, increment_bbl, notes. Qi2 tank calibration PDFs are detected automatically and can import the strapping table plus roof weight, reference API/SG, critical zone, leg type, gauge height, safe fill, and tank dimensions.
+                          CSV headers supported: gauge_decimal, gauge_feet, gauge_inches, gauge_fraction, barrels, increment_bbl, notes. XLSX refinery strapping tables and text-based AmSpec PDF innage tables with FT-IN/Barrels pairs are detected automatically.
                         </p>
                         <select style={input} value={selectedStrappingTankId} onChange={(e) => setSelectedStrappingTankId(e.target.value)}>
                           <option value="">Select Tank</option>
@@ -11871,9 +11683,6 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                           <input style={input} placeholder="Reference API from strap" value={strappingRoofReferenceApi} onChange={(e) => setStrappingRoofReferenceApi(e.target.value)} />
                           <input style={input} placeholder="Reference SG optional" value={strappingRoofReferenceSg} onChange={(e) => setStrappingRoofReferenceSg(e.target.value)} />
                           <input style={input} placeholder="Critical Gauge Decimal Feet optional" value={strappingRoofCriticalGauge} onChange={(e) => setStrappingRoofCriticalGauge(e.target.value)} />
-                        </div>
-                        <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 6 }}>
-                          For Qi2 PDFs like Tank 300 High Leg, these fields can be left blank. The importer will pull High/Low Leg, roof weight, reference API/SG, critical zone, and strap rows from the PDF.
                         </div>
 
                         <input style={input} type="file" accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setStrappingCsvFile(e.target.files?.[0] || null)} />
@@ -14038,14 +13847,14 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                             </tr>
                           </thead>
                           <tbody>
-                            <tr><td style={{ padding: 8 }}>Gauge</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).hasPreviousOpening ? calculateTankTicketSnapshot(selectedTank).openingGaugeDecimal.toFixed(4) : '—'}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingGaugeDecimal.toFixed(4)}</td></tr>
-                            <tr><td style={{ padding: 8 }}>TOV</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).hasPreviousOpening ? calculateTankTicketSnapshot(selectedTank).openingPoint.tov.toFixed(2) : '—'}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingPoint.tov.toFixed(2)}</td></tr>
-                            <tr><td style={{ padding: 8 }}>Free Water</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).hasPreviousOpening ? calculateTankTicketSnapshot(selectedTank).openingPoint.fw.toFixed(2) : '—'}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingPoint.fw.toFixed(2)}</td></tr>
+                            <tr><td style={{ padding: 8 }}>Gauge</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).openingGaugeDecimal.toFixed(4)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingGaugeDecimal.toFixed(4)}</td></tr>
+                            <tr><td style={{ padding: 8 }}>TOV</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).openingPoint.tov.toFixed(2)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingPoint.tov.toFixed(2)}</td></tr>
+                            <tr><td style={{ padding: 8 }}>Free Water</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).openingPoint.fw.toFixed(2)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingPoint.fw.toFixed(2)}</td></tr>
                             <tr><td style={{ padding: 8 }}>CTSh / Shell Temp</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).ctsh.toFixed(5)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).tankShellTemp.toFixed(1)} °F</td></tr>
-                            <tr><td style={{ padding: 8 }}>FRA / Roof Adj</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).hasPreviousOpening ? calculateTankTicketSnapshot(selectedTank).openingPoint.roofAdjustmentBbl.toFixed(2) : '—'}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingPoint.roofAdjustmentBbl.toFixed(2)}</td></tr>
-                            <tr><td style={{ padding: 8 }}>GOV</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).hasPreviousOpening ? calculateTankTicketSnapshot(selectedTank).openingPoint.gov.toFixed(2) : '—'}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingPoint.gov.toFixed(2)}</td></tr>
-                            <tr><td style={{ padding: 8 }}>GSV</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).hasPreviousOpening ? calculateTankTicketSnapshot(selectedTank).openingGsv.toFixed(2) : '—'}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingGsv.toFixed(2)}</td></tr>
-                            <tr><td style={{ padding: 8 }}>NSV</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).hasPreviousOpening ? calculateTankTicketSnapshot(selectedTank).openingNsv.toFixed(2) : '—'}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingNsv.toFixed(2)}</td></tr>
+                            <tr><td style={{ padding: 8 }}>FRA / Roof Adj</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).openingPoint.roofAdjustmentBbl.toFixed(2)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingPoint.roofAdjustmentBbl.toFixed(2)}</td></tr>
+                            <tr><td style={{ padding: 8 }}>GOV</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).openingPoint.gov.toFixed(2)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingPoint.gov.toFixed(2)}</td></tr>
+                            <tr><td style={{ padding: 8 }}>GSV</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).openingGsv.toFixed(2)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingGsv.toFixed(2)}</td></tr>
+                            <tr><td style={{ padding: 8 }}>NSV</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).openingNsv.toFixed(2)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingNsv.toFixed(2)}</td></tr>
                           </tbody>
                         </table>
                       </div>

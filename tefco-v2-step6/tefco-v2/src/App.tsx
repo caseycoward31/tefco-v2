@@ -818,6 +818,9 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [draftTicketEditValues, setDraftTicketEditValues] = useState<Record<string, string>>({})
   const [openApprovedTicketMonths, setOpenApprovedTicketMonths] = useState<Record<string, boolean>>({})
   const [openWorkflowTicketGroups, setOpenWorkflowTicketGroups] = useState<Record<string, boolean>>({})
+  const [ticketArchiveMonthFilter, setTicketArchiveMonthFilter] = useState('')
+  const [ticketArchiveSegmentFilter, setTicketArchiveSegmentFilter] = useState('')
+  const [openTicketArchiveSections, setOpenTicketArchiveSections] = useState<Record<string, boolean>>({})
   const [ticketWorkflowTab, setTicketWorkflowTab] = useState<'create' | 'drafts' | 'pending' | 'approved'>('create')
   const [ticketOpenDate, setTicketOpenDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [ticketOpenTime, setTicketOpenTime] = useState('07:00')
@@ -10547,6 +10550,141 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
   }
 
 
+  function getTicketSegmentId(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    return String(ticket.segment_id || observed.segment_id || '')
+  }
+
+  function getTicketSegmentLabel(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const segmentId = getTicketSegmentId(ticket)
+    const segment = segments.find((item: any) => String(item.id) === segmentId)
+    return segment?.name || segment?.segment_name || observed.segment_name || 'Unassigned Segment'
+  }
+
+  function getTicketArchiveKind(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const type = String(ticket.ticket_type || observed.ticket_type || '').toLowerCase()
+    if (type.includes('tank') || observed.tank_id || ticket.tank_id) return 'tank'
+    if (type.includes('line') || observed.line_fill_id || ticket.line_fill_id) return 'line_fill'
+    return 'meter'
+  }
+
+  function getTicketArchiveKindLabel(kind: string) {
+    if (kind === 'tank') return 'Tank Tickets'
+    if (kind === 'line_fill') return 'Line Fill Tickets'
+    return 'Meter Tickets'
+  }
+
+  function getTicketArchiveKindOrder(kind: string) {
+    if (kind === 'meter') return 1
+    if (kind === 'tank') return 2
+    if (kind === 'line_fill') return 3
+    return 9
+  }
+
+  function getTicketArchiveSectionKey(...parts: string[]) {
+    return parts.map((part) => String(part || 'unknown').replace(/\s+/g, '_')).join('__')
+  }
+
+  function toggleTicketArchiveSection(sectionKey: string) {
+    setOpenTicketArchiveSections((prev) => ({
+      ...prev,
+      [sectionKey]: !(prev[sectionKey] ?? true),
+    }))
+  }
+
+  function getTicketMonthOptions(ticketList: any[]) {
+    const keys = Array.from(new Set(ticketList.map((ticket: any) => getTicketMonthKey(ticket))))
+    return keys.sort((a, b) => b.localeCompare(a)).map((monthKey) => ({
+      monthKey,
+      label: getTicketMonthLabel(monthKey),
+    }))
+  }
+
+  function groupTicketsByMonthSegmentKind(ticketList: any[]) {
+    const monthGroups = groupTicketsByMonth(ticketList)
+    return monthGroups.map((monthGroup: any) => {
+      const segmentMap = monthGroup.tickets.reduce((acc: Record<string, any>, ticket: any) => {
+        const segmentId = getTicketSegmentId(ticket) || 'unassigned'
+        if (!acc[segmentId]) {
+          acc[segmentId] = {
+            segmentId,
+            label: getTicketSegmentLabel(ticket),
+            tickets: [],
+          }
+        }
+        acc[segmentId].tickets.push(ticket)
+        return acc
+      }, {} as Record<string, any>)
+
+      const segmentGroups = (Object.values(segmentMap) as any[])
+        .sort((a: any, b: any) => a.label.localeCompare(b.label))
+        .map((segmentGroup: any) => {
+          const kindMap = segmentGroup.tickets.reduce((acc: Record<string, any>, ticket: any) => {
+            const kind = getTicketArchiveKind(ticket)
+            if (!acc[kind]) {
+              acc[kind] = {
+                kind,
+                label: getTicketArchiveKindLabel(kind),
+                tickets: [],
+              }
+            }
+            acc[kind].tickets.push(ticket)
+            return acc
+          }, {} as Record<string, any>)
+
+          const kindGroups = (Object.values(kindMap) as any[])
+            .sort((a: any, b: any) => getTicketArchiveKindOrder(a.kind) - getTicketArchiveKindOrder(b.kind))
+            .map((kindGroup: any) => ({
+              ...kindGroup,
+              tickets: kindGroup.tickets.sort((a: any, b: any) =>
+                new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime()
+              ),
+            }))
+
+          return {
+            ...segmentGroup,
+            kindGroups,
+          }
+        })
+
+      return {
+        ...monthGroup,
+        segmentGroups,
+      }
+    })
+  }
+
+  function renderTicketQueueCard(ticket: any, approved = false) {
+    return (
+      <div key={ticket.id} className="ticket-queue-card">
+        <div>
+          <strong className="ticket-title-tight">{getTicketLeaseDisplay(ticket)}</strong>
+          {!approved && <span style={{ ...getTicketStatusStyle(ticket.status), marginLeft: 8 }}>{ticket.status || 'draft'}</span>}
+          <div style={{ color: '#a8b3bd', marginTop: 4 }}>Ticket: {compactTicketTitle(ticket)} • {compactTicketSubtitle(ticket)}</div>
+          <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {!approved && (ticket.status || 'draft') === 'draft' && (
+            <button style={{ ...button, width: 130, background: '#f59e0b' }} onClick={() => startDraftTicketEdit(ticket)}>
+              Edit Draft
+            </button>
+          )}
+          {!approved && String(ticket.status || 'draft').toLowerCase() === 'draft' && (
+            <button style={{ ...button, width: 130, background: '#7f1d1d', borderColor: '#991b1b' }} onClick={() => runSafeAction('Deleting draft ticket', () => deleteDraftTicket(ticket))}>
+              Delete Draft
+            </button>
+          )}
+          <button style={{ ...button, width: approved ? 170 : 130 }} onClick={() => { setSelectedTicket(ticket); setIsDraftTicketEditOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
+            {approved ? 'Open Approved Ticket' : 'Open Ticket'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+
   function formatTicketDetailNumber(value: any, digits = 1) {
     const num = Number(value)
     if (!Number.isFinite(num)) return '—'
@@ -14487,62 +14625,108 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
               {(ticketWorkflowTab === 'drafts' || ticketWorkflowTab === 'pending') && (
               <div>
             <div style={box}>
-              <div className="ticket-section-title"><h2 style={{ margin: 0 }}>{ticketWorkflowTab === 'drafts' ? 'Draft Tickets' : 'Pending Approval'}</h2><span className="ticket-muted">{ticketWorkflowTab === 'drafts' ? 'Created tickets waiting to be submitted' : 'Submitted tickets waiting for approval'}</span></div>
-
-              {getDraftWorkflowTickets().filter((ticket: any) => ticketWorkflowTab === 'drafts' ? (ticket.status || 'draft') === 'draft' : (ticket.status || '') !== 'draft').length === 0 && (
-                <div style={card}>{ticketWorkflowTab === 'drafts' ? 'No draft tickets waiting.' : 'No tickets pending approval.'}</div>
-              )}
-
-              {groupWorkflowTickets(getDraftWorkflowTickets().filter((ticket: any) => ticketWorkflowTab === 'drafts' ? (ticket.status || 'draft') === 'draft' : (ticket.status || '') !== 'draft')).map((group: any) => {
-                const isOpen = openWorkflowTicketGroups[group.groupKey] ?? true
-                const totalNsv = group.tickets.reduce((sum: number, ticket: any) => {
-                  const calc = ticket.calculation_results || {}
-                  const observed = ticket.observed_inputs || {}
-                  return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
-                }, 0)
+              {(() => {
+                const baseTickets = getDraftWorkflowTickets().filter((ticket: any) => ticketWorkflowTab === 'drafts' ? (ticket.status || 'draft') === 'draft' : (ticket.status || '') !== 'draft')
+                const monthOptions = getTicketMonthOptions(baseTickets)
+                const filteredTickets = baseTickets.filter((ticket: any) =>
+                  (!ticketArchiveMonthFilter || getTicketMonthKey(ticket) === ticketArchiveMonthFilter) &&
+                  (!ticketArchiveSegmentFilter || getTicketSegmentId(ticket) === ticketArchiveSegmentFilter)
+                )
+                const groupedArchive = groupTicketsByMonthSegmentKind(filteredTickets)
 
                 return (
-                  <div key={group.groupKey} style={{ ...card, marginBottom: 12 }}>
-                    <button
-                      style={{ ...button, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
-                      onClick={() => toggleWorkflowTicketGroup(group.groupKey)}
-                    >
-                      <span>{isOpen ? '▼' : '▶'} {group.label}</span>
-                      <span>{group.tickets.length} tickets • NSV {totalNsv.toFixed(2)}</span>
-                    </button>
-
-                    {isOpen && (
-                      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-                        {group.tickets.map((ticket: any) => (
-                          <div key={ticket.id} className="ticket-queue-card">
-                            <div>
-                              <strong className="ticket-title-tight">{getTicketLeaseDisplay(ticket)}</strong>
-                              <span style={{ ...getTicketStatusStyle(ticket.status), marginLeft: 8 }}>{ticket.status || 'draft'}</span>
-                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>Ticket: {compactTicketTitle(ticket)} • {compactTicketSubtitle(ticket)}</div>
-                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
-                            </div>
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                              {(ticket.status || 'draft') === 'draft' && (
-                                <button style={{ ...button, width: 130, background: '#f59e0b' }} onClick={() => startDraftTicketEdit(ticket)}>
-                                  Edit Draft
-                                </button>
-                              )}
-                              {String(ticket.status || 'draft').toLowerCase() === 'draft' && (
-                                <button style={{ ...button, width: 130, background: '#7f1d1d', borderColor: '#991b1b' }} onClick={() => runSafeAction('Deleting draft ticket', () => deleteDraftTicket(ticket))}>
-                                  Delete Draft
-                                </button>
-                              )}
-                              <button style={{ ...button, width: 130 }} onClick={() => { setSelectedTicket(ticket); setIsDraftTicketEditOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
-                                Open Ticket
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+                  <>
+                    <div className="ticket-section-title">
+                      <div>
+                        <h2 style={{ margin: 0 }}>{ticketWorkflowTab === 'drafts' ? 'Draft Tickets' : 'Pending Approval'}</h2>
+                        <span className="ticket-muted">Month → Segment → Meter/Tank/Line Fill work queues</span>
                       </div>
+                    </div>
+
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                      <select style={input} value={ticketArchiveMonthFilter} onChange={(e) => setTicketArchiveMonthFilter(e.target.value)}>
+                        <option value="">All Months</option>
+                        {monthOptions.map((month: any) => (
+                          <option key={month.monthKey} value={month.monthKey}>{month.label}</option>
+                        ))}
+                      </select>
+                      <select style={input} value={ticketArchiveSegmentFilter} onChange={(e) => setTicketArchiveSegmentFilter(e.target.value)}>
+                        <option value="">All Segments</option>
+                        {segments.map((segment: any) => (
+                          <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {filteredTickets.length === 0 && (
+                      <div style={card}>{ticketWorkflowTab === 'drafts' ? 'No draft tickets waiting.' : 'No tickets pending approval.'}</div>
                     )}
-                  </div>
+
+                    {groupedArchive.map((monthGroup: any) => {
+                      const monthKey = getTicketArchiveSectionKey(ticketWorkflowTab, monthGroup.monthKey)
+                      const monthOpen = openTicketArchiveSections[monthKey] ?? true
+                      const monthNsv = monthGroup.tickets.reduce((sum: number, ticket: any) => {
+                        const calc = ticket.calculation_results || {}
+                        const observed = ticket.observed_inputs || {}
+                        return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                      }, 0)
+
+                      return (
+                        <div key={monthKey} style={{ ...card, marginBottom: 12 }}>
+                          <button style={{ ...button, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }} onClick={() => toggleTicketArchiveSection(monthKey)}>
+                            <span>{monthOpen ? '▼' : '▶'} {monthGroup.label}</span>
+                            <span>{monthGroup.tickets.length} tickets • NSV {monthNsv.toFixed(2)}</span>
+                          </button>
+
+                          {monthOpen && monthGroup.segmentGroups.map((segmentGroup: any) => {
+                            const segmentKey = getTicketArchiveSectionKey(ticketWorkflowTab, monthGroup.monthKey, segmentGroup.segmentId)
+                            const segmentOpen = openTicketArchiveSections[segmentKey] ?? true
+                            const segmentNsv = segmentGroup.tickets.reduce((sum: number, ticket: any) => {
+                              const calc = ticket.calculation_results || {}
+                              const observed = ticket.observed_inputs || {}
+                              return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                            }, 0)
+
+                            return (
+                              <div key={segmentKey} style={{ ...card, marginTop: 10, background: 'rgba(15,23,42,0.45)' }}>
+                                <button style={{ ...button, background: '#374151', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }} onClick={() => toggleTicketArchiveSection(segmentKey)}>
+                                  <span>{segmentOpen ? '▼' : '▶'} {segmentGroup.label}</span>
+                                  <span>{segmentGroup.tickets.length} tickets • NSV {segmentNsv.toFixed(2)}</span>
+                                </button>
+
+                                {segmentOpen && segmentGroup.kindGroups.map((kindGroup: any) => {
+                                  const kindKey = getTicketArchiveSectionKey(ticketWorkflowTab, monthGroup.monthKey, segmentGroup.segmentId, kindGroup.kind)
+                                  const kindOpen = openTicketArchiveSections[kindKey] ?? true
+                                  const kindNsv = kindGroup.tickets.reduce((sum: number, ticket: any) => {
+                                    const calc = ticket.calculation_results || {}
+                                    const observed = ticket.observed_inputs || {}
+                                    return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                                  }, 0)
+
+                                  return (
+                                    <div key={kindKey} style={{ marginTop: 10 }}>
+                                      <button style={{ ...button, background: kindGroup.kind === 'tank' ? '#92400e' : kindGroup.kind === 'line_fill' ? '#1d4ed8' : '#14532d', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }} onClick={() => toggleTicketArchiveSection(kindKey)}>
+                                        <span>{kindOpen ? '▼' : '▶'} {kindGroup.label}</span>
+                                        <span>{kindGroup.tickets.length} tickets • NSV {kindNsv.toFixed(2)}</span>
+                                      </button>
+
+                                      {kindOpen && (
+                                        <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+                                          {kindGroup.tickets.map((ticket: any) => renderTicketQueueCard(ticket, false))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })}
+                  </>
                 )
-              })}
+              })()}
             </div>
 
             </div>
@@ -14551,49 +14735,108 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
               {ticketWorkflowTab === 'approved' && (
               <div>
             <div style={box}>
-              <div className="ticket-section-title"><h2 style={{ margin: 0 }}>Approved Tickets</h2><span className="ticket-muted">Monthly archive</span></div>
-
-              {getApprovedTickets().length === 0 && (
-                <div style={card}>No approved tickets yet.</div>
-              )}
-
-              {groupTicketsByMonth(getApprovedTickets()).map((group: any) => {
-                const isOpen = openApprovedTicketMonths[group.monthKey] ?? true
-                const totalNsv = group.tickets.reduce((sum: number, ticket: any) => {
-                  const calc = ticket.calculation_results || {}
-                  const observed = ticket.observed_inputs || {}
-                  return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
-                }, 0)
+              {(() => {
+                const baseTickets = getApprovedTickets()
+                const monthOptions = getTicketMonthOptions(baseTickets)
+                const filteredTickets = baseTickets.filter((ticket: any) =>
+                  (!ticketArchiveMonthFilter || getTicketMonthKey(ticket) === ticketArchiveMonthFilter) &&
+                  (!ticketArchiveSegmentFilter || getTicketSegmentId(ticket) === ticketArchiveSegmentFilter)
+                )
+                const groupedArchive = groupTicketsByMonthSegmentKind(filteredTickets)
 
                 return (
-                  <div key={group.monthKey} style={{ ...card, marginBottom: 12 }}>
-                    <button
-                      style={{ ...button, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
-                      onClick={() => toggleApprovedTicketMonth(group.monthKey)}
-                    >
-                      <span>{isOpen ? '▼' : '▶'} {group.label}</span>
-                      <span>{group.tickets.length} tickets • NSV {totalNsv.toFixed(2)}</span>
-                    </button>
-
-                    {isOpen && (
-                      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-                        {group.tickets.map((ticket: any) => (
-                          <div key={ticket.id} className="ticket-queue-card">
-                            <div>
-                              <strong className="ticket-title-tight">{getTicketLeaseDisplay(ticket)}</strong>
-                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>Ticket: {compactTicketTitle(ticket)} • {compactTicketSubtitle(ticket)}</div>
-                              <div style={{ color: '#a8b3bd', marginTop: 4 }}>{compactTicketVolume(ticket)}</div>
-                            </div>
-                            <button style={{ ...button, width: 170 }} onClick={() => { setSelectedTicket(ticket); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
-                              Open Approved Ticket
-                            </button>
-                          </div>
-                        ))}
+                  <>
+                    <div className="ticket-section-title">
+                      <div>
+                        <h2 style={{ margin: 0 }}>Approved Tickets</h2>
+                        <span className="ticket-muted">Monthly archive organized by segment and ticket type</span>
                       </div>
+                    </div>
+
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                      <select style={input} value={ticketArchiveMonthFilter} onChange={(e) => setTicketArchiveMonthFilter(e.target.value)}>
+                        <option value="">All Months</option>
+                        {monthOptions.map((month: any) => (
+                          <option key={month.monthKey} value={month.monthKey}>{month.label}</option>
+                        ))}
+                      </select>
+                      <select style={input} value={ticketArchiveSegmentFilter} onChange={(e) => setTicketArchiveSegmentFilter(e.target.value)}>
+                        <option value="">All Segments</option>
+                        {segments.map((segment: any) => (
+                          <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {filteredTickets.length === 0 && (
+                      <div style={card}>No approved tickets found for this filter.</div>
                     )}
-                  </div>
+
+                    {groupedArchive.map((monthGroup: any) => {
+                      const monthKey = getTicketArchiveSectionKey('approved', monthGroup.monthKey)
+                      const monthOpen = openTicketArchiveSections[monthKey] ?? true
+                      const monthNsv = monthGroup.tickets.reduce((sum: number, ticket: any) => {
+                        const calc = ticket.calculation_results || {}
+                        const observed = ticket.observed_inputs || {}
+                        return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                      }, 0)
+
+                      return (
+                        <div key={monthKey} style={{ ...card, marginBottom: 12 }}>
+                          <button style={{ ...button, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }} onClick={() => toggleTicketArchiveSection(monthKey)}>
+                            <span>{monthOpen ? '▼' : '▶'} {monthGroup.label}</span>
+                            <span>{monthGroup.tickets.length} tickets • NSV {monthNsv.toFixed(2)}</span>
+                          </button>
+
+                          {monthOpen && monthGroup.segmentGroups.map((segmentGroup: any) => {
+                            const segmentKey = getTicketArchiveSectionKey('approved', monthGroup.monthKey, segmentGroup.segmentId)
+                            const segmentOpen = openTicketArchiveSections[segmentKey] ?? true
+                            const segmentNsv = segmentGroup.tickets.reduce((sum: number, ticket: any) => {
+                              const calc = ticket.calculation_results || {}
+                              const observed = ticket.observed_inputs || {}
+                              return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                            }, 0)
+
+                            return (
+                              <div key={segmentKey} style={{ ...card, marginTop: 10, background: 'rgba(15,23,42,0.45)' }}>
+                                <button style={{ ...button, background: '#374151', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }} onClick={() => toggleTicketArchiveSection(segmentKey)}>
+                                  <span>{segmentOpen ? '▼' : '▶'} {segmentGroup.label}</span>
+                                  <span>{segmentGroup.tickets.length} tickets • NSV {segmentNsv.toFixed(2)}</span>
+                                </button>
+
+                                {segmentOpen && segmentGroup.kindGroups.map((kindGroup: any) => {
+                                  const kindKey = getTicketArchiveSectionKey('approved', monthGroup.monthKey, segmentGroup.segmentId, kindGroup.kind)
+                                  const kindOpen = openTicketArchiveSections[kindKey] ?? true
+                                  const kindNsv = kindGroup.tickets.reduce((sum: number, ticket: any) => {
+                                    const calc = ticket.calculation_results || {}
+                                    const observed = ticket.observed_inputs || {}
+                                    return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                                  }, 0)
+
+                                  return (
+                                    <div key={kindKey} style={{ marginTop: 10 }}>
+                                      <button style={{ ...button, background: kindGroup.kind === 'tank' ? '#92400e' : kindGroup.kind === 'line_fill' ? '#1d4ed8' : '#14532d', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }} onClick={() => toggleTicketArchiveSection(kindKey)}>
+                                        <span>{kindOpen ? '▼' : '▶'} {kindGroup.label}</span>
+                                        <span>{kindGroup.tickets.length} tickets • NSV {kindNsv.toFixed(2)}</span>
+                                      </button>
+
+                                      {kindOpen && (
+                                        <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+                                          {kindGroup.tickets.map((ticket: any) => renderTicketQueueCard(ticket, true))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })}
+                  </>
                 )
-              })}
+              })()}
             </div>
               </div>
               )}

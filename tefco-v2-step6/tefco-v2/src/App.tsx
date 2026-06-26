@@ -608,6 +608,8 @@ function App() {
   const [provingTab, setProvingTab] = useState<'create' | 'drafts' | 'pending' | 'approved' | 'kpi' | 'schedule'>('create')
   const [potTab, setPotTab] = useState<'create' | 'history' | 'export'>('create')
   const [readingTab, setReadingTab] = useState<'new' | 'history' | 'photos'>('new')
+  const [readingQueueMonthFilter, setReadingQueueMonthFilter] = useState('')
+  const [readingQueueSegmentFilter, setReadingQueueSegmentFilter] = useState('')
   const [potQueueMonthFilter, setPotQueueMonthFilter] = useState('')
   const [potQueueSegmentFilter, setPotQueueSegmentFilter] = useState('')
   const [provingQueueMonthFilter, setProvingQueueMonthFilter] = useState('')
@@ -10965,6 +10967,12 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
     return new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
   }
 
+  function getReadingSegmentId(row: any) {
+    const meter = getMeterById(row?.meter_id || row?.meterId || '')
+    const lease = getLeaseById(row?.lease_id || row?.leaseId || meter?.lease_id || '')
+    return String(row?.segment_id || (lease as any)?.segment_id || meter?.segment_id || '')
+  }
+
   function getPotSegmentId(row: any) {
     const meter = getMeterById(row?.meter_id || row?.meterId || '')
     const lease = getLeaseById(row?.lease_id || row?.leaseId || meter?.lease_id || '')
@@ -13184,56 +13192,188 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
 
             {readingTab === 'history' && (
               <div style={box}>
-                <h3>Operator Readings by Month</h3>
-                {Object.entries(groupRowsByMonth(readings, ['reading_date', 'created_at']) as Record<string, any[]>).map(([month, rows]) => (
-                  <details key={month} open={month === getMonthLabelFromRow({}, [])} style={card}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{month} • {rows.length} reading(s)</summary>
-                    <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-                      {rows.map((row: any) => {
-                        const display = getReadingDisplayName(row)
-                        return (
-                          <div key={row.id} style={{ ...card, margin: 0 }}>
-                            <strong>{display.main}</strong>
-                            {display.secondary && <div style={{ color: '#a8b3bd' }}>{display.secondary}</div>}
-                            <div style={{ color: '#a8b3bd' }}>Date: {new Date(row.reading_date || row.created_at || Date.now()).toLocaleString()}</div>
-                            <div>Open: {row.opening_reading ?? row.opening_meter_reading ?? row.open_reading ?? '—'} • Close: {row.closing_reading ?? row.closing_meter_reading ?? row.close_reading ?? '—'}</div>
-                            <div>Avg Temp: {row.avg_temp ?? row.average_temperature ?? '—'} • Avg Pressure: {row.avg_pressure ?? row.average_pressure ?? '—'}</div>
-                            {!isReadOnly && (
-                              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                                <button style={{ ...button, padding: '8px 12px', width: 'auto', background: 'linear-gradient(135deg,#f97316,#9a3412)' }} onClick={() => editOperatorReading(row)}>
-                                  Edit Reading
-                                </button>
-                                <button style={{ ...button, padding: '8px 12px', width: 'auto', background: 'linear-gradient(135deg,#991b1b,#450a0a)' }} onClick={() => deleteOperatorReading(row)}>
-                                  Delete Reading
-                                </button>
-                              </div>
-                            )}
+                {(() => {
+                  const scopedReadings = getScopedReadings()
+                  const monthOptions = getGenericMonthOptions(scopedReadings, ['reading_date', 'created_at'])
+                  const filteredReadings = scopedReadings.filter((row: any) =>
+                    (!readingQueueMonthFilter || getGenericMonthKey(row, ['reading_date', 'created_at']) === readingQueueMonthFilter) &&
+                    (!readingQueueSegmentFilter || getReadingSegmentId(row) === readingQueueSegmentFilter)
+                  )
+                  const grouped = groupRowsByMonthSegment(filteredReadings, ['reading_date', 'created_at'], getReadingSegmentId)
+
+                  return (
+                    <>
+                      <div className="ticket-section-title">
+                        <div>
+                          <h3 style={{ margin: 0 }}>Operator Readings History</h3>
+                          <span className="ticket-muted">Month → Segment → reading records</span>
+                        </div>
+                      </div>
+
+                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                        <select style={input} value={readingQueueMonthFilter} onChange={(e) => setReadingQueueMonthFilter(e.target.value)}>
+                          <option value="">All Months</option>
+                          {monthOptions.map((month: any) => <option key={month.monthKey} value={month.monthKey}>{month.label}</option>)}
+                        </select>
+                        <select style={input} value={readingQueueSegmentFilter} onChange={(e) => setReadingQueueSegmentFilter(e.target.value)}>
+                          <option value="">All Segments</option>
+                          {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+                        </select>
+                      </div>
+
+                      {filteredReadings.length === 0 && <div style={card}>No readings found for this filter.</div>}
+
+                      {grouped.map((monthGroup: any) => (
+                        <details key={monthGroup.monthKey} open style={{ ...card, padding: 0, overflow: 'hidden' }}>
+                          <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 800, background: 'rgba(239,68,68,0.12)' }}>
+                            {monthGroup.label} • {monthGroup.rows.length} reading(s)
+                          </summary>
+                          <div style={{ display: 'grid', gap: 10, padding: 12 }}>
+                            {monthGroup.segmentGroups.map((segmentGroup: any) => (
+                              <details key={segmentGroup.segmentId} open style={{ ...card, margin: 0, background: 'rgba(15,23,42,0.45)' }}>
+                                <summary style={{ cursor: 'pointer', fontWeight: 800 }}>
+                                  {segmentGroup.label} • {segmentGroup.rows.length} reading(s)
+                                </summary>
+                                <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                                  {segmentGroup.rows.map((row: any) => {
+                                    const display = getReadingDisplayName(row)
+                                    const iv = Number(row.closing_reading ?? row.closing_meter_reading ?? row.close_reading ?? 0) - Number(row.opening_reading ?? row.opening_meter_reading ?? row.open_reading ?? 0)
+                                    return (
+                                      <div key={row.id} style={{ ...card, margin: 0 }}>
+                                        <strong>{display.main}</strong>
+                                        {display.secondary && <div style={{ color: '#a8b3bd' }}>{display.secondary}</div>}
+                                        <div style={{ color: '#a8b3bd' }}>Date: {new Date(row.reading_date || row.created_at || Date.now()).toLocaleString()}</div>
+                                        <div>Open: {row.opening_reading ?? row.opening_meter_reading ?? row.open_reading ?? '—'} • Close: {row.closing_reading ?? row.closing_meter_reading ?? row.close_reading ?? '—'} • IV: {Number.isFinite(iv) ? iv.toFixed(2) : '—'}</div>
+                                        <div>Avg Temp: {row.avg_temp ?? row.average_temperature ?? '—'} • Avg Pressure: {row.avg_pressure ?? row.average_pressure ?? '—'}</div>
+                                        {!isReadOnly && (
+                                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                                            <button style={{ ...button, padding: '8px 12px', width: 'auto', background: 'linear-gradient(135deg,#f97316,#9a3412)' }} onClick={() => editOperatorReading(row)}>
+                                              Edit Reading
+                                            </button>
+                                            <button style={{ ...button, padding: '8px 12px', width: 'auto', background: 'linear-gradient(135deg,#991b1b,#450a0a)' }} onClick={() => deleteOperatorReading(row)}>
+                                              Delete Reading
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </details>
+                            ))}
                           </div>
-                        )
-                      })}
-                    </div>
-                  </details>
-                ))}
-                {readings.length === 0 && <div style={card}>No readings saved yet.</div>}
+                        </details>
+                      ))}
+                    </>
+                  )
+                })()}
               </div>
             )}
 
             {readingTab === 'photos' && (
               <div style={box}>
-                <h3>Reading Photo Review</h3>
-                <p style={{ color: '#a8b3bd' }}>Select a lease on the New Reading tab to view its recent meter and flow computer photos, or review saved reading history by month.</p>
-                {selectedReadingLease && getReadingPhotosForLease(selectedReadingLease).length > 0 ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
-                    {getReadingPhotosForLease(selectedReadingLease).map((photo: any) => (
-                      <a key={photo.id || photo.file_path} href={photo.public_url || '#'} target="_blank" rel="noreferrer" style={{ color: '#e5e7eb', textDecoration: 'none' }}>
-                        <img src={photo.public_url} alt={photo.file_name || 'reading photo'} style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 12, border: '1px solid rgba(148,163,184,0.25)' }} />
-                        <div style={{ fontSize: 11, color: '#a8b3bd', marginTop: 4 }}>{new Date(photo.created_at || Date.now()).toLocaleString()}</div>
-                      </a>
-                    ))}
-                  </div>
-                ) : (
-                  <div style={card}>No lease photo selection active. Choose a lease on New Reading first.</div>
-                )}
+                {(() => {
+                  const scopedReadings = getScopedReadings()
+                  const monthOptions = getGenericMonthOptions(scopedReadings, ['reading_date', 'created_at'])
+                  const filteredReadings = scopedReadings.filter((row: any) =>
+                    (!readingQueueMonthFilter || getGenericMonthKey(row, ['reading_date', 'created_at']) === readingQueueMonthFilter) &&
+                    (!readingQueueSegmentFilter || getReadingSegmentId(row) === readingQueueSegmentFilter)
+                  )
+                  const grouped = groupRowsByMonthSegment(filteredReadings, ['reading_date', 'created_at'], getReadingSegmentId)
+
+                  return (
+                    <>
+                      <div className="ticket-section-title">
+                        <div>
+                          <h3 style={{ margin: 0 }}>Reading Photo Review</h3>
+                          <span className="ticket-muted">Filter by month and segment, or select a lease for focused photo review.</span>
+                        </div>
+                      </div>
+
+                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                        <select style={input} value={readingQueueMonthFilter} onChange={(e) => setReadingQueueMonthFilter(e.target.value)}>
+                          <option value="">All Months</option>
+                          {monthOptions.map((month: any) => <option key={month.monthKey} value={month.monthKey}>{month.label}</option>)}
+                        </select>
+                        <select style={input} value={readingQueueSegmentFilter} onChange={(e) => setReadingQueueSegmentFilter(e.target.value)}>
+                          <option value="">All Segments</option>
+                          {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+                        </select>
+                      </div>
+
+                      <div style={card}>
+                        <strong>Focused Lease Photos</strong>
+                        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          <select style={input} value={selectedReadingSegment} onChange={(e) => handleReadingSegmentSelect(e.target.value)}>
+                            <option value="">Select Segment</option>
+                            {getVisibleSegments(selectedReadingArea || getDefaultVisibleAreaId()).map((segment: any) => (
+                              <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
+                            ))}
+                          </select>
+                          <select style={input} value={selectedReadingLease} onChange={(e) => handleReadingLeaseSelect(e.target.value)} disabled={!selectedReadingSegment}>
+                            <option value="">{selectedReadingSegment ? 'Select Lease' : 'Select segment first'}</option>
+                            {getVisibleLeases(selectedReadingSegment).map((lease: any) => (
+                              <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {selectedReadingLease && getReadingPhotosForLease(selectedReadingLease).length > 0 ? (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginTop: 12 }}>
+                            {getReadingPhotosForLease(selectedReadingLease).map((photo: any) => (
+                              <a key={photo.id || photo.file_path} href={photo.public_url || '#'} target="_blank" rel="noreferrer" style={{ color: '#e5e7eb', textDecoration: 'none' }}>
+                                <img src={photo.public_url} alt={photo.file_name || 'reading photo'} style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 12, border: '1px solid rgba(148,163,184,0.25)' }} />
+                                <div style={{ fontSize: 11, color: '#a8b3bd', marginTop: 4 }}>{new Date(photo.created_at || Date.now()).toLocaleString()}</div>
+                              </a>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ color: '#a8b3bd', marginTop: 10 }}>No lease photo selection active or no photos saved for that lease.</div>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'grid', gap: 10 }}>
+                        {grouped.map((monthGroup: any) => (
+                          <details key={monthGroup.monthKey} open style={{ ...card, padding: 0, overflow: 'hidden' }}>
+                            <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 800, background: 'rgba(239,68,68,0.12)' }}>
+                              {monthGroup.label} • {monthGroup.rows.length} reading(s)
+                            </summary>
+                            <div style={{ display: 'grid', gap: 10, padding: 12 }}>
+                              {monthGroup.segmentGroups.map((segmentGroup: any) => (
+                                <details key={segmentGroup.segmentId} open style={{ ...card, margin: 0, background: 'rgba(15,23,42,0.45)' }}>
+                                  <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{segmentGroup.label} • {segmentGroup.rows.length} reading(s)</summary>
+                                  <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                                    {segmentGroup.rows.map((row: any) => {
+                                      const display = getReadingDisplayName(row)
+                                      const photos = getReadingPhotosForLease(row.lease_id || '')
+                                      return (
+                                        <div key={row.id} style={{ ...card, margin: 0 }}>
+                                          <strong>{display.main}</strong>
+                                          {display.secondary && <div style={{ color: '#a8b3bd' }}>{display.secondary}</div>}
+                                          <div style={{ color: '#a8b3bd' }}>Date: {new Date(row.reading_date || row.created_at || Date.now()).toLocaleString()}</div>
+                                          <div style={{ color: '#a8b3bd' }}>Lease photos saved: {photos.length}</div>
+                                          {photos.length > 0 && (
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginTop: 10 }}>
+                                              {photos.slice(0, 6).map((photo: any) => (
+                                                <a key={photo.id || photo.file_path} href={photo.public_url || '#'} target="_blank" rel="noreferrer">
+                                                  <img src={photo.public_url} alt={photo.file_name || 'reading photo'} style={{ width: '100%', height: 80, objectFit: 'cover', borderRadius: 10, border: '1px solid rgba(148,163,184,0.25)' }} />
+                                                </a>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                </details>
+                              ))}
+                            </div>
+                          </details>
+                        ))}
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
             )}
           </>

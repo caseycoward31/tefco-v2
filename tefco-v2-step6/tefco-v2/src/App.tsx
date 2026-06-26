@@ -5799,50 +5799,49 @@ async function createCompany() {
 
   function extractQi2StrappingRowsFromPdfLines(lines: string[]) {
     const metadata = extractQi2PdfMetadata(lines)
+    const fullText = lines
+      .join('\n')
+      .replace(/[‐‑‒–—]/g, '-')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\r/g, '\n')
+
+    const tableStart = fullText.search(/Table\s+6:\s*Tank strapping table/i)
+    const fallbackStart = fullText.search(/---\s*0\s*ft\s*---/i)
+    const startIndex = tableStart >= 0 ? tableStart : fallbackStart
+
+    if (startIndex < 0) return []
+
+    const afterStart = fullText.slice(startIndex)
+    const tableEnd = afterStart.search(/Table\s+7:|Table\s+8:|3\s+APPENDIX|APPENDIX A/i)
+    const tableText = tableEnd >= 0 ? afterStart.slice(0, tableEnd) : afterStart
+
     const rows: any[] = []
-    let inTable6 = false
-    let currentFeet: number | null = null
+    const footBlockRegex = /---\s*(\d+)\s*ft\s*---([\s\S]*?)(?=---\s*\d+\s*ft\s*---|$)/gi
+    let footBlockMatch: RegExpExecArray | null
 
-    for (const rawLine of lines) {
-      const line = String(rawLine || '')
-        .replace(/[‐‑‒–—]/g, '-')
-        .replace(/\u00a0/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
+    while ((footBlockMatch = footBlockRegex.exec(tableText)) !== null) {
+      const feet = Number(footBlockMatch[1])
+      const block = footBlockMatch[2] || ''
+      const rowRegex = /^\s*(\d+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)(?:\s+[A-Z])?\s*$/gm
+      let rowMatch: RegExpExecArray | null
 
-      if (!line) continue
-      if (/Table\s+6:\s*Tank strapping table/i.test(line) || /---\s*0\s*ft\s*---/i.test(line)) inTable6 = true
-      if (/Table\s+7:|Table\s+8:|APPENDIX|Incremental factor sheet/i.test(line)) {
-        if (inTable6 && rows.length > 20) break
+      while ((rowMatch = rowRegex.exec(block)) !== null) {
+        const inches = Number(rowMatch[1])
+        const barrels = Number(String(rowMatch[2]).replace(/,/g, ''))
+
+        if (!Number.isFinite(feet) || !Number.isFinite(inches) || !Number.isFinite(barrels)) continue
+        if (inches < 0 || inches > 11.999) continue
+
+        rows.push({
+          gauge_decimal: Number((feet + (inches / 12)).toFixed(6)),
+          gauge_feet: feet,
+          gauge_inches: inches,
+          gauge_fraction: null,
+          barrels,
+          increment_bbl: null,
+          notes: 'Imported from Qi2 PDF Table 6 cumulative TOV strapping table',
+        })
       }
-      if (!inTable6) continue
-
-      const footMatch = line.match(/---\s*(\d+)\s*ft\s*---/i)
-      if (footMatch) {
-        currentFeet = Number(footMatch[1])
-        continue
-      }
-
-      if (currentFeet === null) continue
-
-      // Table 6 lines look like: 3 10,257.3164 H
-      const valueMatch = line.match(/^(\d+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)(?:\s|$)/)
-      if (!valueMatch) continue
-
-      const inches = Number(valueMatch[1])
-      const barrels = Number(String(valueMatch[2]).replace(/,/g, ''))
-      if (!Number.isFinite(inches) || !Number.isFinite(barrels)) continue
-      if (inches < 0 || inches > 12) continue
-
-      rows.push({
-        gauge_decimal: Number((currentFeet + (inches / 12)).toFixed(6)),
-        gauge_feet: currentFeet,
-        gauge_inches: inches,
-        gauge_fraction: null,
-        barrels,
-        increment_bbl: null,
-        notes: 'Imported from Qi2 PDF Table 6 cumulative TOV strapping table',
-      })
     }
 
     const unique = new Map<string, any>()
@@ -5990,15 +5989,13 @@ async function createCompany() {
       .eq('tank_id', selectedStrappingTankId)
       .neq('id', version.id)
 
-    const insertRows = rows
+    const rawInsertRows = rows
       .map((row: any) => {
         const gaugeDecimal = Number(
-          row.gauge_decimal ||
-          row.gauge ||
-          normalizeGaugeToDecimal(row.gauge_feet || row.feet, row.gauge_inches || row.inches, row.gauge_fraction || row.fraction)
+          row.gauge_decimal ?? row.gauge ?? normalizeGaugeToDecimal(row.gauge_feet ?? row.feet, row.gauge_inches ?? row.inches, row.gauge_fraction ?? row.fraction)
         )
 
-        const barrels = Number(row.barrels || row.bbl || row.volume_bbl || row.volume)
+        const barrels = Number(row.barrels ?? row.bbl ?? row.volume_bbl ?? row.volume)
 
         if (!Number.isFinite(gaugeDecimal) || !Number.isFinite(barrels)) return null
 
@@ -6007,15 +6004,22 @@ async function createCompany() {
           tank_id: selectedStrappingTankId,
           calibration_version_id: version.id,
           gauge_decimal: gaugeDecimal,
-          gauge_feet: row.gauge_feet || row.feet || null,
-          gauge_inches: row.gauge_inches || row.inches || null,
-          gauge_fraction: row.gauge_fraction || row.fraction || null,
+          gauge_feet: row.gauge_feet ?? row.feet ?? null,
+          gauge_inches: row.gauge_inches ?? row.inches ?? null,
+          gauge_fraction: row.gauge_fraction ?? row.fraction ?? null,
           barrels,
-          increment_bbl: row.increment || row.increment_bbl || null,
+          increment_bbl: row.increment ?? row.increment_bbl ?? null,
           notes: row.notes || null,
         }
       })
       .filter(Boolean) as any[]
+
+    const insertRowMap = new Map<string, any>()
+    rawInsertRows.forEach((row: any) => {
+      const key = Number(row.gauge_decimal).toFixed(6)
+      if (!insertRowMap.has(key)) insertRowMap.set(key, row)
+    })
+    const insertRows = Array.from(insertRowMap.values()).sort((a: any, b: any) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
 
     if (insertRows.length === 0) {
       await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
@@ -6059,7 +6063,7 @@ async function createCompany() {
     setStrappingRoofReferenceApi('')
     setStrappingRoofReferenceSg('')
     setStrappingRoofCriticalGauge('')
-    alert(`Imported ${insertRows.length} strapping rows as calibration ${calibrationPayload.name}. Test 13 ft 3 in should lookup about 10,257.32 bbl for Tank 300 High Leg.`)
+    alert(`Imported ${insertRows.length} Qi2 Table 6 rows as calibration ${calibrationPayload.name}. Test 13 ft 3 in should lookup about 10,257.32 bbl for Tank 300 High Leg.`)
     await loadAll()
   }
 

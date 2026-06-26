@@ -608,6 +608,10 @@ function App() {
   const [provingTab, setProvingTab] = useState<'create' | 'drafts' | 'pending' | 'approved' | 'kpi' | 'schedule'>('create')
   const [potTab, setPotTab] = useState<'create' | 'history' | 'export'>('create')
   const [readingTab, setReadingTab] = useState<'new' | 'history' | 'photos'>('new')
+  const [potQueueMonthFilter, setPotQueueMonthFilter] = useState('')
+  const [potQueueSegmentFilter, setPotQueueSegmentFilter] = useState('')
+  const [provingQueueMonthFilter, setProvingQueueMonthFilter] = useState('')
+  const [provingQueueSegmentFilter, setProvingQueueSegmentFilter] = useState('')
   const [operationsTab, setOperationsTab] = useState<'overview' | 'provings' | 'readings' | 'balance'>('overview')
   const [hierarchySegmentId, setHierarchySegmentId] = useState('')
   const [hierarchyAreaId, setHierarchyAreaId] = useState('')
@@ -10733,6 +10737,155 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
   }
 
 
+  function getGenericMonthKey(row: any, dateFields: string[]) {
+    const dateValue = dateFields.map((field) => row?.[field]).find(Boolean)
+    if (!dateValue) return 'Unknown'
+    const d = new Date(dateValue)
+    if (Number.isNaN(d.getTime())) return 'Unknown'
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  }
+
+  function getGenericMonthLabel(monthKey: string) {
+    if (monthKey === 'Unknown') return 'Unknown Date'
+    const [year, month] = monthKey.split('-').map(Number)
+    return new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  }
+
+  function getPotSegmentId(row: any) {
+    const meter = getMeterById(row?.meter_id || row?.meterId || '')
+    const lease = getLeaseById(row?.lease_id || row?.leaseId || meter?.lease_id || '')
+    return String(row?.segment_id || (lease as any)?.segment_id || meter?.segment_id || '')
+  }
+
+  function getProvingSegmentId(row: any) {
+    const meter = getMeterById(row?.meter_id || '')
+    const lease = getLeaseById(row?.lease_id || meter?.lease_id || '')
+    return String(row?.segment_id || (lease as any)?.segment_id || meter?.segment_id || '')
+  }
+
+  function getSegmentLabelById(segmentId: string) {
+    const segment = segments.find((item: any) => String(item.id) === String(segmentId || ''))
+    return segment?.name || segment?.segment_name || 'Unassigned Segment'
+  }
+
+  function getGenericMonthOptions(rows: any[], dateFields: string[]) {
+    const keys = Array.from(new Set(rows.map((row: any) => getGenericMonthKey(row, dateFields))))
+    return keys.sort((a, b) => b.localeCompare(a)).map((monthKey) => ({
+      monthKey,
+      label: getGenericMonthLabel(monthKey),
+    }))
+  }
+
+  function groupRowsByMonthSegment(rows: any[], dateFields: string[], getSegmentId: (row: any) => string) {
+    const monthMap = rows.reduce((acc: Record<string, any[]>, row: any) => {
+      const monthKey = getGenericMonthKey(row, dateFields)
+      if (!acc[monthKey]) acc[monthKey] = []
+      acc[monthKey].push(row)
+      return acc
+    }, {} as Record<string, any[]>)
+
+    return (Object.entries(monthMap) as [string, any[]][])
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([monthKey, monthRows]) => {
+        const segmentMap = monthRows.reduce((acc: Record<string, any[]>, row: any) => {
+          const segmentId = getSegmentId(row) || 'unassigned'
+          if (!acc[segmentId]) acc[segmentId] = []
+          acc[segmentId].push(row)
+          return acc
+        }, {} as Record<string, any[]>)
+
+        return {
+          monthKey,
+          label: getGenericMonthLabel(monthKey),
+          rows: monthRows,
+          segmentGroups: (Object.entries(segmentMap) as [string, any[]][])
+            .sort(([a], [b]) => getSegmentLabelById(a).localeCompare(getSegmentLabelById(b)))
+            .map(([segmentId, segmentRows]) => ({
+              segmentId,
+              label: getSegmentLabelById(segmentId),
+              rows: segmentRows,
+            })),
+        }
+      })
+  }
+
+
+  function renderProvingQueueCard(p: any, mode: 'draft' | 'pending' | 'approved') {
+    const label = getProvingDisplayName(p)
+    return (
+      <div key={p.id} style={{ ...card, margin: 0 }}>
+        <strong>{label.main}</strong>
+        {label.secondary && <div style={{ color: '#a8b3bd' }}>{label.secondary}</div>}
+        <div>Date: {p.proving_date}</div>
+        <div>Status: {p.status}</div>
+        <div>Type: {p.factor_type || 'MF'}</div>
+        <div>Accepted {p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>
+        {p.factor_type === 'CMF' && <div>MF: {Number(p.mf || 0).toFixed(4)} × CPL: {Number(p.cpl || 1).toFixed(5)}</div>}
+        <div>Witness: {p.witness || ''}</div>
+        <div>PDF: {p.pdf_file_name || 'None'}</div>
+        {p.approved_at && <div>Approved: {new Date(p.approved_at).toLocaleString()}</div>}
+        {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
+        {!isReadOnly && mode === 'draft' && (
+          <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+            <button type="button" style={{ ...button, marginTop: 0, background: '#d97706', border: '1px solid #f59e0b' }} onClick={() => editProving(p)}>Edit Proving</button>
+            <button type="button" style={{ ...button, marginTop: 0, background: '#7f1d1d', border: '1px solid #ef4444' }} onClick={() => deleteDraftProving(p)}>Delete Proving</button>
+          </div>
+        )}
+        {mode === 'draft' && <button style={button} onClick={() => approveProving(p)}>Submit / Approve Proving</button>}
+        {mode === 'pending' && <button style={button} onClick={() => approveProving(p)}>Approve Proving</button>}
+        {!isReadOnly && mode === 'approved' && (
+          <button type="button" style={{ ...button, marginTop: 8, background: '#d97706', border: '1px solid #f59e0b' }} onClick={() => editProving(p)}>
+            Edit Approved Proving
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  function renderGroupedProvings(rows: any[], mode: 'draft' | 'pending' | 'approved') {
+    const monthOptions = getGenericMonthOptions(rows, ['proving_date', 'approved_at', 'created_at'])
+    const filteredRows = rows.filter((p: any) =>
+      (!provingQueueMonthFilter || getGenericMonthKey(p, ['proving_date', 'approved_at', 'created_at']) === provingQueueMonthFilter) &&
+      (!provingQueueSegmentFilter || getProvingSegmentId(p) === provingQueueSegmentFilter)
+    )
+    const grouped = groupRowsByMonthSegment(filteredRows, ['proving_date', 'approved_at', 'created_at'], getProvingSegmentId)
+
+    return (
+      <>
+        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <select style={input} value={provingQueueMonthFilter} onChange={(e) => setProvingQueueMonthFilter(e.target.value)}>
+            <option value="">All Months</option>
+            {monthOptions.map((month: any) => <option key={month.monthKey} value={month.monthKey}>{month.label}</option>)}
+          </select>
+          <select style={input} value={provingQueueSegmentFilter} onChange={(e) => setProvingQueueSegmentFilter(e.target.value)}>
+            <option value="">All Segments</option>
+            {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+          </select>
+        </div>
+
+        {filteredRows.length === 0 && <div style={card}>No provings found for this filter.</div>}
+
+        {grouped.map((monthGroup: any) => (
+          <details key={monthGroup.monthKey} open style={{ ...card, padding: 0, overflow: 'hidden' }}>
+            <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 800, background: 'rgba(239,68,68,0.12)' }}>
+              {monthGroup.label} • {monthGroup.rows.length} proving(s)
+            </summary>
+            <div style={{ display: 'grid', gap: 10, padding: 12 }}>
+              {monthGroup.segmentGroups.map((segmentGroup: any) => (
+                <details key={segmentGroup.segmentId} open style={{ ...card, margin: 0, background: 'rgba(15,23,42,0.45)' }}>
+                  <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{segmentGroup.label} • {segmentGroup.rows.length} proving(s)</summary>
+                  <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                    {segmentGroup.rows.map((p: any) => renderProvingQueueCard(p, mode))}
+                  </div>
+                </details>
+              ))}
+            </div>
+          </details>
+        ))}
+      </>
+    )
+  }
+
   function formatTicketDetailNumber(value: any, digits = 1) {
     const num = Number(value)
     if (!Number.isFinite(num)) return '—'
@@ -13202,43 +13355,83 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
 
             {potTab === 'history' && (
               <div style={box}>
-                <h3>POT Quality by Month</h3>
-                {Object.entries(groupRowsByMonth(potQuality, ['sample_date', 'created_at']) as Record<string, any[]>).map(([month, rows]) => (
-                  <details key={month} open style={card}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{month} • {rows.length} POT record(s)</summary>
-                    <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-                      {rows.map((p: any) => {
-                        const potMeter = getMeterById(p?.meter_id || p?.meterId || '')
-                        const potLease = getLeaseById(p?.lease_id || p?.leaseId || potMeter?.lease_id || '')
-                        const prod = producers.find((x: any) => String(x.id) === String(p.producer_id || (potLease as any)?.producer_id || ''))
-                        const display = getPotDisplayName(p)
-                        return (
-                          <div key={p.id} style={{ ...card, margin: 0 }}>
-                            <strong>{display.main}</strong>
-                            {display.secondary && <div style={{ color: '#a8b3bd' }}>{display.secondary}</div>}
-                            <div>Producer: {prod?.name || p.producer_name || '—'}</div>
-                            <div>Date: {p.sample_date || '—'}</div>
-                            <div>Observed API Gravity: {p.observed_api_gravity ?? p.api_gravity}</div>
-                            <div>Observed Temp: {p.observed_temperature ?? p.sample_temperature}</div>
-                            <div>API Gravity @60: {p.api_gravity_60 ?? p.api_gravity}</div>
-                            <div>BS&W: {formatPotBswPercent(p)}</div>
-                            <div>CSW: {p.csw}</div>
-                            <div>RVP: {((p as any).rvp ?? parsePotExtra(p.notes, 'rvp')) || '—'}</div>
-                            <div>Sulphur: {((p as any).sulfur ?? parsePotExtra(p.notes, 'sulfur')) || '—'}</div>
-                            <div>Notes: {cleanPotNotes(p.notes) || ''}</div>
-                            {!isReadOnly && (
-                              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
-                                <button type="button" style={{ ...button, marginTop: 0, background: '#d97706', border: '1px solid #f59e0b' }} onClick={() => editPotQuality(p)}>Edit POT</button>
-                                <button type="button" style={{ ...button, marginTop: 0, background: '#7f1d1d', border: '1px solid #ef4444' }} onClick={() => deletePotQuality(p)}>Delete POT</button>
-                              </div>
-                            )}
+                {(() => {
+                  const monthOptions = getGenericMonthOptions(potQuality, ['sample_date', 'created_at'])
+                  const filteredPots = potQuality.filter((p: any) =>
+                    (!potQueueMonthFilter || getGenericMonthKey(p, ['sample_date', 'created_at']) === potQueueMonthFilter) &&
+                    (!potQueueSegmentFilter || getPotSegmentId(p) === potQueueSegmentFilter)
+                  )
+                  const grouped = groupRowsByMonthSegment(filteredPots, ['sample_date', 'created_at'], getPotSegmentId)
+
+                  return (
+                    <>
+                      <div className="ticket-section-title">
+                        <div>
+                          <h3 style={{ margin: 0 }}>POT Quality History</h3>
+                          <span className="ticket-muted">Month → Segment → POT records</span>
+                        </div>
+                      </div>
+
+                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                        <select style={input} value={potQueueMonthFilter} onChange={(e) => setPotQueueMonthFilter(e.target.value)}>
+                          <option value="">All Months</option>
+                          {monthOptions.map((month: any) => <option key={month.monthKey} value={month.monthKey}>{month.label}</option>)}
+                        </select>
+                        <select style={input} value={potQueueSegmentFilter} onChange={(e) => setPotQueueSegmentFilter(e.target.value)}>
+                          <option value="">All Segments</option>
+                          {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+                        </select>
+                      </div>
+
+                      {filteredPots.length === 0 && <div style={card}>No POT quality records found for this filter.</div>}
+
+                      {grouped.map((monthGroup: any) => (
+                        <details key={monthGroup.monthKey} open style={{ ...card, padding: 0, overflow: 'hidden' }}>
+                          <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 800, background: 'rgba(239,68,68,0.12)' }}>
+                            {monthGroup.label} • {monthGroup.rows.length} POT record(s)
+                          </summary>
+                          <div style={{ display: 'grid', gap: 10, padding: 12 }}>
+                            {monthGroup.segmentGroups.map((segmentGroup: any) => (
+                              <details key={segmentGroup.segmentId} open style={{ ...card, margin: 0, background: 'rgba(15,23,42,0.45)' }}>
+                                <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{segmentGroup.label} • {segmentGroup.rows.length} POT record(s)</summary>
+                                <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                                  {segmentGroup.rows.map((p: any) => {
+                                    const potMeter = getMeterById(p?.meter_id || p?.meterId || '')
+                                    const potLease = getLeaseById(p?.lease_id || p?.leaseId || potMeter?.lease_id || '')
+                                    const prod = producers.find((x: any) => String(x.id) === String(p.producer_id || (potLease as any)?.producer_id || ''))
+                                    const display = getPotDisplayName(p)
+                                    return (
+                                      <div key={p.id} style={{ ...card, margin: 0 }}>
+                                        <strong>{display.main}</strong>
+                                        {display.secondary && <div style={{ color: '#a8b3bd' }}>{display.secondary}</div>}
+                                        <div>Producer: {prod?.name || p.producer_name || '—'}</div>
+                                        <div>Date: {p.sample_date || '—'}</div>
+                                        <div>Observed API Gravity: {p.observed_api_gravity ?? p.api_gravity}</div>
+                                        <div>Observed Temp: {p.observed_temperature ?? p.sample_temperature}</div>
+                                        <div>API Gravity @60: {p.api_gravity_60 ?? p.api_gravity}</div>
+                                        <div>BS&W: {formatPotBswPercent(p)}</div>
+                                        <div>CSW: {p.csw}</div>
+                                        <div>RVP: {((p as any).rvp ?? parsePotExtra(p.notes, 'rvp')) || '—'}</div>
+                                        <div>Sulphur: {((p as any).sulfur ?? parsePotExtra(p.notes, 'sulfur')) || '—'}</div>
+                                        <div>Notes: {cleanPotNotes(p.notes) || ''}</div>
+                                        {!isReadOnly && (
+                                          <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+                                            <button type="button" style={{ ...button, marginTop: 0, background: '#d97706', border: '1px solid #f59e0b' }} onClick={() => editPotQuality(p)}>Edit POT</button>
+                                            <button type="button" style={{ ...button, marginTop: 0, background: '#7f1d1d', border: '1px solid #ef4444' }} onClick={() => deletePotQuality(p)}>Delete POT</button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </details>
+                            ))}
                           </div>
-                        )
-                      })}
-                    </div>
-                  </details>
-                ))}
-                {potQuality.length === 0 && <div style={card}>No POT quality records saved yet.</div>}
+                        </details>
+                      ))}
+                    </>
+                  )
+                })()}
               </div>
             )}
           </>
@@ -13615,32 +13808,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
             {provingTab === 'drafts' && (
               <>
             <div style={box}>
-              <h2>Draft Provings</h2>
-              {draftProvings.length === 0 && <div style={card}>No draft provings.</div>}
-              {draftProvings.map((p) => {
-                const label = getProvingDisplayName(p)
-                return (
-                  <div key={p.id} style={card}>
-                    <strong>{label.main}</strong>
-                    {label.secondary && <div style={{ color: '#a8b3bd' }}>{label.secondary}</div>}
-                    <div>Date: {p.proving_date}</div>
-                    <div>Status: {p.status}</div>
-                    <div>Type: {p.factor_type || 'MF'}</div>
-                    <div>Accepted {p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>
-                    {p.factor_type === 'CMF' && <div>MF: {Number(p.mf || 0).toFixed(4)} × CPL: {Number(p.cpl || 1).toFixed(5)}</div>}
-                    <div>Witness: {p.witness || ''}</div>
-                    <div>PDF: {p.pdf_file_name || 'None'}</div>
-                    {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
-                    {!isReadOnly && (
-                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
-                        <button type="button" style={{ ...button, marginTop: 0, background: '#d97706', border: '1px solid #f59e0b' }} onClick={() => editProving(p)}>Edit Proving</button>
-                        <button type="button" style={{ ...button, marginTop: 0, background: '#7f1d1d', border: '1px solid #ef4444' }} onClick={() => deleteDraftProving(p)}>Delete Proving</button>
-                      </div>
-                    )}
-                    <button style={button} onClick={() => approveProving(p)}>Submit / Approve Proving</button>
-                  </div>
-                )
-              })}
+              <div className="ticket-section-title"><div><h2 style={{ margin: 0 }}>Draft Provings</h2><span className="ticket-muted">Month → Segment → proving records</span></div></div>
+              {renderGroupedProvings(draftProvings, 'draft')}
             </div>
               </>
             )}
@@ -13648,26 +13817,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
             {provingTab === 'pending' && (
               <>
             <div style={box}>
-              <h2>Needs Approval</h2>
-              {approvalProvings.length === 0 && <div style={card}>No provings pending approval.</div>}
-              {approvalProvings.map((p) => {
-                const label = getProvingDisplayName(p)
-                return (
-                  <div key={p.id} style={card}>
-                    <strong>{label.main}</strong>
-                    {label.secondary && <div style={{ color: '#a8b3bd' }}>{label.secondary}</div>}
-                    <div>Date: {p.proving_date}</div>
-                    <div>Status: {p.status}</div>
-                    <div>Type: {p.factor_type || 'MF'}</div>
-                    <div>Accepted {p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>
-                    {p.factor_type === 'CMF' && <div>MF: {Number(p.mf || 0).toFixed(4)} × CPL: {Number(p.cpl || 1).toFixed(5)}</div>}
-                    <div>Witness: {p.witness || ''}</div>
-                    <div>PDF: {p.pdf_file_name || 'None'}</div>
-                    {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
-                    <button style={button} onClick={() => approveProving(p)}>Approve Proving</button>
-                  </div>
-                )
-              })}
+              <div className="ticket-section-title"><div><h2 style={{ margin: 0 }}>Needs Approval</h2><span className="ticket-muted">Month → Segment → proving approval queue</span></div></div>
+              {renderGroupedProvings(approvalProvings, 'pending')}
             </div>
               </>
             )}
@@ -13675,39 +13826,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
             {provingTab === 'approved' && (
               <>
             <div style={box}>
-              <h2>Approved History</h2>
-              {approvedProvings.length === 0 && <div style={card}>No approved provings yet.</div>}
-              {Object.entries(groupProvingsByMonth(approvedProvings) as Record<string, any[]>).map(([month, rows]) => (
-                <details key={month} open style={{ ...card, padding: 0, overflow: 'hidden' }}>
-                  <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 800, background: 'rgba(239,68,68,0.12)' }}>
-                    {month} • {rows.length} approved proving{rows.length === 1 ? '' : 's'}
-                  </summary>
-                  <div style={{ display: 'grid', gap: 10, padding: 12 }}>
-                    {rows.map((p: any) => {
-                      const label = getProvingDisplayName(p)
-                      return (
-                        <div key={p.id} style={{ ...card, margin: 0 }}>
-                          <strong>{label.main}</strong>
-                          {label.secondary && <div style={{ color: '#a8b3bd' }}>{label.secondary}</div>}
-                          <div>Date: {p.proving_date}</div>
-                          <div>Approved: {p.approved_at ? new Date(p.approved_at).toLocaleString() : 'No'}</div>
-                          <div>{p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>
-                          {p.pdf_url && <button style={button} onClick={() => viewProvingPdf(p.pdf_url)}>View Proving PDF</button>}
-                          {!isReadOnly && (
-                            <button
-                              type="button"
-                              style={{ ...button, marginTop: 8, background: '#d97706', border: '1px solid #f59e0b' }}
-                              onClick={() => editProving(p)}
-                            >
-                              Edit Approved Proving
-                            </button>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </details>
-              ))}
+              <div className="ticket-section-title"><div><h2 style={{ margin: 0 }}>Approved History</h2><span className="ticket-muted">Month → Segment → approved provings</span></div></div>
+              {renderGroupedProvings(approvedProvings, 'approved')}
             </div>
               </>
             )}

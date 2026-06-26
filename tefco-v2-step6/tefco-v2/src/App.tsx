@@ -642,6 +642,13 @@ function App() {
   const [meterCsvFile, setMeterCsvFile] = useState<File | null>(null)
   const [strappingCsvFile, setStrappingCsvFile] = useState<File | null>(null)
   const [selectedStrappingTankId, setSelectedStrappingTankId] = useState('')
+  const [strappingLegType, setStrappingLegType] = useState('')
+  const [strappingRoofMode, setStrappingRoofMode] = useState('fra')
+  const [strappingRoofWeightLbs, setStrappingRoofWeightLbs] = useState('')
+  const [strappingRoofReferenceApi, setStrappingRoofReferenceApi] = useState('')
+  const [strappingRoofReferenceSg, setStrappingRoofReferenceSg] = useState('')
+  const [strappingRoofCriticalGauge, setStrappingRoofCriticalGauge] = useState('')
+
   const [newTankNumber, setNewTankNumber] = useState('')
   const [newTankName, setNewTankName] = useState('')
   const [newTankSegmentId, setNewTankSegmentId] = useState('')
@@ -3384,19 +3391,41 @@ function handleProvingAreaSelect(areaId: string) {
     return 1 + (2 * alpha * deltaT) + (alpha * alpha * deltaT * deltaT)
   }
 
-  function getTankLiquidDensityLbPerGal(apiGravity: number) {
+  function apiToSpecificGravity(apiGravity: number) {
     if (!Number.isFinite(apiGravity) || apiGravity <= -131.5) return 0
-    const specificGravity60 = 141.5 / (apiGravity + 131.5)
-    return specificGravity60 * 8.337
+    return 141.5 / (apiGravity + 131.5)
   }
 
-  function calculateAutomaticTankRoofAdjustment(gaugeDecimal: number) {
-    if (!tankAutoRoofCorrection) return 0
-
+  function getTankRoofConfig() {
     const calibration: any = selectedTank ? getActiveTankCalibration(selectedTank) : null
-    const criticalGauge = Number(calibration?.roof_critical_gauge || calibration?.critical_gauge || 0)
-    if (criticalGauge > 0 && gaugeDecimal < criticalGauge) return 0
-
+    const roofWeightLbs = Number(
+      calibration?.roof_weight_lbs ||
+      calibration?.floating_roof_weight_lbs ||
+      calibration?.roof_weight ||
+      calibration?.fra_roof_weight_lbs ||
+      0
+    )
+    const referenceApi = Number(
+      calibration?.roof_reference_api ||
+      calibration?.floating_roof_reference_api ||
+      calibration?.reference_api ||
+      calibration?.fra_reference_api ||
+      0
+    )
+    const referenceSg = Number(
+      calibration?.roof_reference_sg ||
+      calibration?.floating_roof_reference_sg ||
+      calibration?.reference_sg ||
+      calibration?.fra_reference_sg ||
+      0
+    ) || apiToSpecificGravity(referenceApi)
+    const criticalGauge = Number(
+      calibration?.roof_critical_gauge ||
+      calibration?.critical_gauge ||
+      calibration?.floating_roof_critical_gauge ||
+      calibration?.fra_critical_gauge ||
+      0
+    )
     const mode = String(
       calibration?.roof_correction_mode ||
       calibration?.roof_mode ||
@@ -3404,47 +3433,28 @@ function handleProvingAreaSelect(areaId: string) {
       calibration?.fra_mode ||
       'fra'
     ).toLowerCase()
+
+    return { calibration, roofWeightLbs, referenceApi, referenceSg, criticalGauge, mode }
+  }
+
+  function calculateAutomaticTankRoofAdjustment(gaugeDecimal: number) {
+    const { roofWeightLbs, referenceSg, criticalGauge, mode } = getTankRoofConfig()
+
     if (mode === 'none') return 0
+    if (criticalGauge > 0 && gaugeDecimal < criticalGauge) return 0
+    if (!Number.isFinite(roofWeightLbs) || roofWeightLbs <= 0) return 0
 
-    const api60 = Number(tankObservedGravity || 0)
-    const roofReferenceApi = Number(calibration?.roof_reference_api || calibration?.floating_roof_reference_api || calibration?.reference_api || 0)
-    const bblPerApi = Number(calibration?.roof_bbl_per_api || calibration?.floating_roof_bbl_per_api || calibration?.bbl_per_api || 0)
-    const roofWeightLbs = Number(calibration?.roof_weight_lbs || calibration?.floating_roof_weight_lbs || calibration?.roof_weight || 0)
-    const fixedRoofCorrectionBbl = Number(
-      calibration?.roof_correction_bbl ||
-      calibration?.roof_corr_amount ||
-      calibration?.fixed_roof_adjustment_bbl ||
-      calibration?.floating_roof_correction_bbl ||
-      0
-    )
+    const actualSg = apiToSpecificGravity(Number(tankObservedGravity || 0))
+    if (!referenceSg || !actualSg) return 0
 
-    if (mode === 'fixed') {
-      return Number.isFinite(fixedRoofCorrectionBbl) ? fixedRoofCorrectionBbl : 0
-    }
+    const referenceDisplacement = roofWeightLbs / (350.16 * referenceSg)
+    const actualDisplacement = roofWeightLbs / (350.16 * actualSg)
 
-    if (mode === 'fra') {
-      if (!Number.isFinite(api60) || !Number.isFinite(roofReferenceApi) || !Number.isFinite(bblPerApi) || bblPerApi === 0) return 0
-      return (roofReferenceApi - api60) * bblPerApi
-    }
+    // FRC is used when the roof displacement is not built into the table.
+    if (mode === 'frc') return -actualDisplacement
 
-    if (mode === 'frc') {
-      if (!Number.isFinite(roofWeightLbs) || roofWeightLbs <= 0) return 0
-      const densityLbPerGal = getTankLiquidDensityLbPerGal(api60)
-      const ctpl = Number(calculateApi11Corrections({
-        productGroup: 'crude',
-        observedApiGravity: api60,
-        observedTemperature: Number(tankObservedTemp || tankAverageTemp || 60),
-        observedPressure: 0,
-        averageTemperature: Number(tankAverageTemp || tankObservedTemp || 60),
-        averagePressure: 0,
-        apiRounding: 1,
-      }).ccf || 1)
-
-      if (!densityLbPerGal || !ctpl) return 0
-      return -1 * (roofWeightLbs / (densityLbPerGal * ctpl)) / 42
-    }
-
-    return 0
+    // FRA is used when the roof displacement is already built into the table at reference SG.
+    return referenceDisplacement - actualDisplacement
   }
 
   function calculateTankObservedPoint(tankId: string, gaugeDecimal: number, waterGaugeDecimal: number, roofAdjustmentBbl: number) {
@@ -3538,13 +3548,8 @@ function handleProvingAreaSelect(areaId: string) {
     const openingWaterGaugeDecimal = Number(previousOpeningStandard?.waterGaugeDecimal || 0)
     const closingWaterGaugeDecimal = gaugePartsToDecimal(tankClosingWaterFeet, tankClosingWaterInches, tankClosingWaterEighths)
 
-    const openingRoofAdjustment = tankOpeningRoofAdjustment !== ''
-      ? Number(tankOpeningRoofAdjustment || 0)
-      : calculateAutomaticTankRoofAdjustment(openingGaugeDecimal)
-
-    const closingRoofAdjustment = tankClosingRoofAdjustment !== ''
-      ? Number(tankClosingRoofAdjustment || 0)
-      : calculateAutomaticTankRoofAdjustment(closingGaugeDecimal)
+    const openingRoofAdjustment = calculateAutomaticTankRoofAdjustment(openingGaugeDecimal)
+    const closingRoofAdjustment = calculateAutomaticTankRoofAdjustment(closingGaugeDecimal)
 
     const calculatedOpeningPoint = tankId
       ? calculateTankObservedPoint(tankId, openingGaugeDecimal, openingWaterGaugeDecimal, openingRoofAdjustment)
@@ -3626,6 +3631,7 @@ function handleProvingAreaSelect(areaId: string) {
       closingNsv,
       openingSource: (openingPoint as any).source || '',
       openingSourceTicketNumber: (openingPoint as any).sourceTicketNumber || '',
+      roofConfig: getTankRoofConfig(),
       ctsh: openingPoint.ctsh,
       tankShellTemp: openingPoint.shellTemp,
       tovMovement: Math.abs(tovMovement),
@@ -5763,17 +5769,45 @@ async function createCompany() {
 
     const nextVersion = Number(latestVersions?.[0]?.version_number || 0) + 1
 
-    const { data: version, error: versionError } = await supabase
+    const calibrationPayload: any = {
+      company_id: activeCompanyID,
+      tank_id: selectedStrappingTankId,
+      version_number: nextVersion,
+      name: strappingLegType ? `${strappingLegType} - Version ${nextVersion}` : `Version ${nextVersion}`,
+      leg_type: strappingLegType || null,
+      strap_type: strappingLegType || null,
+      roof_correction_mode: strappingRoofMode || 'fra',
+      roof_weight_lbs: strappingRoofWeightLbs ? Number(strappingRoofWeightLbs) : null,
+      roof_reference_api: strappingRoofReferenceApi ? Number(strappingRoofReferenceApi) : null,
+      roof_reference_sg: strappingRoofReferenceSg ? Number(strappingRoofReferenceSg) : (strappingRoofReferenceApi ? apiToSpecificGravity(Number(strappingRoofReferenceApi)) : null),
+      roof_critical_gauge: strappingRoofCriticalGauge ? Number(strappingRoofCriticalGauge) : null,
+      active: true,
+    }
+
+    let versionResult = await supabase
       .from('tank_calibration_versions')
-      .insert({
+      .insert(calibrationPayload)
+      .select()
+      .single()
+
+    if (versionResult.error) {
+      const fallbackPayload: any = {
         company_id: activeCompanyID,
         tank_id: selectedStrappingTankId,
         version_number: nextVersion,
-        name: `Version ${nextVersion}`,
+        name: calibrationPayload.name,
         active: true,
-      })
-      .select()
-      .single()
+      }
+
+      versionResult = await supabase
+        .from('tank_calibration_versions')
+        .insert(fallbackPayload)
+        .select()
+        .single()
+    }
+
+    const version = versionResult.data
+    const versionError = versionResult.error
 
     if (versionError || !version) {
       alert('Could not create calibration version: ' + (versionError?.message || 'unknown error'))
@@ -5831,7 +5865,13 @@ async function createCompany() {
 
     setStrappingCsvFile(null)
     setSelectedStrappingTankId('')
-    alert(`Imported ${insertRows.length} strapping rows as calibration Version ${nextVersion}. Test 14 ft 4 in should now lookup around 474.60 bbl on the Delek 401 low leg chart.`)
+    setStrappingLegType('')
+    setStrappingRoofMode('fra')
+    setStrappingRoofWeightLbs('')
+    setStrappingRoofReferenceApi('')
+    setStrappingRoofReferenceSg('')
+    setStrappingRoofCriticalGauge('')
+    alert(`Imported ${insertRows.length} strapping rows as calibration ${calibrationPayload.name}.`)
     await loadAll()
   }
 
@@ -11624,7 +11664,21 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                           <option value="">Select Tank</option>
                           {tanks.map((tank: any) => <option key={tank.id} value={tank.id}>{tank.tank_number} {tank.tank_name ? `- ${tank.tank_name}` : ''}</option>)}
                         </select>
-                        <input style={input} type="file" accept=".csv,text/csv" onChange={(e) => setStrappingCsvFile(e.target.files?.[0] || null)} />
+
+                        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          <input style={input} placeholder="Strap / Leg Name (Low Leg, High Leg)" value={strappingLegType} onChange={(e) => setStrappingLegType(e.target.value)} />
+                          <select style={input} value={strappingRoofMode} onChange={(e) => setStrappingRoofMode(e.target.value)}>
+                            <option value="fra">FRA - roof built into table</option>
+                            <option value="frc">FRC - roof not built into table</option>
+                            <option value="none">No floating roof</option>
+                          </select>
+                          <input style={input} placeholder="Roof Weight LBS" value={strappingRoofWeightLbs} onChange={(e) => setStrappingRoofWeightLbs(e.target.value)} />
+                          <input style={input} placeholder="Reference API from strap" value={strappingRoofReferenceApi} onChange={(e) => setStrappingRoofReferenceApi(e.target.value)} />
+                          <input style={input} placeholder="Reference SG optional" value={strappingRoofReferenceSg} onChange={(e) => setStrappingRoofReferenceSg(e.target.value)} />
+                          <input style={input} placeholder="Critical Gauge Decimal Feet optional" value={strappingRoofCriticalGauge} onChange={(e) => setStrappingRoofCriticalGauge(e.target.value)} />
+                        </div>
+
+                        <input style={input} type="file" accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setStrappingCsvFile(e.target.files?.[0] || null)} />
                         <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Importing strapping chart', importTankStrappingCsv)}>
                           Import Strapping Chart
                         </button>
@@ -13766,7 +13820,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     <div style={card}>
                       <h4 style={{ marginTop: 0 }}>API 12.1 Tank Calculation Preview</h4>
                       <div style={{ color: '#a8b3bd', fontSize: 12, marginBottom: 10 }}>
-                        FRA/roof data is taken from the selected strapping chart/leg. No meter-ticket logic is used here.
+                        FRA/roof data is taken from the selected strapping chart/leg. FRA = roof weight ÷ (350.16 × reference SG) minus roof weight ÷ (350.16 × actual SG).
                       </div>
 
                       <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 12 }}>
@@ -13800,6 +13854,9 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
 
                       <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 10 }}>
                         Strap / Leg: {calculateTankTicketSnapshot(selectedTank).selectedCalibration ? getTankCalibrationLabel(calculateTankTicketSnapshot(selectedTank).selectedCalibration) : 'None'} •
+                        Roof Wt: {Number(calculateTankTicketSnapshot(selectedTank).roofConfig.roofWeightLbs || 0).toFixed(0)} lbs •
+                        Ref SG: {Number(calculateTankTicketSnapshot(selectedTank).roofConfig.referenceSg || 0).toFixed(5)} •
+                        Actual SG: {apiToSpecificGravity(Number(tankObservedGravity || 0)).toFixed(5)} •
                         API @60: {calculateTankTicketSnapshot(selectedTank).corrections.api_gravity_60.toFixed(1)} •
                         CTL/CTPL: {calculateTankTicketSnapshot(selectedTank).ctl.toFixed(5)} •
                         CSW: {(1 - calculateTankTicketSnapshot(selectedTank).swDecimal).toFixed(5)}

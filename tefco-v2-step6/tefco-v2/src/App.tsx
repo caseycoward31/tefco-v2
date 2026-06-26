@@ -8451,6 +8451,47 @@ async function createCompany() {
     return segmentBalanceSettings.find((setting: any) => setting.segment_id === segmentId) || null
   }
 
+  function getSegmentBalanceMode(segmentId: string) {
+    const setting = getSegmentBalanceSetting(segmentId)
+    return String(setting?.balance_mode || setting?.report_mode || setting?.segment_mode || 'balance').toLowerCase()
+  }
+
+  function segmentIsTotalsOnly(segmentId: string) {
+    const mode = getSegmentBalanceMode(segmentId)
+    return mode === 'totals_only' || mode === 'totals' || mode === 'report_totals'
+  }
+
+  async function saveSegmentBalanceMode(segmentId: string, balanceMode: string) {
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!activeCompanyID) {
+      alert('Select a company first.')
+      return
+    }
+
+    const segment = segments.find((s: any) => String(s.id) === String(segmentId))
+    const existing = getSegmentBalanceSetting(segmentId)
+    const payload: any = {
+      company_id: activeCompanyID,
+      area_id: segment?.area_id || null,
+      segment_id: segmentId,
+      balance_mode: balanceMode,
+      report_mode: balanceMode,
+      active: true,
+      updated_at: new Date().toISOString(),
+    }
+
+    const result = existing?.id
+      ? await supabase.from('segment_balance_settings').update(payload).eq('id', existing.id)
+      : await supabase.from('segment_balance_settings').insert(payload)
+
+    if (result.error) {
+      alert('Could not save segment mode. Run the segment balance mode SQL first if this is the first time using totals-only segments. ' + result.error.message)
+      return
+    }
+
+    await loadAll()
+  }
+
   function segmentHasButaneBlendEnabled(segmentId: string) {
     const setting = getSegmentBalanceSetting(segmentId)
     if (setting) return setting.enable_butane_blend === true
@@ -8672,17 +8713,22 @@ async function createCompany() {
         const butaneAdjustment = getButaneAdjustmentForSegment(segment.id)
         const checkMeterRows = getCheckMeterRowsForSegment(segment.id)
         const checkMeterOverShort = checkMeterRows.reduce((sum: number, row: any) => sum + row.difference, 0)
+        const totalsOnly = segmentIsTotalsOnly(segment.id)
 
         const bookInventory = receipts - deliveries - truckTickets + tankChange + lineFillChange + (butaneEnabled ? butaneAdjustment.shrinkageAdjustmentBbl : 0)
         const actualInventory = inventoryEntry
           ? Number(inventoryEntry?.actual_inventory_bbl ?? inventoryEntry?.actual_inventory ?? getActualTankInventoryForSegment(segment.id))
           : getActualTankInventoryForSegment(segment.id)
-        const overShort = actualInventory - bookInventory
-        const overShortPercent = bookInventory !== 0 ? (overShort / Math.abs(bookInventory)) * 100 : 0
-        const stationEquationRows = getBalanceEquationRowsForSegment(segment.id, { tankChange, lineFillChange })
+        const overShort = totalsOnly ? 0 : actualInventory - bookInventory
+        const overShortPercent = !totalsOnly && bookInventory !== 0 ? (overShort / Math.abs(bookInventory)) * 100 : 0
+        const stationEquationRows = totalsOnly ? [] : getBalanceEquationRowsForSegment(segment.id, { tankChange, lineFillChange })
+        const reportedTotal = receipts + deliveries + truckTickets + Math.abs(tankChange) + Math.abs(lineFillChange)
 
         return {
           segment,
+          totalsOnly,
+          balanceMode: totalsOnly ? 'totals_only' : 'balance',
+          reportedTotal,
           receipts,
           deliveries,
           truckTickets,
@@ -10400,8 +10446,9 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
 
 
   const dashboardOverShortRows = getOverShortRows()
-  const dashboardSystemOs = dashboardOverShortRows.reduce((sum: number, row: any) => sum + Number(row.overShort || 0), 0)
-  const dashboardSystemBook = dashboardOverShortRows.reduce((sum: number, row: any) => sum + Number(row.bookInventory || 0), 0)
+  const dashboardBalanceRows = dashboardOverShortRows.filter((row: any) => !row.totalsOnly)
+  const dashboardSystemOs = dashboardBalanceRows.reduce((sum: number, row: any) => sum + Number(row.overShort || 0), 0)
+  const dashboardSystemBook = dashboardBalanceRows.reduce((sum: number, row: any) => sum + Number(row.bookInventory || 0), 0)
   const dashboardSystemOsPct = dashboardSystemBook ? (dashboardSystemOs / dashboardSystemBook) * 100 : 0
   const dashboardOpenTickets = getScopedTickets().filter((t: any) => !['approved', 'voided'].includes(String(t.status || 'draft').toLowerCase())).length
   const dashboardPendingProvings = getScopedProvings().filter((p: any) => String(p.status || '').toLowerCase() !== 'approved').length
@@ -11494,18 +11541,32 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
               </div>
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12 }}>
                 {dashboardOverShortRows.map((row: any) => (
-                  <div key={row.segment.id} style={{ ...card, borderLeft: `5px solid ${Math.abs(row.overShort) > 0.01 ? '#f87171' : '#22c55e'}` }}>
+                  <div key={row.segment.id} style={{ ...card, borderLeft: `5px solid ${row.totalsOnly ? '#38bdf8' : Math.abs(row.overShort) > 0.01 ? '#f87171' : '#22c55e'}` }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                       <strong style={{ fontSize: 18 }}>{row.segment.name}</strong>
-                      <span style={{ color: Math.abs(row.overShort) > 0.01 ? '#fca5a5' : '#86efac', fontWeight: 900 }}>{row.overShort.toFixed(2)}</span>
+                      {row.totalsOnly ? (
+                        <span style={{ color: '#93c5fd', fontWeight: 900 }}>TOTALS</span>
+                      ) : (
+                        <span style={{ color: Math.abs(row.overShort) > 0.01 ? '#fca5a5' : '#86efac', fontWeight: 900 }}>{row.overShort.toFixed(2)}</span>
+                      )}
                     </div>
-                    <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 8 }}>Book {row.bookInventory.toFixed(2)} • Actual {row.actualInventory.toFixed(2)}</div>
-                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>Receipts {row.receipts.toFixed(2)} • Deliveries {row.deliveries.toFixed(2)}</div>
-                    {(row.stationEquationRows || []).slice(0, 2).map((equation: any) => (
-                      <div key={equation.equation.id} style={{ color: Math.abs(equation.difference) > 0.01 ? '#fca5a5' : '#86efac', fontSize: 12, marginTop: 4 }}>
-                        {equation.equation.name}: {Number(equation.difference || 0).toFixed(2)}
-                      </div>
-                    ))}
+                    {row.totalsOnly ? (
+                      <>
+                        <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 8 }}>Reported Total {row.reportedTotal.toFixed(2)}</div>
+                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>Receipts {row.receipts.toFixed(2)} • Deliveries {row.deliveries.toFixed(2)} • Trucks {row.truckTickets.toFixed(2)}</div>
+                        <div style={{ color: '#93c5fd', fontSize: 12 }}>Totals-only segment — excluded from System O/S</div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 8 }}>Book {row.bookInventory.toFixed(2)} • Actual {row.actualInventory.toFixed(2)}</div>
+                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>Receipts {row.receipts.toFixed(2)} • Deliveries {row.deliveries.toFixed(2)}</div>
+                        {(row.stationEquationRows || []).slice(0, 2).map((equation: any) => (
+                          <div key={equation.equation.id} style={{ color: Math.abs(equation.difference) > 0.01 ? '#fca5a5' : '#86efac', fontSize: 12, marginTop: 4 }}>
+                            {equation.equation.name}: {Number(equation.difference || 0).toFixed(2)}
+                          </div>
+                        ))}
+                      </>
+                    )}
                     {row.butaneEnabled && <div style={{ color: '#fef3c7', fontSize: 12 }}>Butane Blend {row.butaneAdjustment.blendPercent.toFixed(4)}% • Shrink {row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2)}</div>}
                   </div>
                 ))}
@@ -12349,6 +12410,33 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         Build equations like Side A = whole field / receipts and Side B = delivery meters. The app calculates Side A - Side B, with optional tank change and line fill change included.
                       </p>
                       {editingBalanceEquationId && <div style={{ color: '#fca5a5', marginBottom: 10 }}>Editing existing station balance. Save to replace the equation setup, or cancel to leave it unchanged.</div>}
+
+                      <div style={{ ...box, marginBottom: 12 }}>
+                        <h4 style={{ marginTop: 0 }}>Segment Report Mode</h4>
+                        <p style={{ color: '#a8b3bd', marginTop: 0 }}>
+                          Use Balance/O-S for custody balance segments. Use Totals Only for systems where you only report totals and do not want the app showing an over/short.
+                        </p>
+                        <div style={{ display: 'grid', gap: 8 }}>
+                          {segments.map((segment: any) => {
+                            const mode = getSegmentBalanceMode(segment.id)
+                            return (
+                              <div key={segment.id} className="ticket-queue-card">
+                                <div>
+                                  <strong>{segment.name || segment.segment_name}</strong>
+                                  <div style={{ color: '#a8b3bd', marginTop: 4 }}>
+                                    Current mode: {segmentIsTotalsOnly(segment.id) ? 'Totals Only - excluded from O/S' : 'Balance / O-S'}
+                                  </div>
+                                </div>
+                                <select style={{ ...input, width: 220, marginTop: 0 }} value={segmentIsTotalsOnly(segment.id) ? 'totals_only' : 'balance'} onChange={(e) => runSafeAction('Saving segment report mode', () => saveSegmentBalanceMode(segment.id, e.target.value))}>
+                                  <option value="balance">Balance / O-S</option>
+                                  <option value="totals_only">Totals Only</option>
+                                </select>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+
                       <input style={input} placeholder="Equation Name (example: BSRNG Station Outbound)" value={newBalanceEquationName} onChange={(e) => setNewBalanceEquationName(e.target.value)} />
                       <select style={input} value={newBalanceEquationSegmentId} onChange={(e) => { setNewBalanceEquationSegmentId(e.target.value); setNewEquationSideAMeterIds([]); setNewEquationSideBMeterIds([]); setNewEquationSideACheckGroupIds([]); setNewEquationSideBCheckGroupIds([]); setEquationMeterSearch('') }}>
                         <option value="">Select Segment</option>
@@ -12417,7 +12505,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                             <div key={equation.id} style={{ ...box, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                               <span style={{ color: '#a8b3bd' }}>
                                 {equation.name} • {segment?.name || 'Segment'} • A items: {sideACount} • B items: {sideBCount}
-                                {calcRow ? ` • Current O/S: ${Number(calcRow.difference || 0).toFixed(2)}` : ' • No current calculation yet'}
+                                {segmentIsTotalsOnly(equation.segment_id) ? ' • Segment is Totals Only' : calcRow ? ` • Current O/S: ${Number(calcRow.difference || 0).toFixed(2)}` : ' • No current calculation yet'}
                               </span>
                               <div style={{ display: 'flex', gap: 8 }}>
                                 <button type="button" style={{ ...button, width: 'auto' }} onClick={() => startEditBalanceEquation(equation)}>Edit</button>
@@ -14115,9 +14203,21 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   {getOverShortRows().map((row: any) => (
                     <div key={row.segment.id} style={card}>
                       <strong>{row.segment.name}</strong>
-                      <div>Book Inventory: {row.bookInventory.toFixed(2)}</div>
-                      <div>Actual Inventory: {row.actualInventory.toFixed(2)}</div>
-                      <div>Over / Short: {row.overShort.toFixed(2)}</div>
+                      {row.totalsOnly ? (
+                        <>
+                          <div>Mode: Totals Only</div>
+                          <div>Reported Total: {row.reportedTotal.toFixed(2)}</div>
+                          <div>Receipts: {row.receipts.toFixed(2)}</div>
+                          <div>Deliveries: {row.deliveries.toFixed(2)}</div>
+                          <div style={{ color: '#93c5fd' }}>Excluded from Over / Short</div>
+                        </>
+                      ) : (
+                        <>
+                          <div>Book Inventory: {row.bookInventory.toFixed(2)}</div>
+                          <div>Actual Inventory: {row.actualInventory.toFixed(2)}</div>
+                          <div>Over / Short: {row.overShort.toFixed(2)}</div>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>

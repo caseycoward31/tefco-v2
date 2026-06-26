@@ -612,8 +612,11 @@ function App() {
   const [readingQueueSegmentFilter, setReadingQueueSegmentFilter] = useState('')
   const [potQueueMonthFilter, setPotQueueMonthFilter] = useState('')
   const [potQueueSegmentFilter, setPotQueueSegmentFilter] = useState('')
+  const [potQueueProducerFilter, setPotQueueProducerFilter] = useState('')
   const [provingQueueMonthFilter, setProvingQueueMonthFilter] = useState('')
   const [provingQueueSegmentFilter, setProvingQueueSegmentFilter] = useState('')
+  const [provingQueueProducerFilter, setProvingQueueProducerFilter] = useState('')
+  const [ticketArchiveProducerFilter, setTicketArchiveProducerFilter] = useState('')
   const [hierarchySegmentId, setHierarchySegmentId] = useState('')
   const [hierarchyAreaId, setHierarchyAreaId] = useState('')
   const [hierarchyLeaseId, setHierarchyLeaseId] = useState('')
@@ -10897,6 +10900,18 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
     return String(ticket.segment_id || observed.segment_id || '')
   }
 
+  function getTicketProducerId(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const meter = getMeterById(ticket?.meter_id || observed.meter_id || '')
+    const lease = getLeaseById(ticket?.lease_id || observed.lease_id || meter?.lease_id || '')
+    return String(ticket?.producer_id || observed.producer_id || (lease as any)?.producer_id || meter?.producer_id || '')
+  }
+
+  function getProducerLabelById(producerId: string) {
+    const producer = producers.find((item: any) => String(item.id) === String(producerId || ''))
+    return producer?.name || producer?.producer_name || 'Unassigned Producer'
+  }
+
   function getTicketSegmentLabel(ticket: any) {
     const observed = ticket?.observed_inputs || {}
     const segmentId = getTicketSegmentId(ticket)
@@ -10963,31 +10978,53 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
       const segmentGroups = (Object.values(segmentMap) as any[])
         .sort((a: any, b: any) => a.label.localeCompare(b.label))
         .map((segmentGroup: any) => {
-          const kindMap = segmentGroup.tickets.reduce((acc: Record<string, any>, ticket: any) => {
-            const kind = getTicketArchiveKind(ticket)
-            if (!acc[kind]) {
-              acc[kind] = {
-                kind,
-                label: getTicketArchiveKindLabel(kind),
+          const producerMap = segmentGroup.tickets.reduce((acc: Record<string, any>, ticket: any) => {
+            const producerId = getTicketProducerId(ticket) || 'unassigned'
+            if (!acc[producerId]) {
+              acc[producerId] = {
+                producerId,
+                label: getProducerLabelById(producerId),
                 tickets: [],
               }
             }
-            acc[kind].tickets.push(ticket)
+            acc[producerId].tickets.push(ticket)
             return acc
           }, {} as Record<string, any>)
 
-          const kindGroups = (Object.values(kindMap) as any[])
-            .sort((a: any, b: any) => getTicketArchiveKindOrder(a.kind) - getTicketArchiveKindOrder(b.kind))
-            .map((kindGroup: any) => ({
-              ...kindGroup,
-              tickets: kindGroup.tickets.sort((a: any, b: any) =>
-                new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime()
-              ),
-            }))
+          const producerGroups = (Object.values(producerMap) as any[])
+            .sort((a: any, b: any) => a.label.localeCompare(b.label))
+            .map((producerGroup: any) => {
+              const kindMap = producerGroup.tickets.reduce((acc: Record<string, any>, ticket: any) => {
+                const kind = getTicketArchiveKind(ticket)
+                if (!acc[kind]) {
+                  acc[kind] = {
+                    kind,
+                    label: getTicketArchiveKindLabel(kind),
+                    tickets: [],
+                  }
+                }
+                acc[kind].tickets.push(ticket)
+                return acc
+              }, {} as Record<string, any>)
+
+              const kindGroups = (Object.values(kindMap) as any[])
+                .sort((a: any, b: any) => getTicketArchiveKindOrder(a.kind) - getTicketArchiveKindOrder(b.kind))
+                .map((kindGroup: any) => ({
+                  ...kindGroup,
+                  tickets: kindGroup.tickets.sort((a: any, b: any) =>
+                    new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime()
+                  ),
+                }))
+
+              return {
+                ...producerGroup,
+                kindGroups,
+              }
+            })
 
           return {
             ...segmentGroup,
-            kindGroups,
+            producerGroups,
           }
         })
 
@@ -10997,6 +11034,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
       }
     })
   }
+
 
   function renderTicketQueueCard(ticket: any, approved = false) {
     return (
@@ -11047,6 +11085,18 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
     return String(row?.segment_id || (lease as any)?.segment_id || meter?.segment_id || '')
   }
 
+  function getPotProducerId(row: any) {
+    const meter = getMeterById(row?.meter_id || row?.meterId || '')
+    const lease = getLeaseById(row?.lease_id || row?.leaseId || meter?.lease_id || '')
+    return String(row?.producer_id || (lease as any)?.producer_id || meter?.producer_id || '')
+  }
+
+  function getProvingProducerId(row: any) {
+    const meter = getMeterById(row?.meter_id || '')
+    const lease = getLeaseById(row?.lease_id || meter?.lease_id || '')
+    return String(row?.producer_id || (lease as any)?.producer_id || meter?.producer_id || '')
+  }
+
   function getPotSegmentId(row: any) {
     const meter = getMeterById(row?.meter_id || row?.meterId || '')
     const lease = getLeaseById(row?.lease_id || row?.leaseId || meter?.lease_id || '')
@@ -11073,6 +11123,15 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
   }
 
   function groupRowsByMonthSegment(rows: any[], dateFields: string[], getSegmentId: (row: any) => string) {
+    return groupRowsByMonthSegmentProducer(rows, dateFields, getSegmentId, () => '')
+  }
+
+  function groupRowsByMonthSegmentProducer(
+    rows: any[],
+    dateFields: string[],
+    getSegmentId: (row: any) => string,
+    getProducerId: (row: any) => string
+  ) {
     const monthMap = rows.reduce((acc: Record<string, any[]>, row: any) => {
       const monthKey = getGenericMonthKey(row, dateFields)
       if (!acc[monthKey]) acc[monthKey] = []
@@ -11096,11 +11155,27 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
           rows: monthRows,
           segmentGroups: (Object.entries(segmentMap) as [string, any[]][])
             .sort(([a], [b]) => getSegmentLabelById(a).localeCompare(getSegmentLabelById(b)))
-            .map(([segmentId, segmentRows]) => ({
-              segmentId,
-              label: getSegmentLabelById(segmentId),
-              rows: segmentRows,
-            })),
+            .map(([segmentId, segmentRows]) => {
+              const producerMap = segmentRows.reduce((acc: Record<string, any[]>, row: any) => {
+                const producerId = getProducerId(row) || 'unassigned'
+                if (!acc[producerId]) acc[producerId] = []
+                acc[producerId].push(row)
+                return acc
+              }, {} as Record<string, any[]>)
+
+              return {
+                segmentId,
+                label: getSegmentLabelById(segmentId),
+                rows: segmentRows,
+                producerGroups: (Object.entries(producerMap) as [string, any[]][])
+                  .sort(([a], [b]) => getProducerLabelById(a).localeCompare(getProducerLabelById(b)))
+                  .map(([producerId, producerRows]) => ({
+                    producerId,
+                    label: getProducerLabelById(producerId),
+                    rows: producerRows,
+                  })),
+              }
+            }),
         }
       })
   }
@@ -11142,13 +11217,14 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
     const monthOptions = getGenericMonthOptions(rows, ['proving_date', 'approved_at', 'created_at'])
     const filteredRows = rows.filter((p: any) =>
       (!provingQueueMonthFilter || getGenericMonthKey(p, ['proving_date', 'approved_at', 'created_at']) === provingQueueMonthFilter) &&
-      (!provingQueueSegmentFilter || getProvingSegmentId(p) === provingQueueSegmentFilter)
+      (!provingQueueSegmentFilter || getProvingSegmentId(p) === provingQueueSegmentFilter) &&
+      (!provingQueueProducerFilter || getProvingProducerId(p) === provingQueueProducerFilter)
     )
-    const grouped = groupRowsByMonthSegment(filteredRows, ['proving_date', 'approved_at', 'created_at'], getProvingSegmentId)
+    const grouped = groupRowsByMonthSegmentProducer(filteredRows, ['proving_date', 'approved_at', 'created_at'], getProvingSegmentId, getProvingProducerId)
 
     return (
       <>
-        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
           <select style={input} value={provingQueueMonthFilter} onChange={(e) => setProvingQueueMonthFilter(e.target.value)}>
             <option value="">All Months</option>
             {monthOptions.map((month: any) => <option key={month.monthKey} value={month.monthKey}>{month.label}</option>)}
@@ -11156,6 +11232,10 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
           <select style={input} value={provingQueueSegmentFilter} onChange={(e) => setProvingQueueSegmentFilter(e.target.value)}>
             <option value="">All Segments</option>
             {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+          </select>
+          <select style={input} value={provingQueueProducerFilter} onChange={(e) => setProvingQueueProducerFilter(e.target.value)}>
+            <option value="">All Producers</option>
+            {producers.map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>)}
           </select>
         </div>
 
@@ -11171,7 +11251,14 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 <details key={segmentGroup.segmentId} open style={{ ...card, margin: 0, background: 'rgba(15,23,42,0.45)' }}>
                   <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{segmentGroup.label} • {segmentGroup.rows.length} proving(s)</summary>
                   <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-                    {segmentGroup.rows.map((p: any) => renderProvingQueueCard(p, mode))}
+                    {segmentGroup.producerGroups.map((producerGroup: any) => (
+                      <details key={producerGroup.producerId} open style={{ ...card, margin: 0, background: 'rgba(2,6,23,0.45)' }}>
+                        <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{producerGroup.label} • {producerGroup.rows.length} proving(s)</summary>
+                        <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                          {producerGroup.rows.map((p: any) => renderProvingQueueCard(p, mode))}
+                        </div>
+                      </details>
+                    ))}
                   </div>
                 </details>
               ))}
@@ -13332,6 +13419,9 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                                       </div>
                                     )
                                   })}
+                                      </div>
+                                    </details>
+                                  ))}
                                 </div>
                               </details>
                             ))}
@@ -13855,9 +13945,10 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   const monthOptions = getGenericMonthOptions(potQuality, ['sample_date', 'created_at'])
                   const filteredPots = potQuality.filter((p: any) =>
                     (!potQueueMonthFilter || getGenericMonthKey(p, ['sample_date', 'created_at']) === potQueueMonthFilter) &&
-                    (!potQueueSegmentFilter || getPotSegmentId(p) === potQueueSegmentFilter)
+                    (!potQueueSegmentFilter || getPotSegmentId(p) === potQueueSegmentFilter) &&
+                    (!potQueueProducerFilter || getPotProducerId(p) === potQueueProducerFilter)
                   )
-                  const grouped = groupRowsByMonthSegment(filteredPots, ['sample_date', 'created_at'], getPotSegmentId)
+                  const grouped = groupRowsByMonthSegmentProducer(filteredPots, ['sample_date', 'created_at'], getPotSegmentId, getPotProducerId)
 
                   return (
                     <>
@@ -13868,7 +13959,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         </div>
                       </div>
 
-                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
                         <select style={input} value={potQueueMonthFilter} onChange={(e) => setPotQueueMonthFilter(e.target.value)}>
                           <option value="">All Months</option>
                           {monthOptions.map((month: any) => <option key={month.monthKey} value={month.monthKey}>{month.label}</option>)}
@@ -13876,6 +13967,10 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         <select style={input} value={potQueueSegmentFilter} onChange={(e) => setPotQueueSegmentFilter(e.target.value)}>
                           <option value="">All Segments</option>
                           {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+                        </select>
+                        <select style={input} value={potQueueProducerFilter} onChange={(e) => setPotQueueProducerFilter(e.target.value)}>
+                          <option value="">All Producers</option>
+                          {producers.map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>)}
                         </select>
                       </div>
 
@@ -13891,7 +13986,11 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                               <details key={segmentGroup.segmentId} open style={{ ...card, margin: 0, background: 'rgba(15,23,42,0.45)' }}>
                                 <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{segmentGroup.label} • {segmentGroup.rows.length} POT record(s)</summary>
                                 <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-                                  {segmentGroup.rows.map((p: any) => {
+                                  {segmentGroup.producerGroups.map((producerGroup: any) => (
+                                    <details key={producerGroup.producerId} open style={{ ...card, margin: 0, background: 'rgba(2,6,23,0.45)' }}>
+                                      <summary style={{ cursor: 'pointer', fontWeight: 800 }}>{producerGroup.label} • {producerGroup.rows.length} POT record(s)</summary>
+                                      <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                                  {producerGroup.rows.map((p: any) => {
                                     const potMeter = getMeterById(p?.meter_id || p?.meterId || '')
                                     const potLease = getLeaseById(p?.lease_id || p?.leaseId || potMeter?.lease_id || '')
                                     const prod = producers.find((x: any) => String(x.id) === String(p.producer_id || (potLease as any)?.producer_id || ''))
@@ -14368,18 +14467,23 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <input style={input} type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} />
                 </label>
 
-                <select style={input} value={reportProducerId} onChange={(e) => setReportProducerId(e.target.value)}>
-                  <option value="">All Producers</option>
-                  {producers.map((producer: any) => (
-                    <option key={producer.id} value={producer.id}>{producer.name}</option>
+                <select style={input} value={reportSegmentId} onChange={(e) => { setReportSegmentId(e.target.value); setReportProducerId('') }}>
+                  <option value="">All Segments</option>
+                  {segments.map((segment: any) => (
+                    <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
                   ))}
                 </select>
 
-                <select style={input} value={reportSegmentId} onChange={(e) => setReportSegmentId(e.target.value)}>
-                  <option value="">All Segments</option>
-                  {segments.map((segment: any) => (
-                    <option key={segment.id} value={segment.id}>{segment.name}</option>
-                  ))}
+                <select style={input} value={reportProducerId} onChange={(e) => setReportProducerId(e.target.value)}>
+                  <option value="">All Producers</option>
+                  {producers
+                    .filter((producer: any) => {
+                      if (!reportSegmentId) return true
+                      return leases.some((lease: any) => String(lease.segment_id || '') === String(reportSegmentId) && String(lease.producer_id || '') === String(producer.id || ''))
+                    })
+                    .map((producer: any) => (
+                      <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>
+                    ))}
                 </select>
               </div>
             </div>
@@ -15189,7 +15293,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 const monthOptions = getTicketMonthOptions(baseTickets)
                 const filteredTickets = baseTickets.filter((ticket: any) =>
                   (!ticketArchiveMonthFilter || getTicketMonthKey(ticket) === ticketArchiveMonthFilter) &&
-                  (!ticketArchiveSegmentFilter || getTicketSegmentId(ticket) === ticketArchiveSegmentFilter)
+                  (!ticketArchiveSegmentFilter || getTicketSegmentId(ticket) === ticketArchiveSegmentFilter) &&
+                  (!ticketArchiveProducerFilter || getTicketProducerId(ticket) === ticketArchiveProducerFilter)
                 )
                 const groupedArchive = groupTicketsByMonthSegmentKind(filteredTickets)
 
@@ -15202,7 +15307,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </div>
                     </div>
 
-                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
                       <select style={input} value={ticketArchiveMonthFilter} onChange={(e) => setTicketArchiveMonthFilter(e.target.value)}>
                         <option value="">All Months</option>
                         {monthOptions.map((month: any) => (
@@ -15213,6 +15318,12 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         <option value="">All Segments</option>
                         {segments.map((segment: any) => (
                           <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
+                        ))}
+                      </select>
+                      <select style={input} value={ticketArchiveProducerFilter} onChange={(e) => setTicketArchiveProducerFilter(e.target.value)}>
+                        <option value="">All Producers</option>
+                        {producers.map((producer: any) => (
+                          <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>
                         ))}
                       </select>
                     </div>
@@ -15253,27 +15364,46 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                                   <span>{segmentGroup.tickets.length} tickets • NSV {segmentNsv.toFixed(2)}</span>
                                 </button>
 
-                                {segmentOpen && segmentGroup.kindGroups.map((kindGroup: any) => {
-                                  const kindKey = getTicketArchiveSectionKey(ticketWorkflowTab, monthGroup.monthKey, segmentGroup.segmentId, kindGroup.kind)
-                                  const kindOpen = openTicketArchiveSections[kindKey] ?? true
-                                  const kindNsv = kindGroup.tickets.reduce((sum: number, ticket: any) => {
+                                {segmentOpen && segmentGroup.producerGroups.map((producerGroup: any) => {
+                                  const producerKey = getTicketArchiveSectionKey(ticketWorkflowTab, monthGroup.monthKey, segmentGroup.segmentId, producerGroup.producerId)
+                                  const producerOpen = openTicketArchiveSections[producerKey] ?? true
+                                  const producerNsv = producerGroup.tickets.reduce((sum: number, ticket: any) => {
                                     const calc = ticket.calculation_results || {}
                                     const observed = ticket.observed_inputs || {}
                                     return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
                                   }, 0)
 
                                   return (
-                                    <div key={kindKey} style={{ marginTop: 10 }}>
-                                      <button style={{ ...button, background: kindGroup.kind === 'tank' ? '#92400e' : kindGroup.kind === 'line_fill' ? '#1d4ed8' : '#14532d', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }} onClick={() => toggleTicketArchiveSection(kindKey)}>
-                                        <span>{kindOpen ? '▼' : '▶'} {kindGroup.label}</span>
-                                        <span>{kindGroup.tickets.length} tickets • NSV {kindNsv.toFixed(2)}</span>
+                                    <div key={producerKey} style={{ marginTop: 10 }}>
+                                      <button style={{ ...button, background: '#4b5563', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }} onClick={() => toggleTicketArchiveSection(producerKey)}>
+                                        <span>{producerOpen ? '▼' : '▶'} {producerGroup.label}</span>
+                                        <span>{producerGroup.tickets.length} tickets • NSV {producerNsv.toFixed(2)}</span>
                                       </button>
 
-                                      {kindOpen && (
-                                        <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-                                          {kindGroup.tickets.map((ticket: any) => renderTicketQueueCard(ticket, false))}
-                                        </div>
-                                      )}
+                                      {producerOpen && producerGroup.kindGroups.map((kindGroup: any) => {
+                                        const kindKey = getTicketArchiveSectionKey(ticketWorkflowTab, monthGroup.monthKey, segmentGroup.segmentId, producerGroup.producerId, kindGroup.kind)
+                                        const kindOpen = openTicketArchiveSections[kindKey] ?? true
+                                        const kindNsv = kindGroup.tickets.reduce((sum: number, ticket: any) => {
+                                          const calc = ticket.calculation_results || {}
+                                          const observed = ticket.observed_inputs || {}
+                                          return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                                        }, 0)
+
+                                        return (
+                                          <div key={kindKey} style={{ marginTop: 10 }}>
+                                            <button style={{ ...button, background: kindGroup.kind === 'tank' ? '#92400e' : kindGroup.kind === 'line_fill' ? '#1d4ed8' : '#14532d', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }} onClick={() => toggleTicketArchiveSection(kindKey)}>
+                                              <span>{kindOpen ? '▼' : '▶'} {kindGroup.label}</span>
+                                              <span>{kindGroup.tickets.length} tickets • NSV {kindNsv.toFixed(2)}</span>
+                                            </button>
+
+                                            {kindOpen && (
+                                              <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+                                                {kindGroup.tickets.map((ticket: any) => renderTicketQueueCard(ticket, false))}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )
+                                      })}
                                     </div>
                                   )
                                 })}
@@ -15299,7 +15429,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 const monthOptions = getTicketMonthOptions(baseTickets)
                 const filteredTickets = baseTickets.filter((ticket: any) =>
                   (!ticketArchiveMonthFilter || getTicketMonthKey(ticket) === ticketArchiveMonthFilter) &&
-                  (!ticketArchiveSegmentFilter || getTicketSegmentId(ticket) === ticketArchiveSegmentFilter)
+                  (!ticketArchiveSegmentFilter || getTicketSegmentId(ticket) === ticketArchiveSegmentFilter) &&
+                  (!ticketArchiveProducerFilter || getTicketProducerId(ticket) === ticketArchiveProducerFilter)
                 )
                 const groupedArchive = groupTicketsByMonthSegmentKind(filteredTickets)
 
@@ -15312,7 +15443,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </div>
                     </div>
 
-                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
                       <select style={input} value={ticketArchiveMonthFilter} onChange={(e) => setTicketArchiveMonthFilter(e.target.value)}>
                         <option value="">All Months</option>
                         {monthOptions.map((month: any) => (
@@ -15323,6 +15454,12 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         <option value="">All Segments</option>
                         {segments.map((segment: any) => (
                           <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
+                        ))}
+                      </select>
+                      <select style={input} value={ticketArchiveProducerFilter} onChange={(e) => setTicketArchiveProducerFilter(e.target.value)}>
+                        <option value="">All Producers</option>
+                        {producers.map((producer: any) => (
+                          <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>
                         ))}
                       </select>
                     </div>
@@ -15363,27 +15500,46 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                                   <span>{segmentGroup.tickets.length} tickets • NSV {segmentNsv.toFixed(2)}</span>
                                 </button>
 
-                                {segmentOpen && segmentGroup.kindGroups.map((kindGroup: any) => {
-                                  const kindKey = getTicketArchiveSectionKey('approved', monthGroup.monthKey, segmentGroup.segmentId, kindGroup.kind)
-                                  const kindOpen = openTicketArchiveSections[kindKey] ?? true
-                                  const kindNsv = kindGroup.tickets.reduce((sum: number, ticket: any) => {
+                                {segmentOpen && segmentGroup.producerGroups.map((producerGroup: any) => {
+                                  const producerKey = getTicketArchiveSectionKey('approved', monthGroup.monthKey, segmentGroup.segmentId, producerGroup.producerId)
+                                  const producerOpen = openTicketArchiveSections[producerKey] ?? true
+                                  const producerNsv = producerGroup.tickets.reduce((sum: number, ticket: any) => {
                                     const calc = ticket.calculation_results || {}
                                     const observed = ticket.observed_inputs || {}
                                     return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
                                   }, 0)
 
                                   return (
-                                    <div key={kindKey} style={{ marginTop: 10 }}>
-                                      <button style={{ ...button, background: kindGroup.kind === 'tank' ? '#92400e' : kindGroup.kind === 'line_fill' ? '#1d4ed8' : '#14532d', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }} onClick={() => toggleTicketArchiveSection(kindKey)}>
-                                        <span>{kindOpen ? '▼' : '▶'} {kindGroup.label}</span>
-                                        <span>{kindGroup.tickets.length} tickets • NSV {kindNsv.toFixed(2)}</span>
+                                    <div key={producerKey} style={{ marginTop: 10 }}>
+                                      <button style={{ ...button, background: '#4b5563', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }} onClick={() => toggleTicketArchiveSection(producerKey)}>
+                                        <span>{producerOpen ? '▼' : '▶'} {producerGroup.label}</span>
+                                        <span>{producerGroup.tickets.length} tickets • NSV {producerNsv.toFixed(2)}</span>
                                       </button>
 
-                                      {kindOpen && (
-                                        <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-                                          {kindGroup.tickets.map((ticket: any) => renderTicketQueueCard(ticket, true))}
-                                        </div>
-                                      )}
+                                      {producerOpen && producerGroup.kindGroups.map((kindGroup: any) => {
+                                        const kindKey = getTicketArchiveSectionKey('approved', monthGroup.monthKey, segmentGroup.segmentId, producerGroup.producerId, kindGroup.kind)
+                                        const kindOpen = openTicketArchiveSections[kindKey] ?? true
+                                        const kindNsv = kindGroup.tickets.reduce((sum: number, ticket: any) => {
+                                          const calc = ticket.calculation_results || {}
+                                          const observed = ticket.observed_inputs || {}
+                                          return sum + Number(calc.nsv ?? observed.net_volume_bbl ?? 0)
+                                        }, 0)
+
+                                        return (
+                                          <div key={kindKey} style={{ marginTop: 10 }}>
+                                            <button style={{ ...button, background: kindGroup.kind === 'tank' ? '#92400e' : kindGroup.kind === 'line_fill' ? '#1d4ed8' : '#14532d', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }} onClick={() => toggleTicketArchiveSection(kindKey)}>
+                                              <span>{kindOpen ? '▼' : '▶'} {kindGroup.label}</span>
+                                              <span>{kindGroup.tickets.length} tickets • NSV {kindNsv.toFixed(2)}</span>
+                                            </button>
+
+                                            {kindOpen && (
+                                              <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+                                                {kindGroup.tickets.map((ticket: any) => renderTicketQueueCard(ticket, true))}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )
+                                      })}
                                     </div>
                                   )
                                 })}

@@ -642,13 +642,6 @@ function App() {
   const [meterCsvFile, setMeterCsvFile] = useState<File | null>(null)
   const [strappingCsvFile, setStrappingCsvFile] = useState<File | null>(null)
   const [selectedStrappingTankId, setSelectedStrappingTankId] = useState('')
-  const [strappingLegType, setStrappingLegType] = useState('')
-  const [strappingRoofMode, setStrappingRoofMode] = useState('fra')
-  const [strappingRoofWeightLbs, setStrappingRoofWeightLbs] = useState('')
-  const [strappingRoofReferenceApi, setStrappingRoofReferenceApi] = useState('')
-  const [strappingRoofReferenceSg, setStrappingRoofReferenceSg] = useState('')
-  const [strappingRoofCriticalGauge, setStrappingRoofCriticalGauge] = useState('')
-
   const [newTankNumber, setNewTankNumber] = useState('')
   const [newTankName, setNewTankName] = useState('')
   const [newTankSegmentId, setNewTankSegmentId] = useState('')
@@ -844,7 +837,6 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [selectedTicketArea, setSelectedTicketArea] = useState('')
   const [ticketType, setTicketType] = useState('meter')
   const [selectedTank, setSelectedTank] = useState('')
-  const [selectedTankCalibrationVersionId, setSelectedTankCalibrationVersionId] = useState('')
   const [selectedLineFill, setSelectedLineFill] = useState('')
   const [openingGauge, setOpeningGauge] = useState('')
   const [closingGauge, setClosingGauge] = useState('')
@@ -858,7 +850,6 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [tankClosingWaterFeet, setTankClosingWaterFeet] = useState('')
   const [tankClosingWaterInches, setTankClosingWaterInches] = useState('')
   const [tankClosingWaterEighths, setTankClosingWaterEighths] = useState('')
-  const [tankUsePreviousOpeningTicket, setTankUsePreviousOpeningTicket] = useState(true)
   const [tankAverageTemp, setTankAverageTemp] = useState('')
   const [tankAmbientTemp, setTankAmbientTemp] = useState('')
   const [tankShellReferenceTemp, setTankShellReferenceTemp] = useState('60')
@@ -871,7 +862,6 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [tankRoofReferenceApi, setTankRoofReferenceApi] = useState('')
   const [tankRoofBblPerApi, setTankRoofBblPerApi] = useState('')
   const [tankRoofWeightLbs, setTankRoofWeightLbs] = useState('')
-  const [tankRoofFixedCorrectionBbl, setTankRoofFixedCorrectionBbl] = useState('')
   const [tankRoofCriticalGauge, setTankRoofCriticalGauge] = useState('')
   const [tankObservedGravity, setTankObservedGravity] = useState('')
   const [tankObservedTemp, setTankObservedTemp] = useState('')
@@ -3221,38 +3211,26 @@ function handleProvingAreaSelect(areaId: string) {
     const fractionValue = Number(fraction || 0)
 
     if (inches !== undefined || fraction !== undefined) {
-      // fraction is normally eighths of an inch, not decimal feet.
-      const fractionInches = Math.abs(fractionValue) >= 1 ? (fractionValue / 8) : fractionValue
-      return feetValue + (inchesValue / 12) + (fractionInches / 12)
+      return feetValue + (inchesValue / 12) + (fractionValue / 12)
     }
 
     return feetValue
   }
 
-  function getActiveTankCalibration(tankId: string, calibrationVersionId = '') {
+  function getActiveTankCalibration(tankId: string) {
     return (
-      (calibrationVersionId ? tankCalibrationVersions.find((version: any) => String(version.id) === String(calibrationVersionId) && String(version.tank_id) === String(tankId)) : null) ||
-      (selectedTankCalibrationVersionId && String(selectedTank) === String(tankId)
-        ? tankCalibrationVersions.find((version: any) => String(version.id) === String(selectedTankCalibrationVersionId) && String(version.tank_id) === String(tankId))
-        : null) ||
-      tankCalibrationVersions.find((version: any) => String(version.tank_id) === String(tankId) && version.active !== false) ||
-      tankCalibrationVersions.find((version: any) => String(version.tank_id) === String(tankId))
+      tankCalibrationVersions.find((version: any) => version.tank_id === tankId && version.active !== false) ||
+      tankCalibrationVersions.find((version: any) => version.tank_id === tankId)
     )
   }
 
-  function getTankCalibrationLabel(version: any) {
-    const rawName = version?.name || version?.calibration_name || version?.strap_name || `Version ${version?.version_number || ''}`
-    const leg = version?.leg_type || version?.strap_type || version?.table_type || version?.roof_leg || ''
-    return `${rawName}${leg ? ` - ${leg}` : ''}`.trim()
-  }
-
-  function getTankBarrelsAtGauge(tankId: string, gauge: number, calibrationVersionId = '') {
-    const calibration = getActiveTankCalibration(tankId, calibrationVersionId)
+  function getTankBarrelsAtGauge(tankId: string, gauge: number) {
+    const calibration = getActiveTankCalibration(tankId)
 
     if (!calibration || !Number.isFinite(gauge)) return 0
 
     const rows = tankStrappingRows
-      .filter((row: any) => String(row.tank_id) === String(tankId) && String(row.calibration_version_id) === String(calibration.id))
+      .filter((row: any) => row.tank_id === tankId && row.calibration_version_id === calibration.id)
       .sort((a: any, b: any) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
 
     if (rows.length === 0) return 0
@@ -3278,15 +3256,15 @@ function handleProvingAreaSelect(areaId: string) {
     return lowerBbl + ((upperBbl - lowerBbl) * ratio)
   }
 
-  function getDeadwoodAdjustment(tankId: string, gauge: number, calibrationVersionId = '') {
-    const calibration = getActiveTankCalibration(tankId, calibrationVersionId)
+  function getDeadwoodAdjustment(tankId: string, gauge: number) {
+    const calibration = getActiveTankCalibration(tankId)
 
     if (!calibration) return 0
 
     return tankDeadwoodRules
       .filter((rule: any) =>
-        String(rule.tank_id) === String(tankId) &&
-        String(rule.calibration_version_id) === String(calibration.id) &&
+        rule.tank_id === tankId &&
+        rule.calibration_version_id === calibration.id &&
         Number(rule.start_gauge || 0) <= gauge &&
         Number(rule.end_gauge || 0) >= gauge
       )
@@ -3345,25 +3323,12 @@ function handleProvingAreaSelect(areaId: string) {
   }
 
   function getPreviousTankClosingGauge(tankId: string) {
-    const previous: any = getPreviousTankTicket(tankId)
-    const observed = previous?.observed_inputs || {}
-
-    if (
-      observed.tank_closing_feet !== null &&
-      observed.tank_closing_feet !== undefined &&
-      observed.tank_closing_feet !== ''
-    ) {
-      return gaugePartsToDecimal(
-        observed.tank_closing_feet,
-        observed.tank_closing_inches || 0,
-        observed.tank_closing_eighths || 0
-      )
-    }
+    const previous = getPreviousTankTicket(tankId)
 
     return (
       (previous as any)?.closing_gauge ||
-      observed.closing_gauge_decimal ||
-      observed.closing_gauge ||
+      previous?.observed_inputs?.closing_gauge ||
+      previous?.observed_inputs?.closing_gauge_decimal ||
       ''
     )
   }
@@ -3391,77 +3356,54 @@ function handleProvingAreaSelect(areaId: string) {
     return 1 + (2 * alpha * deltaT) + (alpha * alpha * deltaT * deltaT)
   }
 
-  function apiToSpecificGravity(apiGravity: number) {
+  function getTankLiquidDensityLbPerGal(apiGravity: number) {
     if (!Number.isFinite(apiGravity) || apiGravity <= -131.5) return 0
-    return 141.5 / (apiGravity + 131.5)
-  }
-
-  function getTankRoofConfig() {
-    const calibration: any = selectedTank ? getActiveTankCalibration(selectedTank) : null
-    const roofWeightLbs = Number(
-      calibration?.roof_weight_lbs ||
-      calibration?.floating_roof_weight_lbs ||
-      calibration?.roof_weight ||
-      calibration?.fra_roof_weight_lbs ||
-      0
-    )
-    const referenceApi = Number(
-      calibration?.roof_reference_api ||
-      calibration?.floating_roof_reference_api ||
-      calibration?.reference_api ||
-      calibration?.fra_reference_api ||
-      0
-    )
-    const referenceSg = Number(
-      calibration?.roof_reference_sg ||
-      calibration?.floating_roof_reference_sg ||
-      calibration?.reference_sg ||
-      calibration?.fra_reference_sg ||
-      0
-    ) || apiToSpecificGravity(referenceApi)
-    const criticalGauge = Number(
-      calibration?.roof_critical_gauge ||
-      calibration?.critical_gauge ||
-      calibration?.floating_roof_critical_gauge ||
-      calibration?.fra_critical_gauge ||
-      0
-    )
-    const mode = String(
-      calibration?.roof_correction_mode ||
-      calibration?.roof_mode ||
-      calibration?.floating_roof_mode ||
-      calibration?.fra_mode ||
-      'fra'
-    ).toLowerCase()
-
-    return { calibration, roofWeightLbs, referenceApi, referenceSg, criticalGauge, mode }
+    const specificGravity60 = 141.5 / (apiGravity + 131.5)
+    return specificGravity60 * 8.337
   }
 
   function calculateAutomaticTankRoofAdjustment(gaugeDecimal: number) {
-    const { roofWeightLbs, referenceSg, criticalGauge, mode } = getTankRoofConfig()
+    if (!tankAutoRoofCorrection) return 0
 
-    if (mode === 'none') return 0
+    const criticalGauge = Number(tankRoofCriticalGauge || 0)
     if (criticalGauge > 0 && gaugeDecimal < criticalGauge) return 0
-    if (!Number.isFinite(roofWeightLbs) || roofWeightLbs <= 0) return 0
 
-    const actualSg = apiToSpecificGravity(Number(tankObservedGravity || 0))
-    if (!referenceSg || !actualSg) return 0
+    const mode = String(tankRoofCorrectionMode || 'none').toLowerCase()
+    if (mode === 'none') return 0
 
-    const referenceDisplacement = roofWeightLbs / (350.16 * referenceSg)
-    const actualDisplacement = roofWeightLbs / (350.16 * actualSg)
+    const api60 = Number(tankObservedGravity || 0)
+    const roofReferenceApi = Number(tankRoofReferenceApi || 0)
+    const bblPerApi = Number(tankRoofBblPerApi || 0)
+    const roofWeightLbs = Number(tankRoofWeightLbs || 0)
 
-    // FRC is used when the roof displacement is not built into the table.
-    if (mode === 'frc') return -actualDisplacement
+    if (mode === 'fra') {
+      if (!Number.isFinite(api60) || !Number.isFinite(roofReferenceApi) || !Number.isFinite(bblPerApi) || bblPerApi === 0) return 0
+      return (roofReferenceApi - api60) * bblPerApi
+    }
 
-    // FRA is used when the roof displacement is already built into the table at reference SG.
-    return referenceDisplacement - actualDisplacement
+    if (mode === 'frc') {
+      if (!Number.isFinite(roofWeightLbs) || roofWeightLbs <= 0) return 0
+      const densityLbPerGal = getTankLiquidDensityLbPerGal(api60)
+      const ctpl = Number(calculateApi11Corrections({
+        productGroup: 'crude',
+        observedApiGravity: api60,
+        observedTemperature: Number(tankObservedTemp || tankAverageTemp || 60),
+        observedPressure: 0,
+        averageTemperature: Number(tankAverageTemp || tankObservedTemp || 60),
+        averagePressure: 0,
+        apiRounding: 1,
+      }).ccf || 1)
+
+      if (!densityLbPerGal || !ctpl) return 0
+      return -1 * (roofWeightLbs / (densityLbPerGal * ctpl)) / 42
+    }
+
+    return 0
   }
 
   function calculateTankObservedPoint(tankId: string, gaugeDecimal: number, waterGaugeDecimal: number, roofAdjustmentBbl: number) {
-    const calibration = getActiveTankCalibration(tankId)
-    const calibrationId = calibration?.id || ''
-    const tov = getTankBarrelsAtGauge(tankId, gaugeDecimal, calibrationId) + getDeadwoodAdjustment(tankId, gaugeDecimal, calibrationId)
-    const fw = waterGaugeDecimal > 0 ? getTankBarrelsAtGauge(tankId, waterGaugeDecimal, calibrationId) + getDeadwoodAdjustment(tankId, waterGaugeDecimal, calibrationId) : 0
+    const tov = getTankBarrelsAtGauge(tankId, gaugeDecimal) + getDeadwoodAdjustment(tankId, gaugeDecimal)
+    const fw = waterGaugeDecimal > 0 ? getTankBarrelsAtGauge(tankId, waterGaugeDecimal) + getDeadwoodAdjustment(tankId, waterGaugeDecimal) : 0
     const netObservedBeforeShell = tov - fw
     const ctsh = calculateTankShellCorrectionFactor()
     const shellCorrected = netObservedBeforeShell * ctsh
@@ -3481,93 +3423,23 @@ function handleProvingAreaSelect(areaId: string) {
     }
   }
 
-  function getPreviousTankOpeningStandardPoint(tankId: string) {
-    const previous: any = getPreviousTankTicket(tankId)
-    if (!previous) return null
-
-    const observed = previous.observed_inputs || {}
-    const calc = previous.calculation_results || {}
-
-    const gov = Number(
-      observed.tank_closing_gov ??
-      observed.closing_gov ??
-      calc.tank_closing_gov ??
-      calc.tank_closing_bbl ??
-      observed.tank_closing_bbl ??
-      0
-    )
-
-    const gsv = Number(
-      observed.tank_closing_gsv ??
-      observed.tank_gsv ??
-      calc.tank_closing_gsv ??
-      calc.gsv ??
-      0
-    )
-
-    const nsv = Number(
-      observed.tank_closing_nsv ??
-      observed.tank_nsv ??
-      calc.tank_closing_nsv ??
-      calc.nsv ??
-      0
-    )
-
-    const waterGaugeDecimal = Number(
-      observed.closing_water_gauge_decimal ??
-      observed.tank_closing_water_gauge_decimal ??
-      0
-    )
-
-    const tov = Number(
-      observed.tank_closing_tov ??
-      calc.tank_closing_tov ??
-      observed.tank_closing_bbl ??
-      calc.tank_closing_bbl ??
-      0
-    )
-
-    const fw = Number(observed.tank_closing_free_water_bbl ?? calc.tank_closing_free_water_bbl ?? 0)
-
-    return {
-      sourceTicketNumber: previous.ticket_number || previous.ticket_no || '',
-      gaugeDecimal: Number(getPreviousTankClosingGauge(tankId) || 0),
-      waterGaugeDecimal,
-      tov,
-      fw,
-      gov,
-      gsv,
-      nsv,
-    }
-  }
-
   function calculateTankTicketSnapshot(tankId: string) {
-    const previousOpeningStandard = getPreviousTankOpeningStandardPoint(tankId)
-    const openingGaugeDecimal = Number(previousOpeningStandard?.gaugeDecimal || 0)
+    const openingGaugeDecimal = Number(getPreviousTankClosingGauge(tankId) || openingGauge || 0)
     const closingGaugeDecimal = gaugePartsToDecimal(tankClosingFeet, tankClosingInches, tankClosingEighths)
-    const openingWaterGaugeDecimal = Number(previousOpeningStandard?.waterGaugeDecimal || 0)
+    const openingWaterGaugeDecimal = Number(getPreviousTankClosingWaterGauge(tankId) || gaugePartsToDecimal(tankOpeningWaterFeet, tankOpeningWaterInches, tankOpeningWaterEighths) || 0)
     const closingWaterGaugeDecimal = gaugePartsToDecimal(tankClosingWaterFeet, tankClosingWaterInches, tankClosingWaterEighths)
 
-    const openingRoofAdjustment = calculateAutomaticTankRoofAdjustment(openingGaugeDecimal)
-    const closingRoofAdjustment = calculateAutomaticTankRoofAdjustment(closingGaugeDecimal)
+    const openingRoofAdjustment = tankOpeningRoofAdjustment !== ''
+      ? Number(tankOpeningRoofAdjustment || 0)
+      : calculateAutomaticTankRoofAdjustment(openingGaugeDecimal)
 
-    const calculatedOpeningPoint = tankId
+    const closingRoofAdjustment = tankClosingRoofAdjustment !== ''
+      ? Number(tankClosingRoofAdjustment || 0)
+      : calculateAutomaticTankRoofAdjustment(closingGaugeDecimal)
+
+    const openingPoint = tankId
       ? calculateTankObservedPoint(tankId, openingGaugeDecimal, openingWaterGaugeDecimal, openingRoofAdjustment)
       : { tov: 0, fw: 0, gov: 0, shellCorrected: 0, ctsh: 1, shellTemp: 60, roofAdjustmentBbl: 0, netObservedBeforeShell: 0, gaugeDecimal: 0, waterGaugeDecimal: 0 }
-
-    const openingPoint = previousOpeningStandard
-      ? {
-          ...calculatedOpeningPoint,
-          tov: previousOpeningStandard.tov || calculatedOpeningPoint.tov,
-          fw: previousOpeningStandard.fw || calculatedOpeningPoint.fw,
-          gov: previousOpeningStandard.gov || calculatedOpeningPoint.gov,
-          gsv: previousOpeningStandard.gsv || 0,
-          nsv: previousOpeningStandard.nsv || 0,
-          sourceTicketNumber: previousOpeningStandard.sourceTicketNumber,
-          waterGaugeDecimal: previousOpeningStandard.waterGaugeDecimal || calculatedOpeningPoint.waterGaugeDecimal,
-          source: 'previous_approved_tank_ticket',
-        }
-      : { ...calculatedOpeningPoint, source: 'calculated_from_opening_gauge' }
 
     const closingPoint = tankId
       ? calculateTankObservedPoint(tankId, closingGaugeDecimal, closingWaterGaugeDecimal, closingRoofAdjustment)
@@ -3603,12 +3475,8 @@ function handleProvingAreaSelect(areaId: string) {
     const ctlp = roundTo(corrections.ctlp, 5)
     const ccf = corrections.ccf
     const swDecimal = Number(tankSwPercent || 0) / 100
-    const closingGsv = closingPoint.gov * ccf
-    const closingNsv = closingGsv * (1 - swDecimal)
-    const openingGsv = Number((openingPoint as any).gsv || (openingPoint.gov * ccf))
-    const openingNsv = Number((openingPoint as any).nsv || (openingGsv * (1 - swDecimal)))
-    const gsv = Math.abs(sign * (closingGsv - openingGsv))
-    const nsv = Math.abs(sign * (closingNsv - openingNsv))
+    const gsv = gov * ccf
+    const nsv = gsv * (1 - swDecimal)
 
     return {
       openingGaugeDecimal,
@@ -3624,14 +3492,6 @@ function handleProvingAreaSelect(areaId: string) {
       cpl,
       ctlp,
       ccf,
-      selectedCalibration: getActiveTankCalibration(tankId),
-      openingGsv,
-      closingGsv,
-      openingNsv,
-      closingNsv,
-      openingSource: (openingPoint as any).source || '',
-      openingSourceTicketNumber: (openingPoint as any).sourceTicketNumber || '',
-      roofConfig: getTankRoofConfig(),
       ctsh: openingPoint.ctsh,
       tankShellTemp: openingPoint.shellTemp,
       tovMovement: Math.abs(tovMovement),
@@ -3830,8 +3690,6 @@ function handleProvingAreaSelect(areaId: string) {
         close_time: ticketCloseTime || null,
         previous_closing_source: previousClosingReading ? 'previous_approved_ticket_for_lease' : 'none',
         tank_id: selectedTank || null,
-        tank_calibration_version_id: tankTicketSnapshot?.selectedCalibration?.id || selectedTankCalibrationVersionId || null,
-        tank_calibration_name: tankTicketSnapshot?.selectedCalibration ? getTankCalibrationLabel(tankTicketSnapshot.selectedCalibration) : null,
         line_fill_id: selectedLineFill || null,
         opening_gauge: openingGauge || null,
         closing_gauge: closingGauge || null,
@@ -3852,12 +3710,6 @@ function handleProvingAreaSelect(areaId: string) {
         tank_closing_free_water_bbl: tankTicketSnapshot?.closingPoint?.fw ?? null,
         tank_opening_gov: tankTicketSnapshot?.openingPoint?.gov ?? null,
         tank_closing_gov: tankTicketSnapshot?.closingPoint?.gov ?? null,
-        tank_opening_gsv: tankTicketSnapshot?.openingGsv ?? null,
-        tank_closing_gsv: tankTicketSnapshot?.closingGsv ?? null,
-        tank_opening_nsv: tankTicketSnapshot?.openingNsv ?? null,
-        tank_closing_nsv: tankTicketSnapshot?.closingNsv ?? null,
-        tank_opening_source: tankTicketSnapshot?.openingSource ?? null,
-        tank_opening_source_ticket_number: tankTicketSnapshot?.openingSourceTicketNumber ?? null,
         tank_shell_temp: tankTicketSnapshot?.tankShellTemp ?? null,
         tank_shell_reference_temp: tankShellReferenceTemp || null,
         tank_shell_correction_factor: tankTicketSnapshot?.ctsh ?? null,
@@ -3868,8 +3720,6 @@ function handleProvingAreaSelect(areaId: string) {
         tank_roof_reference_api: tankRoofReferenceApi || null,
         tank_roof_bbl_per_api: tankRoofBblPerApi || null,
         tank_roof_weight_lbs: tankRoofWeightLbs || null,
-        tank_roof_fixed_correction_bbl: tankRoofFixedCorrectionBbl || null,
-        tank_use_previous_opening_ticket: true,
         tank_roof_critical_gauge: tankRoofCriticalGauge || null,
         tank_average_temp: tankAverageTemp || null,
         tank_ambient_temp: tankAmbientTemp || null,
@@ -3915,10 +3765,6 @@ function handleProvingAreaSelect(areaId: string) {
         tank_movement_bbl: tankCalculation?.movementBbl ?? null,
         tank_tov_movement_bbl: tankTicketSnapshot?.tovMovement ?? null,
         tank_free_water_movement_bbl: tankTicketSnapshot?.fwMovement ?? null,
-        tank_opening_gsv: tankTicketSnapshot?.openingGsv ?? null,
-        tank_closing_gsv: tankTicketSnapshot?.closingGsv ?? null,
-        tank_opening_nsv: tankTicketSnapshot?.openingNsv ?? null,
-        tank_closing_nsv: tankTicketSnapshot?.closingNsv ?? null,
         tank_ctsh: tankTicketSnapshot?.ctsh ?? null,
         tank_shell_temp: tankTicketSnapshot?.tankShellTemp ?? null,
         gsv: roundTo(gsv, volumeRounding),
@@ -5769,45 +5615,17 @@ async function createCompany() {
 
     const nextVersion = Number(latestVersions?.[0]?.version_number || 0) + 1
 
-    const calibrationPayload: any = {
-      company_id: activeCompanyID,
-      tank_id: selectedStrappingTankId,
-      version_number: nextVersion,
-      name: strappingLegType ? `${strappingLegType} - Version ${nextVersion}` : `Version ${nextVersion}`,
-      leg_type: strappingLegType || null,
-      strap_type: strappingLegType || null,
-      roof_correction_mode: strappingRoofMode || 'fra',
-      roof_weight_lbs: strappingRoofWeightLbs ? Number(strappingRoofWeightLbs) : null,
-      roof_reference_api: strappingRoofReferenceApi ? Number(strappingRoofReferenceApi) : null,
-      roof_reference_sg: strappingRoofReferenceSg ? Number(strappingRoofReferenceSg) : (strappingRoofReferenceApi ? apiToSpecificGravity(Number(strappingRoofReferenceApi)) : null),
-      roof_critical_gauge: strappingRoofCriticalGauge ? Number(strappingRoofCriticalGauge) : null,
-      active: true,
-    }
-
-    let versionResult = await supabase
+    const { data: version, error: versionError } = await supabase
       .from('tank_calibration_versions')
-      .insert(calibrationPayload)
-      .select()
-      .single()
-
-    if (versionResult.error) {
-      const fallbackPayload: any = {
+      .insert({
         company_id: activeCompanyID,
         tank_id: selectedStrappingTankId,
         version_number: nextVersion,
-        name: calibrationPayload.name,
+        name: `Version ${nextVersion}`,
         active: true,
-      }
-
-      versionResult = await supabase
-        .from('tank_calibration_versions')
-        .insert(fallbackPayload)
-        .select()
-        .single()
-    }
-
-    const version = versionResult.data
-    const versionError = versionResult.error
+      })
+      .select()
+      .single()
 
     if (versionError || !version) {
       alert('Could not create calibration version: ' + (versionError?.message || 'unknown error'))
@@ -5865,13 +5683,7 @@ async function createCompany() {
 
     setStrappingCsvFile(null)
     setSelectedStrappingTankId('')
-    setStrappingLegType('')
-    setStrappingRoofMode('fra')
-    setStrappingRoofWeightLbs('')
-    setStrappingRoofReferenceApi('')
-    setStrappingRoofReferenceSg('')
-    setStrappingRoofCriticalGauge('')
-    alert(`Imported ${insertRows.length} strapping rows as calibration ${calibrationPayload.name}.`)
+    alert(`Imported ${insertRows.length} strapping rows as calibration Version ${nextVersion}. Test 14 ft 4 in should now lookup around 474.60 bbl on the Delek 401 low leg chart.`)
     await loadAll()
   }
 
@@ -11664,21 +11476,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                           <option value="">Select Tank</option>
                           {tanks.map((tank: any) => <option key={tank.id} value={tank.id}>{tank.tank_number} {tank.tank_name ? `- ${tank.tank_name}` : ''}</option>)}
                         </select>
-
-                        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                          <input style={input} placeholder="Strap / Leg Name (Low Leg, High Leg)" value={strappingLegType} onChange={(e) => setStrappingLegType(e.target.value)} />
-                          <select style={input} value={strappingRoofMode} onChange={(e) => setStrappingRoofMode(e.target.value)}>
-                            <option value="fra">FRA - roof built into table</option>
-                            <option value="frc">FRC - roof not built into table</option>
-                            <option value="none">No floating roof</option>
-                          </select>
-                          <input style={input} placeholder="Roof Weight LBS" value={strappingRoofWeightLbs} onChange={(e) => setStrappingRoofWeightLbs(e.target.value)} />
-                          <input style={input} placeholder="Reference API from strap" value={strappingRoofReferenceApi} onChange={(e) => setStrappingRoofReferenceApi(e.target.value)} />
-                          <input style={input} placeholder="Reference SG optional" value={strappingRoofReferenceSg} onChange={(e) => setStrappingRoofReferenceSg(e.target.value)} />
-                          <input style={input} placeholder="Critical Gauge Decimal Feet optional" value={strappingRoofCriticalGauge} onChange={(e) => setStrappingRoofCriticalGauge(e.target.value)} />
-                        </div>
-
-                        <input style={input} type="file" accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setStrappingCsvFile(e.target.files?.[0] || null)} />
+                        <input style={input} type="file" accept=".csv,text/csv" onChange={(e) => setStrappingCsvFile(e.target.files?.[0] || null)} />
                         <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Importing strapping chart', importTankStrappingCsv)}>
                           Import Strapping Chart
                         </button>
@@ -13734,133 +13532,119 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
 
               {(ticketType === 'tank' || ticketType === 'transfer') && (
                 <div style={card}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                  <h3>Tank Ticket Inputs</h3>
+                  <select style={input} value={selectedTank} onChange={(e) => setSelectedTank(e.target.value)}>
+                    <option value="">Select Tank</option>
+                    {tanks
+                      .filter((tank: any) => !selectedSegment || tank.segment_id === selectedSegment)
+                      .map((tank: any) => (
+                        <option key={tank.id} value={tank.id}>
+                          {tank.tank_number} {tank.tank_name ? `- ${tank.tank_name}` : ''}
+                        </option>
+                      ))}
+                  </select>
+
+                  <select style={input} value={tankMovementDirection} onChange={(e) => setTankMovementDirection(e.target.value)}>
+                    <option value="delivery">Delivery / Drawdown</option>
+                    <option value="receipt">Receipt / Fill</option>
+                  </select>
+
+                  <div style={card}>
+                    <strong>Opening Gauge Auto-Fill</strong>
+                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>
+                      Opening comes from the last approved tank ticket closing gauge when available.
+                    </div>
                     <div>
-                      <h3 style={{ marginTop: 0 }}>Tank Ticket</h3>
-                      <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                        API 12.1 tank ticket: enter only closing readings and product data. Opening GOV/GSV/NSV pulls from the last approved tank ticket when available.
-                      </div>
+                      Opening Decimal: {selectedTank ? getPreviousTankClosingGauge(selectedTank) || openingGauge || 'None' : 'Select tank'}
                     </div>
-                    <div style={{ color: '#86efac', fontWeight: 800 }}>Tank-only calculation</div>
+                    <input
+                      style={input}
+                      placeholder="Manual Opening Gauge Override (decimal feet)"
+                      value={openingGauge}
+                      onChange={(e) => setOpeningGauge(e.target.value)}
+                    />
                   </div>
 
-                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                    <select style={input} value={selectedTank} onChange={(e) => { setSelectedTank(e.target.value); setSelectedTankCalibrationVersionId('') }}>
-                      <option value="">Select Tank</option>
-                      {tanks
-                        .filter((tank: any) => !selectedSegment || tank.segment_id === selectedSegment)
-                        .map((tank: any) => (
-                          <option key={tank.id} value={tank.id}>
-                            {tank.tank_number} {tank.tank_name ? `- ${tank.tank_name}` : ''}
-                          </option>
-                        ))}
-                    </select>
-
-                    <select style={input} value={selectedTankCalibrationVersionId} onChange={(e) => setSelectedTankCalibrationVersionId(e.target.value)} disabled={!selectedTank}>
-                      <option value="">Use Active Strap / Leg</option>
-                      {tankCalibrationVersions
-                        .filter((version: any) => String(version.tank_id) === String(selectedTank))
-                        .map((version: any) => (
-                          <option key={version.id} value={version.id}>
-                            {getTankCalibrationLabel(version)}{version.active !== false ? ' (Active)' : ''}
-                          </option>
-                        ))}
-                    </select>
-
-                    <select style={input} value={tankMovementDirection} onChange={(e) => setTankMovementDirection(e.target.value)}>
-                      <option value="delivery">Delivery / Drawdown</option>
-                      <option value="receipt">Receipt / Fill</option>
-                    </select>
-                  </div>
-
-                  <div style={{ ...card, background: 'linear-gradient(135deg, rgba(30,64,175,0.22), rgba(2,6,23,0.35))' }}>
-                    <strong>Opening From Previous Approved Ticket</strong>
-                    <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 4 }}>
-                      Opening GOV, GSV, and NSV are pulled from the previous approved tank ticket. If no previous ticket exists, opening values stay at 0 until one is approved.
-                    </div>
-                    {selectedTank ? (() => {
-                      const prev = getPreviousTankOpeningStandardPoint(selectedTank)
-                      return prev ? (
-                        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginTop: 10 }}>
-                          <div><div style={{ color: '#a8b3bd', fontSize: 11 }}>Previous Ticket</div><strong>{prev.sourceTicketNumber || 'Approved Ticket'}</strong></div>
-                          <div><div style={{ color: '#a8b3bd', fontSize: 11 }}>Opening GOV</div><strong>{Number(prev.gov || 0).toFixed(2)}</strong></div>
-                          <div><div style={{ color: '#a8b3bd', fontSize: 11 }}>Opening GSV</div><strong>{Number(prev.gsv || 0).toFixed(2)}</strong></div>
-                          <div><div style={{ color: '#a8b3bd', fontSize: 11 }}>Opening NSV</div><strong>{Number(prev.nsv || 0).toFixed(2)}</strong></div>
-                        </div>
-                      ) : (
-                        <div style={{ color: '#fca5a5', marginTop: 10 }}>No previous approved tank ticket found for this tank.</div>
-                      )
-                    })() : <div style={{ color: '#a8b3bd', marginTop: 10 }}>Select a tank to see opening values.</div>}
-                  </div>
-
-                  <div style={{ marginTop: 12, color: '#a8b3bd', fontSize: 12 }}>Closing Oil Gauge</div>
+                  <div style={{ marginTop: 10, color: '#a8b3bd', fontSize: 12 }}>Oil Gauge / Closing Gauge</div>
                   <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                     <input style={input} placeholder="Closing Feet" value={tankClosingFeet} onChange={(e) => setTankClosingFeet(e.target.value)} />
                     <input style={input} placeholder="Closing Inches" value={tankClosingInches} onChange={(e) => setTankClosingInches(e.target.value)} />
                     <input style={input} placeholder="Closing 8ths" value={tankClosingEighths} onChange={(e) => setTankClosingEighths(e.target.value)} />
                   </div>
 
-                  <div style={{ marginTop: 12, color: '#a8b3bd', fontSize: 12 }}>Closing Water Gauge</div>
+                  <div style={{ marginTop: 10, color: '#a8b3bd', fontSize: 12 }}>Opening Water Gauge Override (blank = previous ticket water)</div>
                   <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                    <input style={input} placeholder="Water Feet" value={tankClosingWaterFeet} onChange={(e) => setTankClosingWaterFeet(e.target.value)} />
-                    <input style={input} placeholder="Water Inches" value={tankClosingWaterInches} onChange={(e) => setTankClosingWaterInches(e.target.value)} />
-                    <input style={input} placeholder="Water 8ths" value={tankClosingWaterEighths} onChange={(e) => setTankClosingWaterEighths(e.target.value)} />
+                    <input style={input} placeholder="Opening Water Feet" value={tankOpeningWaterFeet} onChange={(e) => setTankOpeningWaterFeet(e.target.value)} />
+                    <input style={input} placeholder="Opening Water Inches" value={tankOpeningWaterInches} onChange={(e) => setTankOpeningWaterInches(e.target.value)} />
+                    <input style={input} placeholder="Opening Water 8ths" value={tankOpeningWaterEighths} onChange={(e) => setTankOpeningWaterEighths(e.target.value)} />
                   </div>
 
-                  <div style={{ marginTop: 12, color: '#a8b3bd', fontSize: 12 }}>Temperature / Product Quality</div>
-                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+                  <div style={{ marginTop: 10, color: '#a8b3bd', fontSize: 12 }}>Closing Water Gauge</div>
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                    <input style={input} placeholder="Closing Water Feet" value={tankClosingWaterFeet} onChange={(e) => setTankClosingWaterFeet(e.target.value)} />
+                    <input style={input} placeholder="Closing Water Inches" value={tankClosingWaterInches} onChange={(e) => setTankClosingWaterInches(e.target.value)} />
+                    <input style={input} placeholder="Closing Water 8ths" value={tankClosingWaterEighths} onChange={(e) => setTankClosingWaterEighths(e.target.value)} />
+                  </div>
+
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <input style={input} placeholder="Average Liquid Temp" value={tankAverageTemp} onChange={(e) => setTankAverageTemp(e.target.value)} />
                     <input style={input} placeholder="Ambient Temp" value={tankAmbientTemp} onChange={(e) => setTankAmbientTemp(e.target.value)} />
-                    <input style={input} placeholder="Average Temp" value={tankAverageTemp} onChange={(e) => setTankAverageTemp(e.target.value)} />
-                    <input style={input} placeholder="Observed Gravity" value={tankObservedGravity} onChange={(e) => setTankObservedGravity(e.target.value)} />
+                    <input style={input} placeholder="Shell Reference Temp (usually 60)" value={tankShellReferenceTemp} onChange={(e) => setTankShellReferenceTemp(e.target.value)} />
+                    <input style={input} placeholder="Shell Coefficient (carbon steel 0.0000062)" value={tankShellCoefficient} onChange={(e) => setTankShellCoefficient(e.target.value)} />
+                    <label style={{ ...input, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input type="checkbox" checked={tankIsInsulated} onChange={(e) => setTankIsInsulated(e.target.checked)} />
+                      Insulated tank (TSh = liquid temp)
+                    </label>
+                    <label style={{ ...input, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input type="checkbox" checked={tankAutoRoofCorrection} onChange={(e) => setTankAutoRoofCorrection(e.target.checked)} />
+                      Auto roof adjustment
+                    </label>
+                    <select style={input} value={tankRoofCorrectionMode} onChange={(e) => setTankRoofCorrectionMode(e.target.value)}>
+                      <option value="fra">FRA - roof already built into strapping table</option>
+                      <option value="frc">FRC - roof NOT built into strapping table</option>
+                      <option value="none">No roof correction</option>
+                    </select>
+                    {tankRoofCorrectionMode === 'fra' && (
+                      <>
+                        <input style={input} placeholder="Roof Reference API (example 35.0)" value={tankRoofReferenceApi} onChange={(e) => setTankRoofReferenceApi(e.target.value)} />
+                        <input style={input} placeholder="BBLS per 1.0 API (example 24.59)" value={tankRoofBblPerApi} onChange={(e) => setTankRoofBblPerApi(e.target.value)} />
+                      </>
+                    )}
+                    {tankRoofCorrectionMode === 'frc' && (
+                      <input style={input} placeholder="Floating Roof Weight LBS" value={tankRoofWeightLbs} onChange={(e) => setTankRoofWeightLbs(e.target.value)} />
+                    )}
+                    <input style={input} placeholder="Roof Critical Gauge Decimal Feet (optional)" value={tankRoofCriticalGauge} onChange={(e) => setTankRoofCriticalGauge(e.target.value)} />
+                    <input style={input} placeholder="Manual Opening Roof Adj Override (+/- BBLS)" value={tankOpeningRoofAdjustment} onChange={(e) => setTankOpeningRoofAdjustment(e.target.value)} />
+                    <input style={input} placeholder="Manual Closing Roof Adj Override (+/- BBLS)" value={tankClosingRoofAdjustment} onChange={(e) => setTankClosingRoofAdjustment(e.target.value)} />
+                    <input style={input} placeholder="Observed Gravity / API" value={tankObservedGravity} onChange={(e) => setTankObservedGravity(e.target.value)} />
                     <input style={input} placeholder="Observed Temp" value={tankObservedTemp} onChange={(e) => setTankObservedTemp(e.target.value)} />
                     <input style={input} placeholder="S&W %" value={tankSwPercent} onChange={(e) => setTankSwPercent(e.target.value)} />
                   </div>
 
                   {selectedTank && tankClosingFeet !== '' && (
                     <div style={card}>
-                      <h4 style={{ marginTop: 0 }}>API 12.1 Tank Calculation Preview</h4>
-                      <div style={{ color: '#a8b3bd', fontSize: 12, marginBottom: 10 }}>
-                        FRA/roof data is taken from the selected strapping chart/leg. FRA = roof weight ÷ (350.16 × reference SG) minus roof weight ÷ (350.16 × actual SG).
-                      </div>
-
-                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 12 }}>
-                        <div style={box}><div style={{ color: '#a8b3bd', fontSize: 11 }}>Transferred GOV</div><strong>{calculateTankTicketSnapshot(selectedTank).gov.toFixed(2)}</strong></div>
-                        <div style={box}><div style={{ color: '#a8b3bd', fontSize: 11 }}>Transferred GSV</div><strong>{calculateTankTicketSnapshot(selectedTank).gsv.toFixed(2)}</strong></div>
-                        <div style={box}><div style={{ color: '#a8b3bd', fontSize: 11 }}>Transferred NSV</div><strong style={{ color: '#86efac' }}>{calculateTankTicketSnapshot(selectedTank).nsv.toFixed(2)}</strong></div>
-                        <div style={box}><div style={{ color: '#a8b3bd', fontSize: 11 }}>Closing Water</div><strong>{calculateTankTicketSnapshot(selectedTank).closingPoint.fw.toFixed(2)}</strong></div>
-                      </div>
-
-                      <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                          <thead>
-                            <tr>
-                              <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid rgba(148,163,184,0.25)' }}>Description</th>
-                              <th style={{ textAlign: 'right', padding: 8, borderBottom: '1px solid rgba(148,163,184,0.25)' }}>Opening Previous</th>
-                              <th style={{ textAlign: 'right', padding: 8, borderBottom: '1px solid rgba(148,163,184,0.25)' }}>Closing Calculated</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr><td style={{ padding: 8 }}>Gauge</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).openingGaugeDecimal.toFixed(4)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingGaugeDecimal.toFixed(4)}</td></tr>
-                            <tr><td style={{ padding: 8 }}>TOV</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).openingPoint.tov.toFixed(2)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingPoint.tov.toFixed(2)}</td></tr>
-                            <tr><td style={{ padding: 8 }}>Free Water</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).openingPoint.fw.toFixed(2)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingPoint.fw.toFixed(2)}</td></tr>
-                            <tr><td style={{ padding: 8 }}>CTSh / Shell Temp</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).ctsh.toFixed(5)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).tankShellTemp.toFixed(1)} °F</td></tr>
-                            <tr><td style={{ padding: 8 }}>FRA / Roof Adj</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).openingPoint.roofAdjustmentBbl.toFixed(2)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingPoint.roofAdjustmentBbl.toFixed(2)}</td></tr>
-                            <tr><td style={{ padding: 8 }}>GOV</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).openingPoint.gov.toFixed(2)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingPoint.gov.toFixed(2)}</td></tr>
-                            <tr><td style={{ padding: 8 }}>GSV</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).openingGsv.toFixed(2)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingGsv.toFixed(2)}</td></tr>
-                            <tr><td style={{ padding: 8 }}>NSV</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).openingNsv.toFixed(2)}</td><td style={{ textAlign: 'right', padding: 8 }}>{calculateTankTicketSnapshot(selectedTank).closingNsv.toFixed(2)}</td></tr>
-                          </tbody>
-                        </table>
-                      </div>
-
-                      <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 10 }}>
-                        Strap / Leg: {calculateTankTicketSnapshot(selectedTank).selectedCalibration ? getTankCalibrationLabel(calculateTankTicketSnapshot(selectedTank).selectedCalibration) : 'None'} •
-                        Roof Wt: {Number(calculateTankTicketSnapshot(selectedTank).roofConfig.roofWeightLbs || 0).toFixed(0)} lbs •
-                        Ref SG: {Number(calculateTankTicketSnapshot(selectedTank).roofConfig.referenceSg || 0).toFixed(5)} •
-                        Actual SG: {apiToSpecificGravity(Number(tankObservedGravity || 0)).toFixed(5)} •
-                        API @60: {calculateTankTicketSnapshot(selectedTank).corrections.api_gravity_60.toFixed(1)} •
-                        CTL/CTPL: {calculateTankTicketSnapshot(selectedTank).ctl.toFixed(5)} •
-                        CSW: {(1 - calculateTankTicketSnapshot(selectedTank).swDecimal).toFixed(5)}
-                      </div>
+                      <h4>Tank Calculation Preview</h4>
+                      <div>Opening Gauge: {calculateTankTicketSnapshot(selectedTank).openingGaugeDecimal.toFixed(4)}</div>
+                      <div>Closing Gauge: {calculateTankTicketSnapshot(selectedTank).closingGaugeDecimal.toFixed(4)}</div>
+                      <div>Opening TOV: {calculateTankTicketSnapshot(selectedTank).openingPoint.tov.toFixed(2)}</div>
+                      <div>Closing TOV: {calculateTankTicketSnapshot(selectedTank).closingPoint.tov.toFixed(2)}</div>
+                      <div>Opening Free Water: {calculateTankTicketSnapshot(selectedTank).openingPoint.fw.toFixed(2)}</div>
+                      <div>Closing Free Water: {calculateTankTicketSnapshot(selectedTank).closingPoint.fw.toFixed(2)}</div>
+                      <div>Tank Shell Temp: {calculateTankTicketSnapshot(selectedTank).tankShellTemp.toFixed(1)}</div>
+                      <div>CTSh: {calculateTankTicketSnapshot(selectedTank).ctsh.toFixed(5)}</div>
+                      <div>Roof Mode: {tankRoofCorrectionMode.toUpperCase()} {tankAutoRoofCorrection ? '(Auto)' : '(Manual/Off)'}</div>
+                      <div>Opening Roof Adj: {calculateTankTicketSnapshot(selectedTank).openingPoint.roofAdjustmentBbl.toFixed(2)}</div>
+                      <div>Closing Roof Adj: {calculateTankTicketSnapshot(selectedTank).closingPoint.roofAdjustmentBbl.toFixed(2)}</div>
+                      <div>Opening GOV: {calculateTankTicketSnapshot(selectedTank).openingPoint.gov.toFixed(2)}</div>
+                      <div>Closing GOV: {calculateTankTicketSnapshot(selectedTank).closingPoint.gov.toFixed(2)}</div>
+                      <div>Transferred GOV: {calculateTankTicketSnapshot(selectedTank).gov.toFixed(2)}</div>
+                      <div>API @60: {calculateTankTicketSnapshot(selectedTank).corrections.api_gravity_60.toFixed(1)}</div>
+                      <div>CTL/CTPL: {calculateTankTicketSnapshot(selectedTank).ctl.toFixed(5)}</div>
+                      <div>GSV: {calculateTankTicketSnapshot(selectedTank).gsv.toFixed(2)}</div>
+                      <div>CSW: {(1 - calculateTankTicketSnapshot(selectedTank).swDecimal).toFixed(5)}</div>
+                      <div>NSV: {calculateTankTicketSnapshot(selectedTank).nsv.toFixed(2)}</div>
+                      <div>Deadwood Opening Adj: {getDeadwoodAdjustment(selectedTank, calculateTankTicketSnapshot(selectedTank).openingGaugeDecimal).toFixed(2)} bbl</div>
+                      <div>Deadwood Closing Adj: {getDeadwoodAdjustment(selectedTank, calculateTankTicketSnapshot(selectedTank).closingGaugeDecimal).toFixed(2)} bbl</div>
                     </div>
                   )}
                 </div>

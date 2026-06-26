@@ -612,7 +612,6 @@ function App() {
   const [potQueueSegmentFilter, setPotQueueSegmentFilter] = useState('')
   const [provingQueueMonthFilter, setProvingQueueMonthFilter] = useState('')
   const [provingQueueSegmentFilter, setProvingQueueSegmentFilter] = useState('')
-  const [operationsTab, setOperationsTab] = useState<'overview' | 'provings' | 'readings' | 'balance'>('overview')
   const [hierarchySegmentId, setHierarchySegmentId] = useState('')
   const [hierarchyAreaId, setHierarchyAreaId] = useState('')
   const [hierarchyLeaseId, setHierarchyLeaseId] = useState('')
@@ -10417,7 +10416,6 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
     { key: 'reports', label: 'Reports', description: 'Reports Center' },
     { key: 'system_health', label: 'System Health', description: 'Setup checks' },
     ...(canViewAdmin ? [{ key: 'admin', label: 'Admin', description: 'Company setup and imports' }] : []),
-    { key: 'operations', label: 'Operations', description: 'Over / short and alerts' },
   ]
 
   function openMobileModule(moduleKey: string) {
@@ -11313,7 +11311,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
           </div>
         </div>
 
-        {['dashboard', 'admin', 'operations', 'reports', 'readings', 'pot', 'pot_map', 'contracts', 'api_engine', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
+        {['dashboard', 'admin', 'reports', 'readings', 'pot', 'pot_map', 'contracts', 'api_engine', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
           <button key={p} onClick={() => { setPage(p); setMobileNavOpen(false) }} style={button}>
             {p === 'pot_map' ? 'POT MAP' : p === 'contracts' ? 'CONTRACTS' : p === 'api_engine' ? 'API ENGINE' : p.toUpperCase()}
           </button>
@@ -11462,7 +11460,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 <h1 style={{ marginBottom: 4 }}>Dashboard</h1>
                 <div style={{ color: '#a8b3bd', fontSize: 13 }}>Measurement closeout command center • {companySettings?.company_name || getCompanyDisplayName() || 'Measurement Database'}</div>
               </div>
-              <button style={{ ...button, width: 'auto', padding: '10px 14px' }} onClick={() => setPage('operations')}>Open Balance Center</button>
+              <button style={{ ...button, width: 'auto', padding: '10px 14px' }} onClick={() => setPage('reports')}>Open Reports Center</button>
             </div>
 
             <div style={{ ...box, background: `linear-gradient(135deg, ${accentRgba(0.24)}, rgba(15,23,42,0.96))`, border: `1px solid ${accentRgba(0.45)}` }}>
@@ -13872,291 +13870,13 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
         )}
 
         {page === 'operations' && (
-          <>
-            <h1>Operations Intelligence</h1>
-            <p style={{ color: '#a8b3bd', marginTop: -8 }}>
-              One clean command center for proving compliance, reading freshness, and segment over/short.
+          <div style={box}>
+            <h1>Operations Removed</h1>
+            <p style={{ color: '#a8b3bd' }}>
+              This tab was removed to keep the app clean. Balance, proving, reading, POT, and report data now lives in their dedicated modules.
             </p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 16 }}>
-              {[
-                { key: 'overview', label: 'Overview' },
-                { key: 'provings', label: 'Proving Watchlist' },
-                { key: 'readings', label: 'Reading Freshness' },
-                { key: 'balance', label: 'Segment O/S' },
-              ].map((tab: any) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  style={{
-                    ...button,
-                    background: operationsTab === tab.key ? 'linear-gradient(135deg,#ef4444,#7f1d1d)' : 'rgba(15,23,42,0.92)',
-                    border: operationsTab === tab.key ? '1px solid #ef4444' : '1px solid #22303c',
-                    boxShadow: operationsTab === tab.key ? '0 0 18px rgba(239,68,68,0.28)' : 'none',
-                  }}
-                  onClick={() => setOperationsTab(tab.key)}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {operationsTab === 'overview' && (
-              <>
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
-                  <div style={kpiCard}>
-                    <div style={{ color: '#a8b3bd', fontSize: 13 }}>Proving Compliance</div>
-                    <div style={{ fontSize: 34, fontWeight: 900 }}>{opsProvingCompliancePercent}%</div>
-                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>{opsCompliantMeters.length} of {getScopedMeters().length} meters</div>
-                  </div>
-                  <div style={kpiCard}>
-                    <div style={{ color: '#a8b3bd', fontSize: 13 }}>Overdue Proving</div>
-                    <div style={{ fontSize: 34, fontWeight: 900, color: opsOverdueMeters.length ? '#fecaca' : '#bbf7d0' }}>{opsOverdueMeters.length}</div>
-                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>Needs attention</div>
-                  </div>
-                  <div style={kpiCard}>
-                    <div style={{ color: '#a8b3bd', fontSize: 13 }}>Due Soon</div>
-                    <div style={{ fontSize: 34, fontWeight: 900 }}>{opsDueSoonMeters.length}</div>
-                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>Within 7 days</div>
-                  </div>
-                  <div style={kpiCard}>
-                    <div style={{ color: '#a8b3bd', fontSize: 13 }}>Stale Readings</div>
-                    <div style={{ fontSize: 34, fontWeight: 900 }}>{staleReadingMeters.length}</div>
-                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>No recent reading</div>
-                  </div>
-                </div>
-
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div style={box}>
-                    <h2>What Needs Attention</h2>
-                    <div style={card}><strong>{opsOverdueMeters.length}</strong> overdue proving{opsOverdueMeters.length === 1 ? '' : 's'}</div>
-                    <div style={card}><strong>{opsDueSoonMeters.length}</strong> proving{opsDueSoonMeters.length === 1 ? '' : 's'} due soon</div>
-                    <div style={card}><strong>{staleReadingMeters.length}</strong> stale reading{staleReadingMeters.length === 1 ? '' : 's'}</div>
-                  </div>
-                  <div style={box}>
-                    <h2>Quick Actions</h2>
-                    <button style={button} onClick={() => setOperationsTab('provings')}>Review Proving Watchlist</button>
-                    <button style={button} onClick={() => setOperationsTab('readings')}>Review Reading Freshness</button>
-                    <button style={button} onClick={() => setOperationsTab('balance')}>Open Segment O/S</button>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {operationsTab === 'provings' && (
-              <div style={box}>
-                <h2>Proving Watchlist</h2>
-                <p style={{ color: '#a8b3bd' }}>
-                  Lease name is shown first. Meter number is shown as supporting detail.
-                </p>
-
-                <details open style={{ ...card, padding: 0, overflow: 'hidden', marginBottom: 12 }}>
-                  <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 900, background: 'rgba(239,68,68,0.12)' }}>
-                    Overdue • {opsOverdueMeters.length}
-                  </summary>
-                  <div style={{ display: 'grid', gap: 10, padding: 12 }}>
-                    {opsOverdueMeters.length === 0 && <div style={card}>No overdue provings found.</div>}
-                    {(opsOverdueMeters as any[]).map((item: any) => {
-                      const label = getMeterDisplayName(item.meter)
-                      return (
-                        <div key={item.meter.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1fr 130px 130px auto', gap: 12, alignItems: 'center', margin: 0 }}>
-                          <div>
-                            <strong>{label.main}</strong>
-                            <div style={{ color: '#a8b3bd', fontSize: 12 }}>{label.secondary || item.meter.meter_number || item.meter.id}</div>
-                            <div style={{ color: '#a8b3bd', fontSize: 12 }}>Last proving: {item.provingDate || 'None'}</div>
-                          </div>
-                          <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Age</div><strong>{item.provingAgeDays === null ? 'None' : `${item.provingAgeDays} days`}</strong></div>
-                          <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Frequency</div><strong>{item.provingFrequencyDays} days</strong></div>
-                          <button style={button} onClick={() => setPage('provings')}>Open</button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </details>
-
-                <details style={{ ...card, padding: 0, overflow: 'hidden' }}>
-                  <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 900, background: 'rgba(245,158,11,0.12)' }}>
-                    Due Soon • {opsDueSoonMeters.length}
-                  </summary>
-                  <div style={{ display: 'grid', gap: 10, padding: 12 }}>
-                    {opsDueSoonMeters.length === 0 && <div style={card}>Nothing due soon.</div>}
-                    {(opsDueSoonMeters as any[]).map((item: any) => {
-                      const label = getMeterDisplayName(item.meter)
-                      return (
-                        <div key={item.meter.id} style={{ ...card, margin: 0 }}>
-                          <strong>{label.main}</strong>
-                          <div style={{ color: '#a8b3bd', fontSize: 12 }}>{label.secondary || item.meter.meter_number || item.meter.id}</div>
-                          <div style={{ color: '#a8b3bd', fontSize: 12 }}>Last proving: {item.provingDate || 'None'}</div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </details>
-              </div>
-            )}
-
-            {operationsTab === 'readings' && (
-              <div style={box}>
-                <h2>Reading Freshness</h2>
-                <p style={{ color: '#a8b3bd' }}>
-                  Meters without recent readings are listed by lease name first.
-                </p>
-                <details open style={{ ...card, padding: 0, overflow: 'hidden' }}>
-                  <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 900, background: 'rgba(59,130,246,0.12)' }}>
-                    Stale Readings • {staleReadingMeters.length}
-                  </summary>
-                  <div style={{ display: 'grid', gap: 10, padding: 12 }}>
-                    {staleReadingMeters.length === 0 && <div style={card}>All meters have recent readings.</div>}
-                    {(staleReadingMeters as any[]).map((item: any) => {
-                      const label = getMeterDisplayName(item.meter)
-                      return (
-                        <div key={item.meter.id} style={{ ...card, margin: 0, display: 'grid', gridTemplateColumns: '1fr 160px auto', gap: 12, alignItems: 'center' }}>
-                          <div>
-                            <strong>{label.main}</strong>
-                            <div style={{ color: '#a8b3bd', fontSize: 12 }}>{label.secondary || item.meter.meter_number || item.meter.id}</div>
-                          </div>
-                          <div><div style={{ color: '#a8b3bd', fontSize: 12 }}>Last Reading</div><strong>{item.readingDate || 'None'}</strong></div>
-                          <button style={button} onClick={() => setPage('readings')}>Open Readings</button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </details>
-              </div>
-            )}
-
-            {operationsTab === 'balance' && (
-              <div style={box}>
-                <h2>Segment-Based Over / Short Detail Engine</h2>
-                <p style={{ color: '#a8b3bd' }}>
-                  Approved tickets only. Uses meter roles, tank/line fill entries, truck tickets, check meter groups, and butane shrinkage adjustments.
-                </p>
-
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                  <input style={input} type="date" value={overShortStartDate} onChange={(e) => setOverShortStartDate(e.target.value)} />
-                  <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
-                  <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
-                    <option value="">All Segments</option>
-                    {segments.map((segment: any) => (
-                      <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-                  <button style={button} onClick={exportOverShortCsv}>Export CSV</button>
-                  <button style={button} onClick={exportOverShortExcel}>Export Excel Spreadsheet</button>
-                </div>
-
-                {userCanManageCompanySetup && (
-                  <details style={{ ...card, padding: 0, overflow: 'hidden', marginTop: 12 }}>
-                    <summary style={{ padding: 14, cursor: 'pointer', fontWeight: 900 }}>Segment Balance Modules</summary>
-                    <div style={{ display: 'grid', gap: 8, padding: 12 }}>
-                      {segments.map((segment: any) => {
-                        const enabled = segmentHasButaneBlendEnabled(segment.id)
-                        return (
-                          <label key={segment.id} style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#e5e7eb' }}>
-                            <input type="checkbox" checked={enabled} onChange={(e) => toggleSegmentButaneBlend(segment.id, e.target.checked)} />
-                            <strong>{segment.name || segment.segment_name}</strong>
-                            <span style={{ color: '#a8b3bd' }}>Butane Blend / API MPMS 12.3 Shrinkage</span>
-                          </label>
-                        )
-                      })}
-                    </div>
-                  </details>
-                )}
-
-                <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
-                  {getOverShortRows().map((row: any) => (
-                    <div key={row.segment.id} style={card}>
-                      <h3>{row.segment.name || row.segment.segment_name}</h3>
-                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
-                        <div>Receipts: <strong>{row.receipts.toFixed(2)}</strong></div>
-                        <div>Deliveries: <strong>{row.deliveries.toFixed(2)}</strong></div>
-                        <div>Truck Tickets: <strong>{row.truckTickets.toFixed(2)}</strong></div>
-                        <div>Tank Change: <strong>{row.tankChange.toFixed(2)}</strong></div>
-                        <div>Line Fill: <strong>{row.lineFillChange.toFixed(2)}</strong></div>
-                        {row.butaneEnabled && <div>Blend %: <strong>{row.butaneBlendPercent.toFixed(4)}%</strong></div>}
-                        {row.butaneEnabled && <div>Shrinkage: <strong>{row.butaneShrinkageBbl.toFixed(2)}</strong></div>}
-                        <div><strong>O/S: {row.overShort.toFixed(2)}</strong></div>
-                      </div>
-
-                      {row.checkGroupRows?.length > 0 && (
-                        <details style={{ marginTop: 10 }}>
-                          <summary style={{ cursor: 'pointer', fontWeight: 800 }}>Check Meter Groups</summary>
-                          <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
-                            {row.checkGroupRows.map((group: any) => (
-                              <div key={group.group.id} style={{ color: '#a8b3bd' }}>
-                                {group.group.name}: Assigned {group.assignedTotal.toFixed(2)} / Check {group.checkTotal.toFixed(2)} / Diff {group.difference.toFixed(2)} ({group.differencePercent.toFixed(4)}%)
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      )}
-
-                      {row.stationEquationRows?.length > 0 && (
-                        <details style={{ marginTop: 10 }}>
-                          <summary style={{ cursor: 'pointer', fontWeight: 800 }}>Station / Balance Equations</summary>
-                          <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
-                            {row.stationEquationRows.map((equation: any) => (
-                              <div key={equation.equation.id} style={{ color: '#a8b3bd' }}>
-                                {equation.equation.name}: Side A {equation.sideA.toFixed(2)} / Side B {equation.sideB.toFixed(2)} / Diff {equation.difference.toFixed(2)} ({equation.differencePercent.toFixed(4)}%)
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        {page === 'system_health' && (
-          <>
-            <h1>System Health</h1>
-
-            <div style={box}>
-              <h2>Setup Validation</h2>
-              <p style={{ color: '#a8b3bd' }}>
-                Checks Supabase tables, storage, company branding, meter roles, tank charts, pending tickets, inventory posting, and Flow-X setup.
-              </p>
-
-              <button style={button} disabled={systemHealthRunning} onClick={runSystemHealthCheck}>
-                {systemHealthRunning ? 'Running Checks...' : 'Run System Health Check'}
-              </button>
-            </div>
-
-            <div style={{ display: 'grid', gap: 10 }}>
-              {systemHealthChecks.length === 0 && (
-                <div style={card}>
-                  No checks have been run yet.
-                </div>
-              )}
-
-              {systemHealthChecks.map((check: any, index: number) => (
-                <div
-                  key={`${check.name}-${index}`}
-                  style={{
-                    ...card,
-                    borderColor: check.severity === 'error' ? '#ef4444' : check.severity === 'warning' ? '#f59e0b' : '#22c55e',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                    <strong>{check.name}</strong>
-                    <span>
-                      {check.severity === 'error' ? '❌' : check.severity === 'warning' ? '⚠️' : '✅'}
-                    </span>
-                  </div>
-                  <div style={{ color: '#a8b3bd', marginTop: 6 }}>
-                    {check.detail}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
+            <button style={{ ...button, width: 'auto' }} onClick={() => setPage('dashboard')}>Go to Dashboard</button>
+          </div>
         )}
 
         {page === 'reports' && (

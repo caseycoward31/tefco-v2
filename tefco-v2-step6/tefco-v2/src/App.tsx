@@ -6048,16 +6048,23 @@ async function createCompany() {
 
         if (!Number.isFinite(gaugeDecimal) || !Number.isFinite(barrels)) return null
 
+        const gaugeFeet = row.gauge_feet ?? row.feet ?? null
+        const gaugeInches = row.gauge_inches ?? row.inches ?? null
+        const gaugeFractionRaw = row.gauge_fraction ?? row.fraction ?? null
+        const incrementRaw = row.increment ?? row.increment_bbl ?? null
+        const gaugeFraction = gaugeFractionRaw === '' || gaugeFractionRaw === undefined ? null : gaugeFractionRaw
+        const incrementBbl = incrementRaw === '' || incrementRaw === undefined ? null : incrementRaw
+
         return {
           company_id: activeCompanyID,
           tank_id: selectedStrappingTankId,
           calibration_version_id: version.id,
           gauge_decimal: gaugeDecimal,
-          gauge_feet: row.gauge_feet ?? row.feet ?? null,
-          gauge_inches: row.gauge_inches ?? row.inches ?? null,
-          gauge_fraction: row.gauge_fraction ?? row.fraction ?? null,
+          gauge_feet: gaugeFeet === '' || gaugeFeet === undefined ? null : gaugeFeet,
+          gauge_inches: gaugeInches === '' || gaugeInches === undefined ? null : gaugeInches,
+          gauge_fraction: gaugeFraction,
           barrels,
-          increment_bbl: row.increment ?? row.increment_bbl ?? null,
+          increment_bbl: incrementBbl,
           notes: row.notes || null,
         }
       })

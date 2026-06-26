@@ -652,6 +652,10 @@ function App() {
   const [newTankNumber, setNewTankNumber] = useState('')
   const [newTankName, setNewTankName] = useState('')
   const [newTankSegmentId, setNewTankSegmentId] = useState('')
+  const [editingTankId, setEditingTankId] = useState('')
+  const [editingTankNumber, setEditingTankNumber] = useState('')
+  const [editingTankName, setEditingTankName] = useState('')
+  const [editingTankSegmentId, setEditingTankSegmentId] = useState('')
   const [newLineFillName, setNewLineFillName] = useState('')
   const [newLineFillSegmentId, setNewLineFillSegmentId] = useState('')
   const [newLineFillCapacity, setNewLineFillCapacity] = useState('')
@@ -5564,6 +5568,50 @@ async function createCompany() {
     setNewTankSegmentId('')
     await loadAll()
   }
+
+  function startEditTankAsset(tank: any) {
+    setEditingTankId(String(tank.id || ''))
+    setEditingTankNumber(String(tank.tank_number || ''))
+    setEditingTankName(String(tank.tank_name || ''))
+    setEditingTankSegmentId(String(tank.segment_id || ''))
+  }
+
+  function cancelEditTankAsset() {
+    setEditingTankId('')
+    setEditingTankNumber('')
+    setEditingTankName('')
+    setEditingTankSegmentId('')
+  }
+
+  async function updateTankAsset() {
+    if (!editingTankId) {
+      alert('Select a tank to edit.')
+      return
+    }
+
+    if (!editingTankNumber) {
+      alert('Tank number is required.')
+      return
+    }
+
+    const { error } = await supabase
+      .from('tanks')
+      .update({
+        tank_number: editingTankNumber,
+        tank_name: editingTankName || null,
+        segment_id: editingTankSegmentId || null,
+      })
+      .eq('id', editingTankId)
+
+    if (error) {
+      alert('Could not update tank: ' + error.message)
+      return
+    }
+
+    cancelEditTankAsset()
+    await loadAll()
+  }
+
 
   async function createLineFillAsset() {
     if (!newLineFillName) {
@@ -12257,7 +12305,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
 
                       <select style={input} value={flowxDefaultSegmentId} onChange={(e) => setFlowxDefaultSegmentId(e.target.value)}>
                         <option value="">Default Segment</option>
-                        {segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                        {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
                       </select>
 
                       <div style={card}>
@@ -12350,6 +12398,77 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                             {segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
                           </select>
                           <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Creating line fill', createLineFillAsset)}>Create Line Fill</button>
+                        </div>
+                      </div>
+
+                      <div style={card}>
+                        <h4>Edit Uploaded Tanks / Assign Segment</h4>
+                        <p style={{ color: '#a8b3bd' }}>
+                          Use this when a tank was created or imported but is not tied to the right segment. The tank ticket segment filter uses this assignment.
+                        </p>
+
+                        <select
+                          style={input}
+                          value={editingTankId}
+                          onChange={(e) => {
+                            const tank = tanks.find((item: any) => String(item.id) === e.target.value)
+                            if (tank) startEditTankAsset(tank)
+                            else cancelEditTankAsset()
+                          }}
+                        >
+                          <option value="">Select Tank to Edit</option>
+                          {tanks.map((tank: any) => {
+                            const segment = segments.find((item: any) => String(item.id) === String(tank.segment_id || ''))
+                            return (
+                              <option key={tank.id} value={tank.id}>
+                                {tank.tank_number} {tank.tank_name ? `- ${tank.tank_name}` : ''} {segment ? `• ${segment.name || segment.segment_name}` : '• No Segment'}
+                              </option>
+                            )
+                          })}
+                        </select>
+
+                        {editingTankId && (
+                          <>
+                            <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                              <input style={input} placeholder="Tank Number" value={editingTankNumber} onChange={(e) => setEditingTankNumber(e.target.value)} />
+                              <input style={input} placeholder="Tank Name" value={editingTankName} onChange={(e) => setEditingTankName(e.target.value)} />
+                            </div>
+
+                            <select style={input} value={editingTankSegmentId} onChange={(e) => setEditingTankSegmentId(e.target.value)}>
+                              <option value="">No Segment / Unassigned</option>
+                              {segments.map((segment: any) => (
+                                <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
+                              ))}
+                            </select>
+
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              <button disabled={isActionRunning} style={{ ...button, width: 'auto' }} onClick={() => runSafeAction('Updating tank', updateTankAsset)}>
+                                Save Tank Changes
+                              </button>
+                              <button type="button" style={{ ...button, width: 'auto', background: '#374151' }} onClick={cancelEditTankAsset}>
+                                Cancel
+                              </button>
+                            </div>
+                          </>
+                        )}
+
+                        <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                          {tanks.map((tank: any) => {
+                            const segment = segments.find((item: any) => String(item.id) === String(tank.segment_id || ''))
+                            return (
+                              <div key={tank.id} className="ticket-queue-card">
+                                <div>
+                                  <strong>{tank.tank_number} {tank.tank_name ? `- ${tank.tank_name}` : ''}</strong>
+                                  <div style={{ color: '#a8b3bd', marginTop: 4 }}>
+                                    Segment: {segment?.name || segment?.segment_name || 'Unassigned'}
+                                  </div>
+                                </div>
+                                <button type="button" style={{ ...button, width: 120 }} onClick={() => startEditTankAsset(tank)}>
+                                  Edit
+                                </button>
+                              </div>
+                            )
+                          })}
                         </div>
                       </div>
 

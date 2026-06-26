@@ -4750,12 +4750,25 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       const roofWeight = tankNum(observed.tank_roof_weight_lbs, calc.tank_roof_weight_lbs, tankCalibration?.roof_weight_lbs)
       const referenceApi = tankNum(observed.tank_roof_reference_api, calc.tank_roof_reference_api, tankCalibration?.roof_reference_api)
       const referenceSg = tankNum(observed.tank_roof_reference_sg, calc.tank_roof_reference_sg, tankCalibration?.roof_reference_sg)
-      const api60 = tankNum(calc.api_gravity_60, observed.api_gravity_60, calc.api_gravity, observed.api_gravity)
-      const observedApi = tankNum(observed.observed_api_gravity, observed.tank_observed_gravity, observed.api_observed)
-      const observedTemp = tankNum(observed.observed_temperature, observed.tank_observed_temp, observed.temperature)
+      const api60 = tankNum(calc.api_gravity_60, observed.api_gravity_60, observed.tank_api_gravity_60, calc.api_gravity, observed.api_gravity)
+      const observedApi = tankNum(observed.observed_api_gravity, observed.tank_observed_gravity, observed.observed_gravity, observed.api_observed, observed.api_gravity_observed)
+      const observedTemp = tankNum(observed.observed_temperature, observed.tank_observed_temp, observed.observed_temp, observed.temperature)
       const averageTemp = tankNum(observed.tank_average_temp, observed.average_temperature, calc.average_temperature)
       const ambientTemp = tankNum(observed.tank_ambient_temp, observed.ambient_temperature)
-      const actualSg = api60 ? apiToSpecificGravity(api60) : null
+      const api60ForPdf = api60 || (
+        observedApi
+          ? Number(calculateApi11Corrections({
+              productGroup: 'crude',
+              observedApiGravity: Number(observedApi),
+              observedTemperature: Number(observedTemp || averageTemp || 60),
+              observedPressure: 0,
+              averageTemperature: Number(averageTemp || observedTemp || 60),
+              averagePressure: 0,
+              apiRounding: 1,
+            }).api_gravity_60 || observedApi)
+          : null
+      )
+      const actualSg = api60ForPdf ? apiToSpecificGravity(api60ForPdf) : null
       const swPercent = tankNum(calc.bsw_percent, observed.bsw_percent, observed.bsw, observed.tank_sw_percent)
       const cswValue = tankNum(calc.csw, observed.csw)
       const ctlValue = tankNum(calc.ctl, observed.ctl, calc.ccf, observed.ccf)
@@ -4773,45 +4786,45 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
   <title>${ticketNumber} Tank Ticket</title>
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; background: #eef1f5; color: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 11px; }
+    body { margin: 0; background: #eef1f5; color: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 9.5px; }
     .pdf-back-button { position: fixed; top: 10px; left: 10px; z-index: 9999; background: #c00000; color: white; border: none; border-radius: 8px; padding: 10px 16px; font-size: 14px; cursor: pointer; }
-    .page { width: 8.5in; min-height: 11in; margin: 0 auto; background: #fff; padding: 0.34in; }
-    .topbar { height: 6px; background: #c46a2b; margin: -0.34in -0.34in 0.2in; }
-    .header { display: grid; grid-template-columns: 1fr 260px; gap: 18px; border-bottom: 2px solid #111827; padding-bottom: 12px; margin-bottom: 10px; align-items: center; }
+    .page { width: 8.5in; min-height: 11in; margin: 0 auto; background: #fff; padding: 0.22in; }
+    .topbar { height: 6px; background: #c46a2b; margin: -0.22in -0.22in 0.12in; }
+    .header { display: grid; grid-template-columns: 1fr 220px; gap: 18px; border-bottom: 2px solid #111827; padding-bottom: 7px; margin-bottom: 6px; align-items: center; }
     .brand-row { display: flex; align-items: center; gap: 14px; }
-    .logo { width: 112px; max-height: 58px; object-fit: contain; }
-    .brand-title { font-size: 24px; font-weight: 900; margin-bottom: 3px; }
-    .brand-subtitle { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.4px; }
+    .logo { width: 88px; max-height: 42px; object-fit: contain; }
+    .brand-title { font-size: 19px; font-weight: 900; margin-bottom: 3px; }
+    .brand-subtitle { font-size: 9.5px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.4px; }
     .ticket-box { border: 2px solid #111827; padding: 10px 12px; text-align: right; }
     .ticket-box .label { color: #6b7280; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; }
-    .ticket-box .number { font-size: 18px; font-weight: 900; margin-top: 3px; }
+    .ticket-box .number { font-size: 15px; font-weight: 900; margin-top: 3px; }
     .status { display: inline-block; margin-top: 6px; padding: 4px 8px; border-radius: 999px; background: ${ticket.status === 'approved' ? '#dcfce7' : '#fef3c7'}; color: ${ticket.status === 'approved' ? '#166534' : '#92400e'}; font-weight: 800; text-transform: uppercase; font-size: 9px; }
-    .hero { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin: 10px 0; }
-    .hero-card { border: 2px solid #111827; padding: 9px; min-height: 70px; }
+    .hero { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin: 6px 0; }
+    .hero-card { border: 2px solid #111827; padding: 9px; min-height: 50px; }
     .hero-card.primary { background: #111827; color: #fff; }
     .hero-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; color: #6b7280; font-weight: 800; }
     .hero-card.primary .hero-label { color: #d1d5db; }
-    .hero-value { font-size: 21px; font-weight: 900; margin-top: 6px; }
+    .hero-value { font-size: 17px; font-weight: 900; margin-top: 6px; }
     .hero-sub { font-size: 10px; margin-top: 4px; color: #6b7280; }
     .hero-card.primary .hero-sub { color: #d1d5db; }
-    .section { border: 1px solid #d1d5db; margin-top: 9px; break-inside: avoid; }
-    .section-title { background: #111827; color: #fff; font-weight: 900; padding: 7px 9px; text-transform: uppercase; letter-spacing: 0.7px; font-size: 9.5px; }
+    .section { border: 1px solid #d1d5db; margin-top: 5px; break-inside: avoid; }
+    .section-title { background: #111827; color: #fff; font-weight: 900; padding: 4px 6px; text-transform: uppercase; letter-spacing: 0.7px; font-size: 9.5px; }
     .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; }
     .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; }
-    .cell { padding: 6px 8px; border-right: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; min-height: 34px; }
+    .cell { padding: 4px 6px; border-right: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; min-height: 24px; }
     .grid-3 .cell:nth-child(3n), .grid-4 .cell:nth-child(4n) { border-right: 0; }
     .small-label { color: #6b7280; font-size: 8px; text-transform: uppercase; letter-spacing: 0.55px; margin-bottom: 3px; }
     .value { font-size: 11.5px; font-weight: 800; word-break: break-word; }
     table { width: 100%; border-collapse: collapse; }
-    th { background: #f3f4f6; text-align: left; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.5px; color: #374151; padding: 6px 7px; border-bottom: 1px solid #d1d5db; }
-    td { padding: 6px 7px; border-bottom: 1px solid #e5e7eb; font-weight: 700; }
+    th { background: #f3f4f6; text-align: left; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.5px; color: #374151; padding: 4px 5px; border-bottom: 1px solid #d1d5db; }
+    td { padding: 4px 5px; border-bottom: 1px solid #e5e7eb; font-weight: 700; }
     .right { text-align: right; }
-    .notes { white-space: pre-wrap; min-height: 34px; padding: 8px; }
-    .formula { font-family: 'Courier New', monospace; font-size: 10px; background: #f9fafb; border: 1px solid #e5e7eb; padding: 8px; margin-bottom: 4px; }
-    .signatures { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 22px; margin-top: 26px; }
-    .sig-line { border-top: 1px solid #111827; padding-top: 6px; color: #374151; font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; }
-    .footer { margin-top: 15px; border-top: 1px solid #d1d5db; padding-top: 7px; display: flex; justify-content: space-between; color: #6b7280; font-size: 9px; }
-    @media print { body { background: #fff; } .pdf-back-button { display: none; } .page { margin: 0; width: auto; min-height: auto; } @page { size: letter; margin: 0.28in; } }
+    .notes { white-space: pre-wrap; min-height: 24px; padding: 8px; }
+    .formula { font-family: 'Courier New', monospace; font-size: 10px; background: #f9fafb; border: 1px solid #e5e7eb; padding: 4px; margin-bottom: 3px; }
+    .signatures { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 22px; margin-top: 14px; }
+    .sig-line { border-top: 1px solid #111827; padding-top: 4px; color: #374151; font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; }
+    .footer { margin-top: 8px; border-top: 1px solid #d1d5db; padding-top: 4px; display: flex; justify-content: space-between; color: #6b7280; font-size: 9px; }
+    @media print { body { background: #fff; } .pdf-back-button { display: none; } .page { margin: 0; width: auto; min-height: auto; } @page { size: letter; margin: 0.18in; } }
   </style>
 </head>
 <body>
@@ -4867,7 +4880,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     <div class="section"><div class="section-title">Correction Factors / Product Quality</div><div class="grid-4">
       <div class="cell"><div class="small-label">Observed API</div><div class="value">${fmtNum(observedApi, 2)}</div></div>
       <div class="cell"><div class="small-label">Observed Temp °F</div><div class="value">${fmtNum(observedTemp, 2)}</div></div>
-      <div class="cell"><div class="small-label">API @60</div><div class="value">${fmtNum(api60, 1)}</div></div>
+      <div class="cell"><div class="small-label">API @60</div><div class="value">${fmtNum(api60ForPdf, 1)}</div></div>
       <div class="cell"><div class="small-label">Actual SG @60</div><div class="value">${fmtNum(actualSg, 6)}</div></div>
       <div class="cell"><div class="small-label">Average Liquid Temp</div><div class="value">${fmtNum(averageTemp, 2)}</div></div>
       <div class="cell"><div class="small-label">Ambient Temp</div><div class="value">${fmtNum(ambientTemp, 2)}</div></div>
@@ -4890,10 +4903,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       <div class="cell"><div class="small-label">Critical End</div><div class="value">${fmtNum(criticalGaugeEnd, 4)} ft</div></div>
     </div></div>
 
-    <div class="section"><div class="section-title">Calculation Method</div><div class="notes">
-      <div class="formula">GOV = [(TOV − FW) × CTSh] ± FRA</div>
-      <div class="formula">GSV = GOV × CTL     NSV = GSV × CSW</div>
-      <div class="formula">FRA = Roof Weight ÷ (350.16 × Reference SG) − Roof Weight ÷ (350.16 × Actual SG)</div>
+    <div class="section"><div class="section-title">Calculation Method</div><div class="notes formula">
+      GOV = [(TOV − FW) × CTSh] ± FRA &nbsp; | &nbsp; GSV = GOV × CTL &nbsp; | &nbsp; NSV = GSV × CSW &nbsp; | &nbsp; FRA = RW ÷ (350.16 × Ref SG) − RW ÷ (350.16 × Actual SG)
     </div></div>
 
     <div class="section"><div class="section-title">Audit / Notes</div>
@@ -4962,7 +4973,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       object-fit: contain;
     }
     .brand-title {
-      font-size: 24px;
+      font-size: 19px;
       font-weight: 900;
       letter-spacing: 0.2px;
       margin-bottom: 4px;
@@ -5013,7 +5024,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       padding: 8px 10px;
       text-transform: uppercase;
       letter-spacing: 0.8px;
-      font-size: 11px;
+      font-size: 9.5px;
     }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; }
     .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; }
@@ -5039,7 +5050,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       word-break: break-word;
     }
     .volume {
-      font-size: 18px;
+      font-size: 15px;
       font-weight: 900;
     }
     table {
@@ -5075,9 +5086,9 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     }
     .sig-line {
       border-top: 1px solid #111827;
-      padding-top: 7px;
+      padding-top: 4px;
       color: #374151;
-      font-size: 11px;
+      font-size: 9.5px;
       text-transform: uppercase;
       letter-spacing: 0.7px;
     }

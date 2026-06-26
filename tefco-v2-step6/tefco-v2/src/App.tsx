@@ -853,6 +853,8 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [selectedMeter, setSelectedMeter] = useState('')
   const [selectedTicketArea, setSelectedTicketArea] = useState('')
   const [ticketType, setTicketType] = useState('meter')
+  const [refinedProductType, setRefinedProductType] = useState('')
+  const [refinedMovementDestination, setRefinedMovementDestination] = useState('')
   const [selectedTank, setSelectedTank] = useState('')
   const [selectedTankCalibrationVersionId, setSelectedTankCalibrationVersionId] = useState('')
   const [selectedLineFill, setSelectedLineFill] = useState('')
@@ -3722,6 +3724,44 @@ function handleProvingAreaSelect(areaId: string) {
     )
   }
 
+  function getSelectedTicketContractProfile() {
+    return getProducerProfile(contractProfiles, selectedProducer || null)
+  }
+
+  function getRefinedProductOptions() {
+    return [
+      'Gasoline',
+      'Diesel',
+      'Jet Fuel',
+      'Kerosene',
+      'Butane',
+      'Propane',
+      'Transmix',
+      'Other',
+    ]
+  }
+
+  function isRefinedTicketContext() {
+    const contractProfile = getSelectedTicketContractProfile()
+    const selectedMeterRow: any = asArray(meters).find((meter: any) => String(meter.id || '') === String(selectedMeter || ''))
+    const selectedProductGroup = String(contractProfile?.product_group || '').toLowerCase()
+    const selectedProductType = String(selectedMeterRow?.product_type || selectedMeterRow?.product || selectedMeterRow?.commodity || '').toLowerCase()
+    const selectedStandard = String(contractProfile?.standard || contractProfile?.calculation_method || '').toLowerCase()
+
+    return (
+      selectedProductGroup.includes('refined') ||
+      selectedProductGroup.includes('diesel') ||
+      selectedProductGroup.includes('gasoline') ||
+      selectedProductGroup.includes('butane') ||
+      selectedProductType.includes('refined') ||
+      selectedProductType.includes('diesel') ||
+      selectedProductType.includes('gasoline') ||
+      selectedProductType.includes('butane') ||
+      selectedStandard.includes('refined') ||
+      ticketType === 'truck'
+    )
+  }
+
   async function createTicket() {
     if (!companyId) return
 
@@ -3760,10 +3800,7 @@ function handleProvingAreaSelect(areaId: string) {
     const iv = tankTicketSnapshot
       ? Number(tankTicketSnapshot.gov || 0)
       : Number(closingReading || latestReading?.indicated_volume || 0)
-    const contractProfile = getProducerProfile(
-      contractProfiles,
-      selectedProducer || null
-    )
+    const contractProfile = getSelectedTicketContractProfile()
 
     const selectedContractStandard =
       contractProfile?.standard || profile?.standard || ''
@@ -3861,6 +3898,8 @@ function handleProvingAreaSelect(areaId: string) {
         selected_calculation_method: selectedCalculationMethod,
         selected_product_group: selectedProductGroup,
         selected_factor_type: selectedFactorType,
+        refined_product_type: refinedProductType || null,
+        refined_destination: refinedMovementDestination || null,
       },
       api_chapter: profile?.standard || null,
       calculation_method: corrections.api_engine,
@@ -3956,6 +3995,11 @@ function handleProvingAreaSelect(areaId: string) {
         contract_profile_name: contractProfile?.name || null,
         calculation_method: selectedCalculationMethod,
         product_group: selectedProductGroup,
+        refined_product_type: refinedProductType || null,
+        product_type: refinedProductType || selectedProductGroup || null,
+        refined_destination: refinedMovementDestination || null,
+        movement_destination: refinedMovementDestination || null,
+        destination: refinedMovementDestination || null,
         shrink_factor: shrinkFactor,
         product_sub_group: corrections.product_sub_group,
       },
@@ -3985,6 +4029,10 @@ function handleProvingAreaSelect(areaId: string) {
         sw_percent: bswPercent,
         csw,
         product_sub_group: corrections.product_sub_group,
+        refined_product_type: refinedProductType || null,
+        product_type: refinedProductType || selectedProductGroup || null,
+        refined_destination: refinedMovementDestination || null,
+        movement_destination: refinedMovementDestination || null,
         formula_profile: isApi12 ? 'API 12 2021' : 'API 11.1',
       },
     }
@@ -4068,6 +4116,8 @@ function handleProvingAreaSelect(areaId: string) {
     setSelectedLease('')
     setSelectedMeter('')
     setManualClosingReading('')
+    setRefinedProductType('')
+    setRefinedMovementDestination('')
     setAutofillPreview(null)
     loadAll()
   }
@@ -4295,6 +4345,8 @@ function handleProvingAreaSelect(areaId: string) {
       mf: ticketEditString(calc.mf ?? observed.mf),
       gsv: ticketEditString(calc.gsv ?? observed.gsv),
       nsv: ticketEditString(calc.nsv ?? observed.nsv ?? observed.net_volume_bbl),
+      refined_product_type: ticketEditString(observed.refined_product_type ?? calc.refined_product_type ?? observed.product_type),
+      refined_destination: ticketEditString(observed.refined_destination ?? calc.refined_destination ?? observed.movement_destination ?? observed.destination),
       net_volume_adjustment_bbl: ticketEditString(calc.net_volume_adjustment_bbl ?? observed.net_volume_adjustment_bbl ?? observed.manual_net_volume_adjustment_bbl ?? 0),
       net_volume_adjustment_reason: ticketEditString(observed.net_volume_adjustment_reason ?? calc.net_volume_adjustment_reason ?? ''),
       open_date: ticketEditString(observed.open_date),
@@ -4430,6 +4482,11 @@ function handleProvingAreaSelect(areaId: string) {
       net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
       manual_net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
       net_volume_adjustment_reason: netVolumeAdjustmentReason || null,
+      refined_product_type: values.refined_product_type || null,
+      product_type: values.refined_product_type || observed.product_type || null,
+      refined_destination: values.refined_destination || null,
+      movement_destination: values.refined_destination || null,
+      destination: values.refined_destination || null,
       open_date: values.open_date || null,
       open_time: values.open_time || null,
       close_date: values.close_date || null,
@@ -4489,6 +4546,10 @@ function handleProvingAreaSelect(areaId: string) {
       net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
       manual_net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
       net_volume_adjustment_reason: netVolumeAdjustmentReason || null,
+      refined_product_type: values.refined_product_type || null,
+      product_type: values.refined_product_type || calc.product_type || null,
+      refined_destination: values.refined_destination || null,
+      movement_destination: values.refined_destination || null,
       revision_number: isApprovedRevision ? nextObservedInputs.revision_number : calc.revision_number,
       revised_at: isApprovedRevision ? nextObservedInputs.revised_at : calc.revised_at,
     }
@@ -4741,6 +4802,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const pdfRevisionAt = observed.revised_at || calc.revised_at || ''
 
     const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name || (ticket.ticket_type === 'meter' ? 'Pipeline Meter' : '—')
+    const refinedProductPdf = observed.refined_product_type || calc.refined_product_type || observed.product_type || calc.product_type || '—'
+    const refinedDestinationPdf = observed.refined_destination || calc.refined_destination || observed.movement_destination || observed.destination || '—'
     const assignedPot = observed.assigned_pot_label || ticket.assigned_pot_id || (observed.pot_source === 'latest_pot_quality' ? 'Sample POT' : '—')
     const potQualitySource = observed.pot_source === 'latest_pot_quality' ? 'Latest POT Quality' : assignedPot
     const pdfRvp = observed.rvp || parsePotExtra(observed.notes, 'rvp') || '—'
@@ -14359,6 +14422,16 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CPL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <label><div className="ticket-muted">MF / CMF</div><input style={input} value={draftTicketEditValues.mf || ''} onChange={(e) => updateDraftTicketEditField('mf', e.target.value)} /></label>
+                      <label>
+                        <div className="ticket-muted">Refined Product</div>
+                        <select style={input} value={draftTicketEditValues.refined_product_type || ''} onChange={(e) => updateDraftTicketEditField('refined_product_type', e.target.value)}>
+                          <option value="">Not refined / blank</option>
+                          {getRefinedProductOptions().map((product) => (
+                            <option key={product} value={product}>{product}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label><div className="ticket-muted">Destination / Movement To</div><input style={input} value={draftTicketEditValues.refined_destination || ''} onChange={(e) => updateDraftTicketEditField('refined_destination', e.target.value)} /></label>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">GSV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).baseGsv, 2)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">Base NSV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).baseNsv, 2)}</strong><div className="ticket-muted">Before manual net adjustment</div></div>
                       <label><div className="ticket-muted">Net Volume Adjustment (+/- BBLS)</div><input style={input} value={draftTicketEditValues.net_volume_adjustment_bbl || ''} onChange={(e) => updateDraftTicketEditField('net_volume_adjustment_bbl', e.target.value)} /></label>
@@ -14391,6 +14464,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     <div><strong>Type:</strong> {selectedTicket!.ticket_type || '—'}</div>
                     <div><strong>Status:</strong> {selectedTicket!.status || 'draft'}</div>
                     <div><strong>Transporter:</strong> {selectedTicket!.observed_inputs?.transporter_name || (selectedTicket as any).transporter_name || (selectedTicket as any).customer_name || '—'}</div>
+                    <div><strong>Refined Product:</strong> {selectedTicket!.observed_inputs?.refined_product_type || selectedTicket!.calculation_results?.refined_product_type || selectedTicket!.observed_inputs?.product_type || '—'}</div>
+                    <div><strong>Destination / To:</strong> {selectedTicket!.observed_inputs?.refined_destination || selectedTicket!.calculation_results?.refined_destination || selectedTicket!.observed_inputs?.movement_destination || '—'}</div>
                     <div><strong>LACT:</strong> {selectedTicket!.observed_inputs?.lact_name || (selectedTicket as any).lact_name || '—'}</div>
                     <div><strong>Source Rows:</strong> {selectedTicket!.observed_inputs?.source_rows || '—'}</div>
                   </div>
@@ -14536,6 +14611,35 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 <option value="transfer">Transfer Ticket</option>
                 <option value="truck">Truck Ticket</option>
               </select>
+
+              {isRefinedTicketContext() && (
+                <div style={card}>
+                  <h3>Refined Product Details</h3>
+                  <p style={{ color: '#a8b3bd', marginTop: 0 }}>
+                    Used only for refined product contracts/meters. This will print/store on the ticket but does not affect crude tickets.
+                  </p>
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <label>
+                      <div className="ticket-muted" style={{ marginBottom: 6 }}>Product</div>
+                      <select style={input} value={refinedProductType} onChange={(e) => setRefinedProductType(e.target.value)}>
+                        <option value="">Select Product</option>
+                        {getRefinedProductOptions().map((product) => (
+                          <option key={product} value={product}>{product}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <div className="ticket-muted" style={{ marginBottom: 6 }}>Destination / Movement To</div>
+                      <input
+                        style={input}
+                        placeholder="Example: Fintex, Rack, Tank 400, NBSJ, Customer"
+                        value={refinedMovementDestination}
+                        onChange={(e) => setRefinedMovementDestination(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
 
               {(ticketType === 'tank' || ticketType === 'transfer') && (
                 <div style={card}>

@@ -8453,29 +8453,37 @@ async function createCompany() {
 
   function getSegmentBalanceMode(segmentId: string) {
     const setting = getSegmentBalanceSetting(segmentId)
-    return String(setting?.balance_mode || setting?.report_mode || setting?.segment_mode || 'balance').toLowerCase()
+    const rawMode = String(setting?.segment_type || setting?.balance_mode || setting?.report_mode || setting?.segment_mode || 'custody_transfer').toLowerCase()
+
+    if (['totals_only', 'totals', 'report_totals', 'reporting_only', 'reporting'].includes(rawMode)) return 'reporting_only'
+    return 'custody_transfer'
   }
 
   function segmentIsTotalsOnly(segmentId: string) {
-    const mode = getSegmentBalanceMode(segmentId)
-    return mode === 'totals_only' || mode === 'totals' || mode === 'report_totals'
+    return getSegmentBalanceMode(segmentId) === 'reporting_only'
   }
 
-  async function saveSegmentBalanceMode(segmentId: string, balanceMode: string) {
+  function getSegmentTypeLabel(segmentId: string) {
+    return segmentIsTotalsOnly(segmentId) ? 'Reporting Only' : 'Custody Transfer'
+  }
+
+  async function saveSegmentBalanceMode(segmentId: string, segmentType: string) {
     const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
     if (!activeCompanyID) {
       alert('Select a company first.')
       return
     }
 
-    const segment = segments.find((s: any) => String(s.id) === String(segmentId))
     const existing = getSegmentBalanceSetting(segmentId)
+    const normalizedType = segmentType === 'reporting_only' ? 'reporting_only' : 'custody_transfer'
+    const legacyMode = normalizedType === 'reporting_only' ? 'totals_only' : 'balance'
+
     const payload: any = {
       company_id: activeCompanyID,
-      area_id: segment?.area_id || null,
       segment_id: segmentId,
-      balance_mode: balanceMode,
-      report_mode: balanceMode,
+      segment_type: normalizedType,
+      balance_mode: legacyMode,
+      report_mode: legacyMode,
       active: true,
       updated_at: new Date().toISOString(),
     }
@@ -8485,7 +8493,7 @@ async function createCompany() {
       : await supabase.from('segment_balance_settings').insert(payload)
 
     if (result.error) {
-      alert('Could not save segment mode. Run the segment balance mode SQL first if this is the first time using totals-only segments. ' + result.error.message)
+      alert('Could not save segment type. Run the segment type SQL first if this is the first time using reporting-only segments. ' + result.error.message)
       return
     }
 
@@ -11545,7 +11553,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                       <strong style={{ fontSize: 18 }}>{row.segment.name}</strong>
                       {row.totalsOnly ? (
-                        <span style={{ color: '#93c5fd', fontWeight: 900 }}>TOTALS</span>
+                        <span style={{ color: '#93c5fd', fontWeight: 900 }}>REPORTING ONLY</span>
                       ) : (
                         <span style={{ color: Math.abs(row.overShort) > 0.01 ? '#fca5a5' : '#86efac', fontWeight: 900 }}>{row.overShort.toFixed(2)}</span>
                       )}
@@ -11554,7 +11562,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <>
                         <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 8 }}>Reported Total {row.reportedTotal.toFixed(2)}</div>
                         <div style={{ color: '#a8b3bd', fontSize: 12 }}>Receipts {row.receipts.toFixed(2)} • Deliveries {row.deliveries.toFixed(2)} • Trucks {row.truckTickets.toFixed(2)}</div>
-                        <div style={{ color: '#93c5fd', fontSize: 12 }}>Totals-only segment — excluded from System O/S</div>
+                        <div style={{ color: '#93c5fd', fontSize: 12 }}>Reporting Only segment — excluded from System O/S</div>
                       </>
                     ) : (
                       <>
@@ -12412,28 +12420,25 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       {editingBalanceEquationId && <div style={{ color: '#fca5a5', marginBottom: 10 }}>Editing existing station balance. Save to replace the equation setup, or cancel to leave it unchanged.</div>}
 
                       <div style={{ ...box, marginBottom: 12 }}>
-                        <h4 style={{ marginTop: 0 }}>Segment Report Mode</h4>
+                        <h4 style={{ marginTop: 0 }}>Segment Type</h4>
                         <p style={{ color: '#a8b3bd', marginTop: 0 }}>
-                          Use Balance/O-S for custody balance segments. Use Totals Only for systems where you only report totals and do not want the app showing an over/short.
+                          Use Custody Transfer for balanced segments. Use Reporting Only for systems where you only report totals and do not want the app showing an over/short.
                         </p>
                         <div style={{ display: 'grid', gap: 8 }}>
-                          {segments.map((segment: any) => {
-                            const mode = getSegmentBalanceMode(segment.id)
-                            return (
-                              <div key={segment.id} className="ticket-queue-card">
-                                <div>
-                                  <strong>{segment.name || segment.segment_name}</strong>
-                                  <div style={{ color: '#a8b3bd', marginTop: 4 }}>
-                                    Current mode: {segmentIsTotalsOnly(segment.id) ? 'Totals Only - excluded from O/S' : 'Balance / O-S'}
-                                  </div>
+                          {segments.map((segment: any) => (
+                            <div key={segment.id} className="ticket-queue-card">
+                              <div>
+                                <strong>{segment.name || segment.segment_name}</strong>
+                                <div style={{ color: '#a8b3bd', marginTop: 4 }}>
+                                  Segment type: {getSegmentTypeLabel(segment.id)}
                                 </div>
-                                <select style={{ ...input, width: 220, marginTop: 0 }} value={segmentIsTotalsOnly(segment.id) ? 'totals_only' : 'balance'} onChange={(e) => runSafeAction('Saving segment report mode', () => saveSegmentBalanceMode(segment.id, e.target.value))}>
-                                  <option value="balance">Balance / O-S</option>
-                                  <option value="totals_only">Totals Only</option>
-                                </select>
                               </div>
-                            )
-                          })}
+                              <select style={{ ...input, width: 240, marginTop: 0 }} value={getSegmentBalanceMode(segment.id)} onChange={(e) => runSafeAction('Saving segment type', () => saveSegmentBalanceMode(segment.id, e.target.value))}>
+                                <option value="custody_transfer">Custody Transfer</option>
+                                <option value="reporting_only">Reporting Only</option>
+                              </select>
+                            </div>
+                          ))}
                         </div>
                       </div>
 
@@ -12505,7 +12510,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                             <div key={equation.id} style={{ ...box, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                               <span style={{ color: '#a8b3bd' }}>
                                 {equation.name} • {segment?.name || 'Segment'} • A items: {sideACount} • B items: {sideBCount}
-                                {segmentIsTotalsOnly(equation.segment_id) ? ' • Segment is Totals Only' : calcRow ? ` • Current O/S: ${Number(calcRow.difference || 0).toFixed(2)}` : ' • No current calculation yet'}
+                                {segmentIsTotalsOnly(equation.segment_id) ? ' • Segment is Reporting Only' : calcRow ? ` • Current O/S: ${Number(calcRow.difference || 0).toFixed(2)}` : ' • No current calculation yet'}
                               </span>
                               <div style={{ display: 'flex', gap: 8 }}>
                                 <button type="button" style={{ ...button, width: 'auto' }} onClick={() => startEditBalanceEquation(equation)}>Edit</button>
@@ -14205,11 +14210,11 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <strong>{row.segment.name}</strong>
                       {row.totalsOnly ? (
                         <>
-                          <div>Mode: Totals Only</div>
+                          <div>Mode: Reporting Only</div>
                           <div>Reported Total: {row.reportedTotal.toFixed(2)}</div>
                           <div>Receipts: {row.receipts.toFixed(2)}</div>
                           <div>Deliveries: {row.deliveries.toFixed(2)}</div>
-                          <div style={{ color: '#93c5fd' }}>Excluded from Over / Short</div>
+                          <div style={{ color: '#93c5fd' }}>Reporting Only — excluded from Over / Short</div>
                         </>
                       ) : (
                         <>

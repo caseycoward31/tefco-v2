@@ -5772,11 +5772,106 @@ async function createCompany() {
     return rows
   }
 
+  function extractQi2PdfMetadata(lines: string[]) {
+    const fullText = lines.join(' ')
+    const reportTitle = fullText.match(/Tank\s+\d+[^]*?(High Leg|Low Leg)\s+Innage Table/i)
+    const roofWeightMatch = fullText.match(/Weight\s+([\d,]+(?:\.\d+)?)\s*lb/i)
+    const referenceApiMatch = fullText.match(/Specific Gravity\s+([\d.]+)\s*°?\s*API/i) || fullText.match(/Fill density\s+([\d.]+)\s*°?\s*API/i)
+    const highLegZoneMatch = fullText.match(/HL\s*[-–]\s*HIGH LEG\s+(\d+)\s*ft\s+([\d.]+)\s*in\s+to\s+(\d+)\s*ft\s+([\d.]+)\s*in/i)
+    const lowLegZoneMatch = fullText.match(/LL\s*[-–]\s*LOW LEG\s+(\d+)\s*ft\s+([\d.]+)\s*in\s+to\s+(\d+)\s*ft\s+([\d.]+)\s*in/i)
+
+    const legType = reportTitle?.[1] || (fullText.toLowerCase().includes('high leg') ? 'High Leg' : fullText.toLowerCase().includes('low leg') ? 'Low Leg' : '')
+    const zoneMatch = String(legType).toLowerCase().includes('high') ? highLegZoneMatch : lowLegZoneMatch
+    const criticalGaugeStart = zoneMatch ? Number(zoneMatch[1]) + (Number(zoneMatch[2]) / 12) : null
+    const criticalGaugeEnd = zoneMatch ? Number(zoneMatch[3]) + (Number(zoneMatch[4]) / 12) : null
+
+    return {
+      isQi2: /Qi2|Tank Capacity Report|Tank strapping table|Table 6/i.test(fullText),
+      legType,
+      roofWeightLbs: roofWeightMatch ? Number(String(roofWeightMatch[1]).replace(/,/g, '')) : null,
+      referenceApi: referenceApiMatch ? Number(referenceApiMatch[1]) : null,
+      referenceSg: referenceApiMatch ? apiToSpecificGravity(Number(referenceApiMatch[1])) : null,
+      criticalGaugeStart,
+      criticalGaugeEnd,
+      roofMode: /Floating Roof\s+Yes|floating roof/i.test(fullText) ? 'fra' : 'none',
+    }
+  }
+
+  function extractQi2StrappingRowsFromPdfLines(lines: string[]) {
+    const metadata = extractQi2PdfMetadata(lines)
+    const rows: any[] = []
+    let inTable6 = false
+    let currentFeet: number | null = null
+
+    for (const rawLine of lines) {
+      const line = String(rawLine || '')
+        .replace(/[‐‑‒–—]/g, '-')
+        .replace(/\u00a0/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+      if (!line) continue
+      if (/Table\s+6:\s*Tank strapping table/i.test(line) || /---\s*0\s*ft\s*---/i.test(line)) inTable6 = true
+      if (/Table\s+7:|Table\s+8:|APPENDIX|Incremental factor sheet/i.test(line)) {
+        if (inTable6 && rows.length > 20) break
+      }
+      if (!inTable6) continue
+
+      const footMatch = line.match(/---\s*(\d+)\s*ft\s*---/i)
+      if (footMatch) {
+        currentFeet = Number(footMatch[1])
+        continue
+      }
+
+      if (currentFeet === null) continue
+
+      // Table 6 lines look like: 3 10,257.3164 H
+      const valueMatch = line.match(/^(\d+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)(?:\s|$)/)
+      if (!valueMatch) continue
+
+      const inches = Number(valueMatch[1])
+      const barrels = Number(String(valueMatch[2]).replace(/,/g, ''))
+      if (!Number.isFinite(inches) || !Number.isFinite(barrels)) continue
+      if (inches < 0 || inches > 12) continue
+
+      rows.push({
+        gauge_decimal: Number((currentFeet + (inches / 12)).toFixed(6)),
+        gauge_feet: currentFeet,
+        gauge_inches: inches,
+        gauge_fraction: null,
+        barrels,
+        increment_bbl: null,
+        notes: 'Imported from Qi2 PDF Table 6 cumulative TOV strapping table',
+      })
+    }
+
+    const unique = new Map<string, any>()
+    rows.forEach((row) => {
+      const key = Number(row.gauge_decimal).toFixed(6)
+      if (!unique.has(key)) unique.set(key, row)
+    })
+
+    const cleanRows = Array.from(unique.values()).sort((a, b) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
+
+    if (metadata.isQi2 && cleanRows.length >= 100) {
+      ;(cleanRows as any).metadata = metadata
+    }
+
+    return cleanRows
+  }
+
   async function parseStrappingFileRows(file: File) {
     const lowerName = file.name.toLowerCase()
 
     if (lowerName.endsWith('.pdf')) {
-      throw new Error('PDF strapping import is disabled for tank custody tickets because PDF text extraction can misread the table. Upload the actual strapping chart as CSV/XLSX with cumulative TOV barrels.')
+      const lines = await extractPdfTextLinesForStrapping(file)
+      const rows: any = extractQi2StrappingRowsFromPdfLines(lines)
+
+      if (!rows.length) {
+        throw new Error('No Qi2 Table 6 cumulative strapping rows found. Upload the full Qi2 Tank Capacity Report PDF, not the one-page summary image.')
+      }
+
+      return rows
     }
 
     if (lowerName.endsWith('.xlsx')) {
@@ -5805,11 +5900,26 @@ async function createCompany() {
 
   async function importTankStrappingCsv() {
     if (!selectedStrappingTankId || !strappingCsvFile) {
-      alert('Select a tank and CSV/XLSX strapping chart file.')
+      alert('Select a tank and CSV/XLSX or full Qi2 PDF strapping report.')
       return
     }
 
     const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    let rows: any[] = []
+    let parsedMetadata: any = {}
+    try {
+      rows = await parseStrappingFileRows(strappingCsvFile)
+      parsedMetadata = (rows as any).metadata || {}
+    } catch (parseError: any) {
+      alert(parseError?.message || 'Could not read strapping chart.')
+      return
+    }
+
+    if (!rows.length) {
+      alert('No valid strapping rows found. Upload a cumulative TOV CSV/XLSX or the full Qi2 Tank Capacity Report PDF.')
+      return
+    }
 
     const { data: latestVersions } = await supabase
       .from('tank_calibration_versions')
@@ -5819,19 +5929,28 @@ async function createCompany() {
       .limit(1)
 
     const nextVersion = Number(latestVersions?.[0]?.version_number || 0) + 1
+    const legName = strappingLegType || parsedMetadata.legType || ''
+    const roofMode = strappingRoofMode || parsedMetadata.roofMode || 'fra'
+    const roofWeightLbs = strappingRoofWeightLbs ? Number(strappingRoofWeightLbs) : parsedMetadata.roofWeightLbs
+    const roofReferenceApi = strappingRoofReferenceApi ? Number(strappingRoofReferenceApi) : parsedMetadata.referenceApi
+    const roofReferenceSg = strappingRoofReferenceSg
+      ? Number(strappingRoofReferenceSg)
+      : (parsedMetadata.referenceSg || (roofReferenceApi ? apiToSpecificGravity(Number(roofReferenceApi)) : null))
+    const roofCriticalGauge = strappingRoofCriticalGauge ? Number(strappingRoofCriticalGauge) : parsedMetadata.criticalGaugeStart
 
     const calibrationPayload: any = {
       company_id: activeCompanyID,
       tank_id: selectedStrappingTankId,
       version_number: nextVersion,
-      name: strappingLegType ? `${strappingLegType} - Version ${nextVersion}` : `Version ${nextVersion}`,
-      leg_type: strappingLegType || null,
-      strap_type: strappingLegType || null,
-      roof_correction_mode: strappingRoofMode || 'fra',
-      roof_weight_lbs: strappingRoofWeightLbs ? Number(strappingRoofWeightLbs) : null,
-      roof_reference_api: strappingRoofReferenceApi ? Number(strappingRoofReferenceApi) : null,
-      roof_reference_sg: strappingRoofReferenceSg ? Number(strappingRoofReferenceSg) : (strappingRoofReferenceApi ? apiToSpecificGravity(Number(strappingRoofReferenceApi)) : null),
-      roof_critical_gauge: strappingRoofCriticalGauge ? Number(strappingRoofCriticalGauge) : null,
+      name: legName ? `${legName} - Version ${nextVersion}` : `Version ${nextVersion}`,
+      leg_type: legName || null,
+      strap_type: legName || null,
+      roof_correction_mode: roofMode,
+      roof_weight_lbs: roofWeightLbs ?? null,
+      roof_reference_api: roofReferenceApi ?? null,
+      roof_reference_sg: roofReferenceSg ?? null,
+      roof_critical_gauge: roofCriticalGauge ?? null,
+      roof_critical_gauge_end: parsedMetadata.criticalGaugeEnd ?? null,
       active: true,
     }
 
@@ -5871,15 +5990,6 @@ async function createCompany() {
       .eq('tank_id', selectedStrappingTankId)
       .neq('id', version.id)
 
-    let rows: any[] = []
-    try {
-      rows = await parseStrappingFileRows(strappingCsvFile)
-    } catch (parseError: any) {
-      await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
-      alert(parseError?.message || 'Could not read strapping chart.')
-      return
-    }
-
     const insertRows = rows
       .map((row: any) => {
         const gaugeDecimal = Number(
@@ -5909,7 +6019,7 @@ async function createCompany() {
 
     if (insertRows.length === 0) {
       await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
-      alert('No valid strapping rows found. Upload CSV/XLSX with cumulative TOV barrels, not a PDF or single-inch increment-only table.')
+      alert('No valid strapping rows found. Upload a cumulative TOV CSV/XLSX or the full Qi2 Tank Capacity Report PDF.')
       return
     }
 
@@ -5923,7 +6033,7 @@ async function createCompany() {
 
     if (maxGauge >= 10 && maxBbl < 1000) {
       await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
-      alert('This does not look like a cumulative TOV strapping chart. The app found high gauges but maximum barrels under 1,000. Upload the actual cumulative BBLS/TOV chart only.')
+      alert('This does not look like a cumulative TOV strapping chart. The app found high gauges but maximum barrels under 1,000.')
       return
     }
 
@@ -5949,7 +6059,7 @@ async function createCompany() {
     setStrappingRoofReferenceApi('')
     setStrappingRoofReferenceSg('')
     setStrappingRoofCriticalGauge('')
-    alert(`Imported ${insertRows.length} strapping rows as calibration ${calibrationPayload.name}. If this replaces a bad PDF import, select this new strap/leg on the tank ticket.`)
+    alert(`Imported ${insertRows.length} strapping rows as calibration ${calibrationPayload.name}. Test 13 ft 3 in should lookup about 10,257.32 bbl for Tank 300 High Leg.`)
     await loadAll()
   }
 
@@ -11282,7 +11392,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <input
                         style={input}
                         type="file"
-                        accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         onChange={(e) => setMeterCsvFile(e.target.files?.[0] || null)}
                       />
                       <button
@@ -11734,9 +11844,9 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </div>
 
                       <div style={card}>
-                        <h4>Upload Tank Strapping Chart CSV/XLSX Only</h4>
+                        <h4>Upload Tank Strapping Chart CSV/XLSX or Qi2 PDF</h4>
                         <p style={{ color: '#a8b3bd' }}>
-                          Upload the actual cumulative TOV strapping chart only. Supported CSV headers: gauge_decimal, gauge_feet, gauge_inches, gauge_fraction, barrels, increment_bbl, notes. XLSX FT/IN/BBLS strapping tables are supported. PDF import is disabled because it can misread custody-transfer tables.
+                          Upload cumulative TOV CSV/XLSX or a full text-based Qi2 Tank Capacity Report PDF. The Qi2 parser imports Table 6 only and ignores the one-page summary image.
                         </p>
                         <select style={input} value={selectedStrappingTankId} onChange={(e) => setSelectedStrappingTankId(e.target.value)}>
                           <option value="">Select Tank</option>

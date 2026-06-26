@@ -5776,14 +5776,7 @@ async function createCompany() {
     const lowerName = file.name.toLowerCase()
 
     if (lowerName.endsWith('.pdf')) {
-      const lines = await extractPdfTextLinesForStrapping(file)
-      const rows = extractAmSpecStrappingRowsFromPdfLines(lines)
-
-      if (rows.length === 0) {
-        console.warn('No PDF strapping rows parsed. First extracted lines:', lines.slice(0, 50))
-      }
-
-      return convertIncrementStrapRowsToCumulativeIfNeeded(rows)
+      throw new Error('PDF strapping import is disabled for tank custody tickets because PDF text extraction can misread the table. Upload the actual strapping chart as CSV/XLSX with cumulative TOV barrels.')
     }
 
     if (lowerName.endsWith('.xlsx')) {
@@ -5812,7 +5805,7 @@ async function createCompany() {
 
   async function importTankStrappingCsv() {
     if (!selectedStrappingTankId || !strappingCsvFile) {
-      alert('Select a tank and CSV/XLSX/PDF file.')
+      alert('Select a tank and CSV/XLSX strapping chart file.')
       return
     }
 
@@ -5878,7 +5871,14 @@ async function createCompany() {
       .eq('tank_id', selectedStrappingTankId)
       .neq('id', version.id)
 
-    const rows = await parseStrappingFileRows(strappingCsvFile)
+    let rows: any[] = []
+    try {
+      rows = await parseStrappingFileRows(strappingCsvFile)
+    } catch (parseError: any) {
+      await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
+      alert(parseError?.message || 'Could not read strapping chart.')
+      return
+    }
 
     const insertRows = rows
       .map((row: any) => {
@@ -5909,7 +5909,27 @@ async function createCompany() {
 
     if (insertRows.length === 0) {
       await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
-      alert('No valid strapping rows found. For PDFs, make sure it is a text-based AmSpec-style strapping chart, not a scanned image.')
+      alert('No valid strapping rows found. Upload CSV/XLSX with cumulative TOV barrels, not a PDF or single-inch increment-only table.')
+      return
+    }
+
+    const sortedImportRows = [...insertRows].sort((a: any, b: any) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
+    const maxGauge = Math.max(...sortedImportRows.map((row: any) => Number(row.gauge_decimal || 0)))
+    const maxBbl = Math.max(...sortedImportRows.map((row: any) => Number(row.barrels || 0)))
+    const decreasingCount = sortedImportRows.reduce((count: number, row: any, index: number) => {
+      if (index === 0) return count
+      return Number(row.barrels || 0) < Number(sortedImportRows[index - 1].barrels || 0) ? count + 1 : count
+    }, 0)
+
+    if (maxGauge >= 10 && maxBbl < 1000) {
+      await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
+      alert('This does not look like a cumulative TOV strapping chart. The app found high gauges but maximum barrels under 1,000. Upload the actual cumulative BBLS/TOV chart only.')
+      return
+    }
+
+    if (decreasingCount > 3) {
+      await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
+      alert('This strapping chart is not increasing with gauge. Upload the cumulative TOV strapping chart only.')
       return
     }
 
@@ -11676,7 +11696,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   )}
                 </div>
 
-                      <input style={input} type="file" accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setFlowxCsvFile(e.target.files?.[0] || null)} />
+                      <input style={input} type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setFlowxCsvFile(e.target.files?.[0] || null)} />
 
                       <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Importing transporter summary tickets', importFlowXTransporterSummaryTickets)}>
                         Import Transporter Summary Tickets
@@ -11714,9 +11734,9 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </div>
 
                       <div style={card}>
-                        <h4>Upload Tank Strapping Chart CSV/XLSX/PDF</h4>
+                        <h4>Upload Tank Strapping Chart CSV/XLSX Only</h4>
                         <p style={{ color: '#a8b3bd' }}>
-                          CSV headers supported: gauge_decimal, gauge_feet, gauge_inches, gauge_fraction, barrels, increment_bbl, notes. XLSX refinery strapping tables and text-based AmSpec PDF innage tables with FT-IN/Barrels pairs are detected automatically.
+                          Upload the actual cumulative TOV strapping chart only. Supported CSV headers: gauge_decimal, gauge_feet, gauge_inches, gauge_fraction, barrels, increment_bbl, notes. XLSX FT/IN/BBLS strapping tables are supported. PDF import is disabled because it can misread custody-transfer tables.
                         </p>
                         <select style={input} value={selectedStrappingTankId} onChange={(e) => setSelectedStrappingTankId(e.target.value)}>
                           <option value="">Select Tank</option>

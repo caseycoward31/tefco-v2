@@ -4296,6 +4296,8 @@ function handleProvingAreaSelect(areaId: string) {
       mf: ticketEditString(calc.mf ?? observed.mf),
       gsv: ticketEditString(calc.gsv ?? observed.gsv),
       nsv: ticketEditString(calc.nsv ?? observed.nsv ?? observed.net_volume_bbl),
+      net_volume_adjustment_bbl: ticketEditString(calc.net_volume_adjustment_bbl ?? observed.net_volume_adjustment_bbl ?? observed.manual_net_volume_adjustment_bbl ?? 0),
+      net_volume_adjustment_reason: ticketEditString(observed.net_volume_adjustment_reason ?? calc.net_volume_adjustment_reason ?? ''),
       open_date: ticketEditString(observed.open_date),
       open_time: ticketEditString(observed.open_time),
       close_date: ticketEditString(observed.close_date),
@@ -4316,6 +4318,27 @@ function handleProvingAreaSelect(areaId: string) {
     if (opening !== null && closing !== null) return closing - opening
     const existing = ticketEditNumber(values, 'total_batch_barrels')
     return existing
+  }
+
+  function getDraftTicketEditCalculatedVolumes(values: Record<string, string>) {
+    const iv = getDraftTicketEditIv(values)
+    const ctl = ticketEditNumber(values, 'ctl') ?? Number(selectedTicket?.calculation_results?.ctl ?? selectedTicket?.observed_inputs?.ctl ?? 1)
+    const cpl = ticketEditNumber(values, 'cpl') ?? Number(selectedTicket?.calculation_results?.cpl ?? selectedTicket?.observed_inputs?.cpl ?? 1)
+    const mf = ticketEditNumber(values, 'mf') ?? Number(selectedTicket?.calculation_results?.mf ?? selectedTicket?.observed_inputs?.mf ?? 1)
+    const swPercent = ticketEditNumber(values, 'sw_percent')
+    const csw = swPercent !== null
+      ? roundTo(1 - swPercent / 100, 5)
+      : Number(selectedTicket?.calculation_results?.csw ?? selectedTicket?.observed_inputs?.csw ?? 1)
+    const baseGsv = iv !== null && Number.isFinite(ctl) && Number.isFinite(cpl) && Number.isFinite(mf)
+      ? roundTo(iv * ctl * cpl * mf, 2)
+      : null
+    const baseNsv = baseGsv !== null && Number.isFinite(csw)
+      ? roundTo(baseGsv * csw, 2)
+      : null
+    const adjustment = ticketEditNumber(values, 'net_volume_adjustment_bbl') ?? 0
+    const adjustedNsv = baseNsv !== null ? roundTo(baseNsv + adjustment, 2) : null
+
+    return { iv, baseGsv, baseNsv, adjustment, adjustedNsv }
   }
 
   async function saveDraftTicketEdits() {
@@ -4373,7 +4396,10 @@ function handleProvingAreaSelect(areaId: string) {
     const cswValue = swPercent !== null ? roundTo(1 - swPercent / 100, 5) : Number(calc.csw ?? observed.csw ?? 1)
     const calculatedGsv = totalBatchBarrels !== null ? roundTo(totalBatchBarrels * ctlValue * cplValue * mfValue, 2) : null
     const gsvValue = calculatedGsv
-    const nsvValue = gsvValue !== null ? roundTo(gsvValue * cswValue, 2) : null
+    const baseNsvValue = gsvValue !== null ? roundTo(gsvValue * cswValue, 2) : null
+    const netVolumeAdjustmentBbl = ticketEditNumber(values, 'net_volume_adjustment_bbl') ?? 0
+    const nsvValue = baseNsvValue !== null ? roundTo(baseNsvValue + netVolumeAdjustmentBbl, 2) : null
+    const netVolumeAdjustmentReason = String(values.net_volume_adjustment_reason || '').trim()
 
     const nextObservedInputs: any = {
       ...observed,
@@ -4398,8 +4424,13 @@ function handleProvingAreaSelect(areaId: string) {
       mf: mfValue,
       csw: cswValue,
       gsv: gsvValue,
+      calculated_nsv_before_adjustment: baseNsvValue,
+      base_nsv: baseNsvValue,
       nsv: nsvValue,
       net_volume_bbl: nsvValue,
+      net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
+      manual_net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
+      net_volume_adjustment_reason: netVolumeAdjustmentReason || null,
       open_date: values.open_date || null,
       open_time: values.open_time || null,
       close_date: values.close_date || null,
@@ -4452,7 +4483,13 @@ function handleProvingAreaSelect(areaId: string) {
       csw: cswValue,
       ccf: roundTo(ctlValue * cplValue * mfValue, 6),
       gsv: gsvValue,
+      calculated_nsv_before_adjustment: baseNsvValue,
+      base_nsv: baseNsvValue,
       nsv: nsvValue,
+      net_volume_bbl: nsvValue,
+      net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
+      manual_net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
+      net_volume_adjustment_reason: netVolumeAdjustmentReason || null,
       revision_number: isApprovedRevision ? nextObservedInputs.revision_number : calc.revision_number,
       revised_at: isApprovedRevision ? nextObservedInputs.revised_at : calc.revised_at,
     }
@@ -14476,7 +14513,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                       <div>
                         <h3 style={{ marginTop: 0 }}>{String(selectedTicket!.status || '').toLowerCase() === 'approved' ? 'Revise Approved Ticket' : 'Edit Draft Ticket'}</h3>
-                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>Change bad inputs. CTL, CPL, GSV, and NSV stay calculated by the app from the edited measurement inputs.</div>
+                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>Change bad inputs. GSV/NSV calculate from the edited inputs, with an optional audited net barrel adjustment.</div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <button style={{ ...button, width: 'auto', background: '#16a34a' }} onClick={() => runSafeAction('Saving draft ticket edits', saveDraftTicketEdits)}>Save Changes</button>
@@ -14497,13 +14534,19 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CPL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <label><div className="ticket-muted">MF / CMF</div><input style={input} value={draftTicketEditValues.mf || ''} onChange={(e) => updateDraftTicketEditField('mf', e.target.value)} /></label>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">GSV</div><strong>{formatTicketDetailNumber(selectedTicket!.calculation_results?.gsv ?? selectedTicket!.observed_inputs?.gsv, 2)}</strong><div className="ticket-muted">Calculated by app</div></div>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">NSV</div><strong>{formatTicketDetailNumber(selectedTicket!.calculation_results?.nsv ?? selectedTicket!.observed_inputs?.nsv, 2)}</strong><div className="ticket-muted">Calculated by app</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">GSV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).baseGsv, 2)}</strong><div className="ticket-muted">Calculated by app</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">Base NSV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).baseNsv, 2)}</strong><div className="ticket-muted">Before manual net adjustment</div></div>
+                      <label><div className="ticket-muted">Net Volume Adjustment (+/- BBLS)</div><input style={input} value={draftTicketEditValues.net_volume_adjustment_bbl || ''} onChange={(e) => updateDraftTicketEditField('net_volume_adjustment_bbl', e.target.value)} /></label>
+                      <div style={{ ...card, padding: 10, borderColor: Number(draftTicketEditValues.net_volume_adjustment_bbl || 0) !== 0 ? '#f59e0b' : undefined }}><div className="ticket-muted">Adjusted NSV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).adjustedNsv, 2)}</strong><div className="ticket-muted">Final net volume saved</div></div>
                       <label><div className="ticket-muted">Open Date</div><input style={input} type="date" value={draftTicketEditValues.open_date || ''} onChange={(e) => updateDraftTicketEditField('open_date', e.target.value)} /></label>
                       <label><div className="ticket-muted">Open Time</div><input style={input} type="time" value={draftTicketEditValues.open_time || ''} onChange={(e) => updateDraftTicketEditField('open_time', e.target.value)} /></label>
                       <label><div className="ticket-muted">Close Date</div><input style={input} type="date" value={draftTicketEditValues.close_date || ''} onChange={(e) => updateDraftTicketEditField('close_date', e.target.value)} /></label>
                       <label><div className="ticket-muted">Close Time</div><input style={input} type="time" value={draftTicketEditValues.close_time || ''} onChange={(e) => updateDraftTicketEditField('close_time', e.target.value)} /></label>
                     </div>
+                    <label style={{ display: 'block', marginTop: 12 }}>
+                      <div className="ticket-muted">Net Volume Adjustment Reason</div>
+                      <input style={input} value={draftTicketEditValues.net_volume_adjustment_reason || ''} onChange={(e) => updateDraftTicketEditField('net_volume_adjustment_reason', e.target.value)} placeholder="Required by policy when manually adjusting net barrels" />
+                    </label>
                     <label style={{ display: 'block', marginTop: 12 }}>
                       <div className="ticket-muted">Notes</div>
                       <textarea style={{ ...input, minHeight: 80 }} value={draftTicketEditValues.notes || ''} onChange={(e) => updateDraftTicketEditField('notes', e.target.value)} />

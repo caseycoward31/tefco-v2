@@ -3275,7 +3275,9 @@ function handleProvingAreaSelect(areaId: string) {
     if (upperGauge === lowerGauge) return lowerBbl
 
     const ratio = (gauge - lowerGauge) / (upperGauge - lowerGauge)
-    return lowerBbl + ((upperBbl - lowerBbl) * ratio)
+    const interpolated = lowerBbl + ((upperBbl - lowerBbl) * ratio)
+
+    return interpolated
   }
 
   function getDeadwoodAdjustment(tankId: string, gauge: number, calibrationVersionId = '') {
@@ -5189,24 +5191,57 @@ async function createCompany() {
 
 
   function parseMeterCsv(text: string) {
-    const lines = text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
+    const rows: string[][] = []
+    let current = ''
+    let row: string[] = []
+    let inQuotes = false
 
-    if (lines.length < 2) return []
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i]
+      const next = text[i + 1]
 
-    const headers = lines[0].split(',').map((header) => header.trim().toLowerCase())
+      if (char === '"' && inQuotes && next === '"') {
+        current += '"'
+        i += 1
+      } else if (char === '"') {
+        inQuotes = !inQuotes
+      } else if (char === ',' && !inQuotes) {
+        row.push(current.trim())
+        current = ''
+      } else if ((char === '\n' || char === '\r') && !inQuotes) {
+        if (current || row.length) {
+          row.push(current.trim())
+          rows.push(row)
+          row = []
+          current = ''
+        }
+        if (char === '\r' && next === '\n') i += 1
+      } else {
+        current += char
+      }
+    }
 
-    return lines.slice(1).map((line) => {
-      const values = line.split(',').map((value) => value.trim())
-      const row: Record<string, string> = {}
+    if (current || row.length) {
+      row.push(current.trim())
+      rows.push(row)
+    }
 
+    if (rows.length < 2) return []
+
+    const headers = rows[0].map((header) =>
+      String(header || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+    )
+
+    return rows.slice(1).map((values) => {
+      const output: Record<string, string> = {}
       headers.forEach((header, index) => {
-        row[header] = values[index] || ''
+        output[header] = values[index] || ''
       })
-
-      return row
+      return output
     })
   }
 
@@ -5456,6 +5491,54 @@ async function createCompany() {
     return Number.isFinite(numeric) ? numeric : null
   }
 
+  function extractHeaderStrappingRowsFromSheet(rows: any[][]) {
+    const output: any[] = []
+
+    const headerRowIndex = rows.findIndex((row) => {
+      const safeRow = Array.isArray(row) ? row : []
+      const headers = safeRow.map((value) => String(value ?? '').trim().toLowerCase())
+
+      return (
+        headers.includes('gauge_decimal') &&
+        headers.some((header) => ['barrels', 'bbl', 'volume_bbl', 'volume'].includes(header))
+      )
+    })
+
+    if (headerRowIndex < 0) return output
+
+    const headers = (rows[headerRowIndex] || []).map((value) => String(value ?? '').trim().toLowerCase())
+    const gaugeDecimalIndex = headers.indexOf('gauge_decimal')
+    const gaugeFeetIndex = headers.indexOf('gauge_feet')
+    const gaugeInchesIndex = headers.indexOf('gauge_inches')
+    const gaugeFractionIndex = headers.indexOf('gauge_fraction')
+    const barrelsIndex = headers.findIndex((header) => ['barrels', 'bbl', 'volume_bbl', 'volume'].includes(header))
+    const incrementIndex = headers.findIndex((header) => ['increment_bbl', 'increment', 'inc_bbl'].includes(header))
+    const notesIndex = headers.indexOf('notes')
+
+    for (let r = headerRowIndex + 1; r < rows.length; r += 1) {
+      const row = rows[r] || []
+      const gaugeDecimal = Number(row[gaugeDecimalIndex])
+      const gaugeFeet = gaugeFeetIndex >= 0 ? row[gaugeFeetIndex] : null
+      const gaugeInches = gaugeInchesIndex >= 0 ? row[gaugeInchesIndex] : null
+      const gaugeFraction = gaugeFractionIndex >= 0 ? row[gaugeFractionIndex] : null
+      const barrels = Number(row[barrelsIndex])
+
+      if (!Number.isFinite(gaugeDecimal) || !Number.isFinite(barrels)) continue
+
+      output.push({
+        gauge_decimal: gaugeDecimal,
+        gauge_feet: gaugeFeet,
+        gauge_inches: gaugeInches,
+        gauge_fraction: gaugeFraction,
+        barrels,
+        increment_bbl: incrementIndex >= 0 ? row[incrementIndex] : null,
+        notes: notesIndex >= 0 ? row[notesIndex] : 'Imported from header-based strapping sheet',
+      })
+    }
+
+    return output
+  }
+
   function extractRefineryStrappingRowsFromSheet(rows: any[][]) {
     const output: any[] = []
 
@@ -5669,7 +5752,12 @@ async function createCompany() {
     const unique = new Map<string, any>()
     rows.forEach((row) => {
       const key = Number(row.gauge_decimal).toFixed(6)
-      if (!unique.has(key) || Number(row.barrels || 0) > Number(unique.get(key).barrels || 0)) unique.set(key, row)
+
+      // IMPORTANT:
+      // PDF extraction can create duplicate gauges from nearby table columns.
+      // Keeping the largest duplicate can make a low gauge pull a high-column volume
+      // (example: 13 ft showing 23,000+ bbl). Keep the first valid row instead.
+      if (!unique.has(key)) unique.set(key, row)
     })
 
     return Array.from(unique.values())
@@ -5714,15 +5802,153 @@ async function createCompany() {
     return allLines
   }
 
+  function convertIncrementStrapRowsToCumulativeIfNeeded(rows: any[]) {
+    const cleanRows = rows
+      .map((row: any) => ({
+        ...row,
+        gauge_decimal: Number(row.gauge_decimal ?? row.gauge ?? 0),
+        barrels: Number(row.barrels ?? row.bbl ?? row.volume_bbl ?? row.volume ?? 0),
+      }))
+      .filter((row: any) => Number.isFinite(row.gauge_decimal) && Number.isFinite(row.barrels))
+      .sort((a: any, b: any) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
+
+    if (cleanRows.length < 24) return rows
+
+    const maxBbl = Math.max(...cleanRows.map((row: any) => Number(row.barrels || 0)))
+    const maxGauge = Math.max(...cleanRows.map((row: any) => Number(row.gauge_decimal || 0)))
+
+    // If a full tank strapping chart imports with every row under a few hundred barrels,
+    // it is almost certainly the INCREMENT/BBL-per-inch table, not cumulative TOV.
+    // Convert it to cumulative TOV so 13'3" becomes the sum of all lower increments,
+    // not just the single inch increment.
+    if (maxGauge > 5 && maxBbl > 0 && maxBbl < 500) {
+      let cumulative = 0
+
+      return cleanRows.map((row: any, index: number) => {
+        const gauge = Number(row.gauge_decimal || 0)
+        const increment = Number(row.barrels || 0)
+
+        if (index === 0 || gauge === 0) {
+          cumulative = increment
+        } else {
+          cumulative += increment
+        }
+
+        const feet = Math.floor(gauge)
+        const totalInches = (gauge - feet) * 12
+        const inches = Math.round(totalInches)
+
+        return {
+          ...row,
+          gauge_decimal: gauge,
+          gauge_feet: row.gauge_feet ?? feet,
+          gauge_inches: row.gauge_inches ?? inches,
+          barrels: Number(cumulative.toFixed(2)),
+          increment_bbl: increment,
+          notes: `${row.notes || 'Imported strapping row'} - converted from increment table to cumulative TOV`,
+        }
+      })
+    }
+
+    return rows
+  }
+
+  function extractQi2PdfMetadata(lines: string[]) {
+    const fullText = lines.join(' ')
+    const reportTitle = fullText.match(/Tank\s+\d+[^]*?(High Leg|Low Leg)\s+Innage Table/i)
+    const roofWeightMatch = fullText.match(/Weight\s+([\d,]+(?:\.\d+)?)\s*lb/i)
+    const referenceApiMatch = fullText.match(/Specific Gravity\s+([\d.]+)\s*°?\s*API/i) || fullText.match(/Fill density\s+([\d.]+)\s*°?\s*API/i)
+    const highLegZoneMatch = fullText.match(/HL\s*[-–]\s*HIGH LEG\s+(\d+)\s*ft\s+([\d.]+)\s*in\s+to\s+(\d+)\s*ft\s+([\d.]+)\s*in/i)
+    const lowLegZoneMatch = fullText.match(/LL\s*[-–]\s*LOW LEG\s+(\d+)\s*ft\s+([\d.]+)\s*in\s+to\s+(\d+)\s*ft\s+([\d.]+)\s*in/i)
+
+    const legType = reportTitle?.[1] || (fullText.toLowerCase().includes('high leg') ? 'High Leg' : fullText.toLowerCase().includes('low leg') ? 'Low Leg' : '')
+    const zoneMatch = String(legType).toLowerCase().includes('high') ? highLegZoneMatch : lowLegZoneMatch
+    const criticalGaugeStart = zoneMatch ? Number(zoneMatch[1]) + (Number(zoneMatch[2]) / 12) : null
+    const criticalGaugeEnd = zoneMatch ? Number(zoneMatch[3]) + (Number(zoneMatch[4]) / 12) : null
+
+    return {
+      isQi2: /Qi2|Tank Capacity Report|Tank strapping table|Table 6/i.test(fullText),
+      legType,
+      roofWeightLbs: roofWeightMatch ? Number(String(roofWeightMatch[1]).replace(/,/g, '')) : null,
+      referenceApi: referenceApiMatch ? Number(referenceApiMatch[1]) : null,
+      referenceSg: referenceApiMatch ? apiToSpecificGravity(Number(referenceApiMatch[1])) : null,
+      criticalGaugeStart,
+      criticalGaugeEnd,
+      roofMode: /Floating Roof\s+Yes|floating roof/i.test(fullText) ? 'fra' : 'none',
+    }
+  }
+
+  function extractQi2StrappingRowsFromPdfLines(lines: string[]) {
+    const metadata = extractQi2PdfMetadata(lines)
+    const fullText = lines
+      .join('\n')
+      .replace(/[‐‑‒–—]/g, '-')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\r/g, '\n')
+
+    const tableStart = fullText.search(/Table\s+6:\s*Tank strapping table/i)
+    const fallbackStart = fullText.search(/---\s*0\s*ft\s*---/i)
+    const startIndex = tableStart >= 0 ? tableStart : fallbackStart
+
+    if (startIndex < 0) return []
+
+    const afterStart = fullText.slice(startIndex)
+    const tableEnd = afterStart.search(/Table\s+7:|Table\s+8:|3\s+APPENDIX|APPENDIX A/i)
+    const tableText = tableEnd >= 0 ? afterStart.slice(0, tableEnd) : afterStart
+
+    const rows: any[] = []
+    const footBlockRegex = /---\s*(\d+)\s*ft\s*---([\s\S]*?)(?=---\s*\d+\s*ft\s*---|$)/gi
+    let footBlockMatch: RegExpExecArray | null
+
+    while ((footBlockMatch = footBlockRegex.exec(tableText)) !== null) {
+      const feet = Number(footBlockMatch[1])
+      const block = footBlockMatch[2] || ''
+      const rowRegex = /^\s*(\d+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)(?:\s+[A-Z])?\s*$/gm
+      let rowMatch: RegExpExecArray | null
+
+      while ((rowMatch = rowRegex.exec(block)) !== null) {
+        const inches = Number(rowMatch[1])
+        const barrels = Number(String(rowMatch[2]).replace(/,/g, ''))
+
+        if (!Number.isFinite(feet) || !Number.isFinite(inches) || !Number.isFinite(barrels)) continue
+        if (inches < 0 || inches > 11.999) continue
+
+        rows.push({
+          gauge_decimal: Number((feet + (inches / 12)).toFixed(6)),
+          gauge_feet: feet,
+          gauge_inches: inches,
+          gauge_fraction: null,
+          barrels,
+          increment_bbl: null,
+          notes: 'Imported from Qi2 PDF Table 6 cumulative TOV strapping table',
+        })
+      }
+    }
+
+    const unique = new Map<string, any>()
+    rows.forEach((row) => {
+      const key = Number(row.gauge_decimal).toFixed(6)
+      if (!unique.has(key)) unique.set(key, row)
+    })
+
+    const cleanRows = Array.from(unique.values()).sort((a, b) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
+
+    if (metadata.isQi2 && cleanRows.length >= 100) {
+      ;(cleanRows as any).metadata = metadata
+    }
+
+    return cleanRows
+  }
+
   async function parseStrappingFileRows(file: File) {
     const lowerName = file.name.toLowerCase()
 
     if (lowerName.endsWith('.pdf')) {
       const lines = await extractPdfTextLinesForStrapping(file)
-      const rows = extractAmSpecStrappingRowsFromPdfLines(lines)
+      const rows: any = extractQi2StrappingRowsFromPdfLines(lines)
 
-      if (rows.length === 0) {
-        console.warn('No PDF strapping rows parsed. First extracted lines:', lines.slice(0, 50))
+      if (!rows.length) {
+        throw new Error('No Qi2 Table 6 cumulative strapping rows found. Upload the full Qi2 Tank Capacity Report PDF, not the one-page summary image.')
       }
 
       return rows
@@ -5733,10 +5959,11 @@ async function createCompany() {
       let rows: any[] = []
 
       for (const sheet of sheets) {
+        const headerRows = extractHeaderStrappingRowsFromSheet(sheet.rows)
         const refineryRows = extractRefineryStrappingRowsFromSheet(sheet.rows)
         const ifsRows = extractIncrementFactorSheetRows(sheet.rows)
 
-        rows = [...rows, ...refineryRows, ...ifsRows]
+        rows = [...rows, ...headerRows, ...refineryRows, ...ifsRows]
       }
 
       const unique = new Map<string, any>()
@@ -5745,20 +5972,65 @@ async function createCompany() {
         if (!unique.has(key)) unique.set(key, row)
       })
 
-      return Array.from(unique.values()).sort((a, b) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
+      return convertIncrementStrapRowsToCumulativeIfNeeded(Array.from(unique.values()).sort((a, b) => Number(a.gauge_decimal) - Number(b.gauge_decimal)))
     }
 
     const csvText = await file.text()
-    return parseMeterCsv(csvText)
+    return convertIncrementStrapRowsToCumulativeIfNeeded(parseMeterCsv(csvText))
+  }
+
+  function cleanNumericInput(value: any) {
+    if (value === null || value === undefined || value === '') return null
+    const cleaned = String(value).replace(/,/g, '').trim()
+    if (cleaned === '') return null
+    const numberValue = Number(cleaned)
+    return Number.isFinite(numberValue) ? numberValue : null
+  }
+
+  function normalizeTrueStrappingRow(row: any) {
+    const feet = cleanNumericInput(row.ft ?? row.feet ?? row.gauge_feet ?? row.foot)
+    const inches = cleanNumericInput(row.in ?? row.inch ?? row.inches ?? row.gauge_inches)
+    const gaugeDecimalRaw = cleanNumericInput(row.gauge_decimal ?? row.gauge ?? row.gauge_ft)
+    const barrels = cleanNumericInput(row.bbl ?? row.bbls ?? row.barrels ?? row.volume ?? row.volume_bbl ?? row.tov)
+
+    const gaugeDecimal = gaugeDecimalRaw ?? (
+      feet !== null
+        ? feet + ((inches ?? 0) / 12)
+        : null
+    )
+
+    if (gaugeDecimal === null || barrels === null) return null
+
+    return {
+      gauge_decimal: Number(gaugeDecimal.toFixed(6)),
+      gauge_feet: feet,
+      gauge_inches: inches,
+      barrels,
+    }
   }
 
   async function importTankStrappingCsv() {
     if (!selectedStrappingTankId || !strappingCsvFile) {
-      alert('Select a tank and CSV/XLSX/PDF file.')
+      alert('Select a tank and true strapping CSV/XLSX file.')
       return
     }
 
     const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+
+    let rows: any[] = []
+    let parsedMetadata: any = {}
+    try {
+      rows = await parseStrappingFileRows(strappingCsvFile)
+      parsedMetadata = (rows as any).metadata || {}
+    } catch (parseError: any) {
+      alert(parseError?.message || 'Could not read strapping chart.')
+      return
+    }
+
+    if (!rows.length) {
+      alert('No valid strapping rows found. Upload true strapping with columns ft, in, bbl.')
+      return
+    }
 
     const { data: latestVersions } = await supabase
       .from('tank_calibration_versions')
@@ -5768,19 +6040,28 @@ async function createCompany() {
       .limit(1)
 
     const nextVersion = Number(latestVersions?.[0]?.version_number || 0) + 1
+    const legName = strappingLegType || parsedMetadata.legType || ''
+    const roofMode = strappingRoofMode || parsedMetadata.roofMode || 'fra'
+    const roofWeightLbs = strappingRoofWeightLbs ? Number(strappingRoofWeightLbs) : parsedMetadata.roofWeightLbs
+    const roofReferenceApi = strappingRoofReferenceApi ? Number(strappingRoofReferenceApi) : parsedMetadata.referenceApi
+    const roofReferenceSg = strappingRoofReferenceSg
+      ? Number(strappingRoofReferenceSg)
+      : (parsedMetadata.referenceSg || (roofReferenceApi ? apiToSpecificGravity(Number(roofReferenceApi)) : null))
+    const roofCriticalGauge = strappingRoofCriticalGauge ? Number(strappingRoofCriticalGauge) : parsedMetadata.criticalGaugeStart
 
     const calibrationPayload: any = {
       company_id: activeCompanyID,
       tank_id: selectedStrappingTankId,
       version_number: nextVersion,
-      name: strappingLegType ? `${strappingLegType} - Version ${nextVersion}` : `Version ${nextVersion}`,
-      leg_type: strappingLegType || null,
-      strap_type: strappingLegType || null,
-      roof_correction_mode: strappingRoofMode || 'fra',
-      roof_weight_lbs: strappingRoofWeightLbs ? Number(strappingRoofWeightLbs) : null,
-      roof_reference_api: strappingRoofReferenceApi ? Number(strappingRoofReferenceApi) : null,
-      roof_reference_sg: strappingRoofReferenceSg ? Number(strappingRoofReferenceSg) : (strappingRoofReferenceApi ? apiToSpecificGravity(Number(strappingRoofReferenceApi)) : null),
-      roof_critical_gauge: strappingRoofCriticalGauge ? Number(strappingRoofCriticalGauge) : null,
+      name: legName ? `${legName} - Version ${nextVersion}` : `Version ${nextVersion}`,
+      leg_type: legName || null,
+      strap_type: legName || null,
+      roof_correction_mode: roofMode,
+      roof_weight_lbs: roofWeightLbs ?? null,
+      roof_reference_api: roofReferenceApi ?? null,
+      roof_reference_sg: roofReferenceSg ?? null,
+      roof_critical_gauge: roofCriticalGauge ?? null,
+      roof_critical_gauge_end: parsedMetadata.criticalGaugeEnd ?? null,
       active: true,
     }
 
@@ -5820,38 +6101,54 @@ async function createCompany() {
       .eq('tank_id', selectedStrappingTankId)
       .neq('id', version.id)
 
-    const rows = await parseStrappingFileRows(strappingCsvFile)
-
-    const insertRows = rows
+    const rawInsertRows = rows
       .map((row: any) => {
-        const gaugeDecimal = Number(
-          row.gauge_decimal ||
-          row.gauge ||
-          normalizeGaugeToDecimal(row.gauge_feet || row.feet, row.gauge_inches || row.inches, row.gauge_fraction || row.fraction)
-        )
-
-        const barrels = Number(row.barrels || row.bbl || row.volume_bbl || row.volume)
-
-        if (!Number.isFinite(gaugeDecimal) || !Number.isFinite(barrels)) return null
+        const normalized = normalizeTrueStrappingRow(row)
+        if (!normalized) return null
 
         return {
           company_id: activeCompanyID,
           tank_id: selectedStrappingTankId,
           calibration_version_id: version.id,
-          gauge_decimal: gaugeDecimal,
-          gauge_feet: row.gauge_feet || row.feet || null,
-          gauge_inches: row.gauge_inches || row.inches || null,
-          gauge_fraction: row.gauge_fraction || row.fraction || null,
-          barrels,
-          increment_bbl: row.increment || row.increment_bbl || null,
-          notes: row.notes || null,
+          gauge_decimal: normalized.gauge_decimal,
+          gauge_feet: normalized.gauge_feet,
+          gauge_inches: normalized.gauge_inches,
+          barrels: normalized.barrels,
+          notes: 'True strapping chart import',
         }
       })
       .filter(Boolean) as any[]
 
+    const insertRowMap = new Map<string, any>()
+    rawInsertRows.forEach((row: any) => {
+      const key = Number(row.gauge_decimal).toFixed(6)
+      if (!insertRowMap.has(key)) insertRowMap.set(key, row)
+    })
+    const insertRows = Array.from(insertRowMap.values()).sort((a: any, b: any) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
+
     if (insertRows.length === 0) {
       await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
-      alert('No valid strapping rows found. For PDFs, make sure it is a text-based AmSpec-style strapping chart, not a scanned image.')
+      alert('No valid strapping rows found. Upload a cumulative TOV CSV/XLSX or the full Qi2 Tank Capacity Report PDF.')
+      return
+    }
+
+    const sortedImportRows = [...insertRows].sort((a: any, b: any) => Number(a.gauge_decimal) - Number(b.gauge_decimal))
+    const maxGauge = Math.max(...sortedImportRows.map((row: any) => Number(row.gauge_decimal || 0)))
+    const maxBbl = Math.max(...sortedImportRows.map((row: any) => Number(row.barrels || 0)))
+    const decreasingCount = sortedImportRows.reduce((count: number, row: any, index: number) => {
+      if (index === 0) return count
+      return Number(row.barrels || 0) < Number(sortedImportRows[index - 1].barrels || 0) ? count + 1 : count
+    }, 0)
+
+    if (maxGauge >= 10 && maxBbl < 1000) {
+      await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
+      alert('This does not look like a cumulative TOV strapping chart. The app found high gauges but maximum barrels under 1,000.')
+      return
+    }
+
+    if (decreasingCount > 3) {
+      await supabase.from('tank_calibration_versions').delete().eq('id', version.id)
+      alert('This strapping chart is not increasing with gauge. Upload the cumulative TOV strapping chart only.')
       return
     }
 
@@ -5871,7 +6168,7 @@ async function createCompany() {
     setStrappingRoofReferenceApi('')
     setStrappingRoofReferenceSg('')
     setStrappingRoofCriticalGauge('')
-    alert(`Imported ${insertRows.length} strapping rows as calibration ${calibrationPayload.name}.`)
+    alert(`Imported ${insertRows.length} Qi2 Table 6 rows as calibration ${calibrationPayload.name}. Test 13 ft 3 in should lookup about 10,257.32 bbl for Tank 300 High Leg.`)
     await loadAll()
   }
 
@@ -11618,7 +11915,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   )}
                 </div>
 
-                      <input style={input} type="file" accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setFlowxCsvFile(e.target.files?.[0] || null)} />
+                      <input style={input} type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setFlowxCsvFile(e.target.files?.[0] || null)} />
 
                       <button disabled={isActionRunning} style={button} onClick={() => runSafeAction('Importing transporter summary tickets', importFlowXTransporterSummaryTickets)}>
                         Import Transporter Summary Tickets
@@ -11656,9 +11953,9 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </div>
 
                       <div style={card}>
-                        <h4>Upload Tank Strapping Chart CSV/XLSX/PDF</h4>
+                        <h4>Upload True Tank Strapping Chart</h4>
                         <p style={{ color: '#a8b3bd' }}>
-                          CSV headers supported: gauge_decimal, gauge_feet, gauge_inches, gauge_fraction, barrels, increment_bbl, notes. XLSX refinery strapping tables and text-based AmSpec PDF innage tables with FT-IN/Barrels pairs are detected automatically.
+                          Upload the true cumulative strapping table only: ft, in, bbl. No PDF guessing and no increment sheets.
                         </p>
                         <select style={input} value={selectedStrappingTankId} onChange={(e) => setSelectedStrappingTankId(e.target.value)}>
                           <option value="">Select Tank</option>

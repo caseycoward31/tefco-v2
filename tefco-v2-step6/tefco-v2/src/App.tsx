@@ -3464,15 +3464,34 @@ function handleProvingAreaSelect(areaId: string) {
     return { calibration, roofWeightLbs, referenceApi, referenceSg, criticalGauge, mode }
   }
 
+  function getTankCorrectedApi60() {
+    const observedApi = Number(tankObservedGravity || 0)
+    if (!Number.isFinite(observedApi) || observedApi <= 0) return 0
+
+    const corrections = calculateApi11Corrections({
+      productGroup: 'crude',
+      observedApiGravity: observedApi,
+      observedTemperature: Number(tankObservedTemp || tankAverageTemp || 60),
+      observedPressure: 0,
+      averageTemperature: Number(tankAverageTemp || tankObservedTemp || 60),
+      averagePressure: 0,
+      apiRounding: 1,
+    })
+
+    return Number(corrections.api_gravity_60 || observedApi || 0)
+  }
+
   function calculateAutomaticTankRoofAdjustment(gaugeDecimal: number) {
     const { roofWeightLbs, referenceSg, criticalGauge, mode } = getTankRoofConfig()
 
     if (mode === 'none') return 0
     if (criticalGauge > 0 && gaugeDecimal < criticalGauge) return 0
     if (!Number.isFinite(roofWeightLbs) || roofWeightLbs <= 0) return 0
+    if (!referenceSg || !Number.isFinite(referenceSg)) return 0
 
-    const actualSg = apiToSpecificGravity(Number(tankObservedGravity || 0))
-    if (!referenceSg || !actualSg) return 0
+    const api60 = getTankCorrectedApi60()
+    const actualSg = apiToSpecificGravity(api60)
+    if (!actualSg) return 0
 
     const referenceDisplacement = roofWeightLbs / (350.16 * referenceSg)
     const actualDisplacement = roofWeightLbs / (350.16 * actualSg)
@@ -14144,6 +14163,11 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <div style={{ color: '#a8b3bd', fontSize: 12, marginBottom: 10 }}>
                         FRA/roof data is taken from the selected strapping chart/leg. FRA = roof weight ÷ (350.16 × reference SG) minus roof weight ÷ (350.16 × actual SG).
                       </div>
+                      {(!calculateTankTicketSnapshot(selectedTank).roofConfig.roofWeightLbs || !calculateTankTicketSnapshot(selectedTank).roofConfig.referenceSg) && (
+                        <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 10 }}>
+                          FRA is not active yet: this selected strap is missing roof weight or reference API/SG. Run the Supabase calibration metadata migration, then re-import or update this strap.
+                        </div>
+                      )}
 
                       <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 12 }}>
                         <div style={box}><div style={{ color: '#a8b3bd', fontSize: 11 }}>Transferred GOV</div><strong>{calculateTankTicketSnapshot(selectedTank).gov.toFixed(2)}</strong></div>
@@ -14178,7 +14202,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         Strap / Leg: {calculateTankTicketSnapshot(selectedTank).selectedCalibration ? getTankCalibrationLabel(calculateTankTicketSnapshot(selectedTank).selectedCalibration) : 'None'} •
                         Roof Wt: {Number(calculateTankTicketSnapshot(selectedTank).roofConfig.roofWeightLbs || 0).toFixed(0)} lbs •
                         Ref SG: {Number(calculateTankTicketSnapshot(selectedTank).roofConfig.referenceSg || 0).toFixed(5)} •
-                        Actual SG: {apiToSpecificGravity(Number(tankObservedGravity || 0)).toFixed(5)} •
+                        Actual SG: {apiToSpecificGravity(getTankCorrectedApi60()).toFixed(5)} •
                         API @60: {calculateTankTicketSnapshot(selectedTank).corrections.api_gravity_60.toFixed(1)} •
                         CTL/CTPL: {calculateTankTicketSnapshot(selectedTank).ctl.toFixed(5)} •
                         CSW: {(1 - calculateTankTicketSnapshot(selectedTank).swDecimal).toFixed(5)}

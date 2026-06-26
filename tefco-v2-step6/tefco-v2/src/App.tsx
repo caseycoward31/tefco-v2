@@ -3031,10 +3031,8 @@ function handleReadingAreaSelect(areaId: string) {
   }
 
   async function saveSegmentProvingSetting(segmentId: string, includeInKpi: boolean) {
-    const segment = segments.find((s: any) => String(s.id) === String(segmentId))
     const payload: any = {
       company_id: companyId || segment?.company_id || null,
-      area_id: segment?.area_id || null,
       segment_id: segmentId,
       include_in_kpi: includeInKpi,
       required_frequency: 'monthly',

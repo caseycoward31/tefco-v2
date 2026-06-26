@@ -943,6 +943,9 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [potRvp, setPotRvp] = useState('')
   const [potSulfur, setPotSulfur] = useState('')
   const [potNotes, setPotNotes] = useState('')
+  const [potShakeoutPhotoFiles, setPotShakeoutPhotoFiles] = useState<File[]>([])
+  const [potPhotoUploading, setPotPhotoUploading] = useState(false)
+  const [potShakeoutPhotos, setPotShakeoutPhotos] = useState<any[]>([])
   const [editingPotId, setEditingPotId] = useState('')
 
 
@@ -1391,6 +1394,10 @@ useEffect(() => {
     }
     const { data: provingData } = await applyCompanyScope(supabase.from('meter_provings').select('*')).order('proving_date', { ascending: false })
     const { data: potData } = await applyCompanyScope(supabase.from('pot_quality').select('*')).order('sample_date', { ascending: false })
+    const { data: potPhotoData, error: potPhotoLoadError } = await applyCompanyScope(supabase.from('pot_quality_photos').select('*')).order('created_at', { ascending: false })
+    if (potPhotoLoadError) {
+      console.warn('POT shakeout photo table unavailable:', potPhotoLoadError)
+    }
 
     const { data: tankData } = await applyCompanyScope(supabase.from('tanks').select('*')).order('tank_number')
     const { data: lineFillData } = await applyCompanyScope(supabase.from('line_fills').select('*')).order('line_name')
@@ -1429,6 +1436,7 @@ useEffect(() => {
     if (producerData) setProducers(producerData)
     if (readingData) setReadings(readingData)
     if (readingPhotoData) setReadingPhotos(readingPhotoData)
+    if (potPhotoData) setPotShakeoutPhotos(potPhotoData)
     if (provingData) setProvings(provingData)
     if (potData) setPotQuality(potData)
     if (tankData) setTanks(tankData)
@@ -2371,6 +2379,18 @@ function handleReadingAreaSelect(areaId: string) {
     return meter?.meter_number || meter?.meter_name || ''
   }
 
+  function getPotPhotosForPot(potId: string) {
+    if (!potId) return []
+    return potShakeoutPhotos.filter((photo: any) => String(photo.pot_quality_id || photo.pot_id || '') === String(potId))
+  }
+
+  function getPotPhotosForLease(leaseId: string) {
+    if (!leaseId) return []
+    return potShakeoutPhotos
+      .filter((photo: any) => String(photo.lease_id || '') === String(leaseId))
+      .slice(0, 12)
+  }
+
   function getReadingPhotosForLease(leaseId: string) {
     if (!leaseId) return []
     return readingPhotos
@@ -2602,6 +2622,7 @@ function handleReadingAreaSelect(areaId: string) {
     setPotRvp('')
     setPotSulfur('')
     setPotNotes('')
+    setPotShakeoutPhotoFiles([])
   }
 
   function editPotQuality(p: any) {
@@ -2646,6 +2667,52 @@ function handleReadingAreaSelect(areaId: string) {
     loadAll()
   }
 
+  async function uploadPotShakeoutPhotosForPot(potId: string) {
+    if (!potId || potShakeoutPhotoFiles.length === 0) return
+    setPotPhotoUploading(true)
+
+    try {
+      const uploadedRows: any[] = []
+      for (const file of potShakeoutPhotoFiles) {
+        const path = `${companyId}/${selectedPotLease || 'unassigned'}/${potId}/${Date.now()}-${safePhotoFileName(file)}`
+        const { error: uploadError } = await supabase.storage
+          .from('pot-shakeout-photos')
+          .upload(path, file, { cacheControl: '3600', upsert: false })
+
+        if (uploadError) throw uploadError
+
+        const { data: urlData } = supabase.storage.from('pot-shakeout-photos').getPublicUrl(path)
+        uploadedRows.push({
+          company_id: companyId,
+          area_id: effectivePotAreaId || null,
+          segment_id: selectedPotSegment || null,
+          producer_id: potProducer || null,
+          lease_id: selectedPotLease || null,
+          meter_id: selectedPotMeter || null,
+          pot_quality_id: potId,
+          photo_type: 'shakeout',
+          file_name: file.name,
+          file_path: path,
+          public_url: urlData?.publicUrl || '',
+          content_type: file.type || 'image/jpeg',
+          size_bytes: file.size || 0,
+        })
+      }
+
+      if (uploadedRows.length) {
+        const { error: insertError } = await supabase.from('pot_quality_photos').insert(uploadedRows)
+        if (insertError) throw insertError
+      }
+
+      setPotShakeoutPhotoFiles([])
+    } catch (error: any) {
+      console.error('POT shakeout photo upload failed:', error)
+      alert(`POT saved, but shakeout photo upload failed: ${error?.message || 'Unknown error'}`)
+    } finally {
+      setPotPhotoUploading(false)
+    }
+  }
+
   async function savePotQuality() {
     if (!companyId || !effectivePotAreaId || !selectedPotSegment || !selectedPotLease || !potDate) {
       alert('Select area, segment, lease, and sample date first.')
@@ -2683,13 +2750,20 @@ function handleReadingAreaSelect(areaId: string) {
       notes: buildPotNotesWithExtras(potNotes, potRvp, potSulfur),
     }
 
-    const { error } = editingPotId
-      ? await supabase.from('pot_quality').update(potPayload).eq('id', editingPotId)
-      : await supabase.from('pot_quality').insert(potPayload)
+    let savedPotId = editingPotId
+    const result = editingPotId
+      ? await supabase.from('pot_quality').update(potPayload).eq('id', editingPotId).select('id').single()
+      : await supabase.from('pot_quality').insert(potPayload).select('id').single()
 
-    if (error) {
-      alert('Could not save POT quality: ' + error.message)
+    if (result.error) {
+      alert('Could not save POT quality: ' + result.error.message)
       return
+    }
+
+    savedPotId = result.data?.id || savedPotId
+
+    if (savedPotId && potShakeoutPhotoFiles.length > 0) {
+      await uploadPotShakeoutPhotosForPot(savedPotId)
     }
 
     const wasEditingPot = Boolean(editingPotId)
@@ -13737,8 +13811,38 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 </div>
                 <input style={input} placeholder="BS&W %" value={potBSW} onChange={(e) => setPotBSW(e.target.value)} />
                 <input style={input} placeholder="Notes" value={potNotes} onChange={(e) => setPotNotes(e.target.value)} />
+
+                <div style={card}>
+                  <strong>Shakeout Photo</strong>
+                  <p style={{ color: '#a8b3bd', marginTop: 6 }}>
+                    Add a picture of the BS&W shakeout. You can take a photo from the tablet/phone camera or upload an image.
+                  </p>
+                  <input
+                    style={input}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    multiple
+                    onChange={(e) => setPotShakeoutPhotoFiles(Array.from(e.target.files || []))}
+                  />
+                  {potShakeoutPhotoFiles.length > 0 && (
+                    <div style={{ color: '#86efac', marginTop: 8 }}>
+                      {potShakeoutPhotoFiles.length} shakeout photo(s) ready to save.
+                    </div>
+                  )}
+                  {editingPotId && getPotPhotosForPot(editingPotId).length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginTop: 10 }}>
+                      {getPotPhotosForPot(editingPotId).map((photo: any) => (
+                        <a key={photo.id || photo.file_path} href={photo.public_url || '#'} target="_blank" rel="noreferrer">
+                          <img src={photo.public_url} alt={photo.file_name || 'shakeout photo'} style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 10, border: '1px solid rgba(148,163,184,0.25)' }} />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div style={card}>CSW: {(1 - Number(potBSW || 0) / 100).toFixed(6)}</div>
-                <button style={button} onClick={savePotQuality}>{editingPotId ? 'Update POT Quality' : 'Save POT Quality'}</button>
+                <button style={button} onClick={savePotQuality} disabled={potPhotoUploading}>{potPhotoUploading ? 'Saving Shakeout Photo...' : editingPotId ? 'Update POT Quality' : 'Save POT Quality'}</button>
                 {editingPotId && (
                   <button type="button" style={{ ...button, background: '#334155', border: '1px solid #475569' }} onClick={clearPotForm}>Cancel Edit / Clear Form</button>
                 )}
@@ -13806,6 +13910,18 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                                         <div>RVP: {((p as any).rvp ?? parsePotExtra(p.notes, 'rvp')) || '—'}</div>
                                         <div>Sulphur: {((p as any).sulfur ?? parsePotExtra(p.notes, 'sulfur')) || '—'}</div>
                                         <div>Notes: {cleanPotNotes(p.notes) || ''}</div>
+                                        {getPotPhotosForPot(p.id).length > 0 && (
+                                          <div style={{ marginTop: 10 }}>
+                                            <div style={{ color: '#a8b3bd', fontSize: 12, marginBottom: 6 }}>Shakeout Photo(s)</div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8 }}>
+                                              {getPotPhotosForPot(p.id).slice(0, 6).map((photo: any) => (
+                                                <a key={photo.id || photo.file_path} href={photo.public_url || '#'} target="_blank" rel="noreferrer">
+                                                  <img src={photo.public_url} alt={photo.file_name || 'shakeout photo'} style={{ width: '100%', height: 80, objectFit: 'cover', borderRadius: 10, border: '1px solid rgba(148,163,184,0.25)' }} />
+                                                </a>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
                                         {!isReadOnly && (
                                           <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
                                             <button type="button" style={{ ...button, marginTop: 0, background: '#d97706', border: '1px solid #f59e0b' }} onClick={() => editPotQuality(p)}>Edit POT</button>

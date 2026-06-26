@@ -854,7 +854,9 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [selectedTicketArea, setSelectedTicketArea] = useState('')
   const [ticketType, setTicketType] = useState('meter')
   const [refinedProductType, setRefinedProductType] = useState('')
+  const [refinedProductCode, setRefinedProductCode] = useState('')
   const [refinedMovementDestination, setRefinedMovementDestination] = useState('')
+  const [ticketBatchNumber, setTicketBatchNumber] = useState('')
   const [selectedTank, setSelectedTank] = useState('')
   const [selectedTankCalibrationVersionId, setSelectedTankCalibrationVersionId] = useState('')
   const [selectedLineFill, setSelectedLineFill] = useState('')
@@ -3730,15 +3732,36 @@ function handleProvingAreaSelect(areaId: string) {
 
   function getRefinedProductOptions() {
     return [
-      'Gasoline',
-      'Diesel',
-      'Jet Fuel',
-      'Kerosene',
-      'Butane',
-      'Propane',
-      'Transmix',
+      'BBL',
+      'GAL',
+      'Gross Gallons',
+      'Net Gallons',
+      'Barrels',
+      'Loads',
       'Other',
     ]
+  }
+
+  function getRefinedProductCodeOptions() {
+    return ['Diesel', 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
+  }
+
+  function getTicketBatchNumberValue(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const calc = ticket?.calculation_results || {}
+    return observed.batch_number || calc.batch_number || ticket?.batch_number || observed.batch_no || ''
+  }
+
+  function getTicketPdfFileName(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const calc = ticket?.calculation_results || {}
+    const meter = meters.find((m: any) => String(m.id || '') === String(ticket?.meter_id || observed.meter_id || ''))
+    const lease = leases.find((l: any) => String(l.id || '') === String(ticket?.lease_id || observed.lease_id || meter?.lease_id || ''))
+    const leaseName = getTicketPdfLeaseName(ticket, meter, lease, observed) || observed.lease_name || 'Lease'
+    const ticketNumberValue = ticket?.ticket_number || ticket?.id || 'Ticket'
+    const batchValue = getTicketBatchNumberValue(ticket) || 'NoBatch'
+    const dateValue = observed.close_date || observed.ticket_date || (getTicketReportDate(ticket) ? new Date(getTicketReportDate(ticket)).toISOString().slice(0,10) : new Date().toISOString().slice(0,10))
+    return sanitizeFileName(`${leaseName}_${ticketNumberValue}_${batchValue}_${dateValue}`, 'ticket')
   }
 
   function isRefinedTicketContext() {
@@ -3898,8 +3921,11 @@ function handleProvingAreaSelect(areaId: string) {
         selected_calculation_method: selectedCalculationMethod,
         selected_product_group: selectedProductGroup,
         selected_factor_type: selectedFactorType,
-        refined_product_type: refinedProductType || null,
+        refined_unit_type: refinedProductType || null,
+        refined_product_type: refinedProductCode || null,
+        product_code: refinedProductCode || null,
         refined_destination: refinedMovementDestination || null,
+        batch_number: ticketBatchNumber || null,
       },
       api_chapter: profile?.standard || null,
       calculation_method: corrections.api_engine,
@@ -3995,11 +4021,16 @@ function handleProvingAreaSelect(areaId: string) {
         contract_profile_name: contractProfile?.name || null,
         calculation_method: selectedCalculationMethod,
         product_group: selectedProductGroup,
-        refined_product_type: refinedProductType || null,
-        product_type: refinedProductType || selectedProductGroup || null,
+        refined_unit_type: refinedProductType || null,
+        unit_of_measure_type: refinedProductType || null,
+        refined_product_type: refinedProductCode || null,
+        product_code: refinedProductCode || null,
+        product_type: refinedProductCode || selectedProductGroup || null,
         refined_destination: refinedMovementDestination || null,
         movement_destination: refinedMovementDestination || null,
         destination: refinedMovementDestination || null,
+        batch_number: ticketBatchNumber || null,
+        batch_no: ticketBatchNumber || null,
         shrink_factor: shrinkFactor,
         product_sub_group: corrections.product_sub_group,
       },
@@ -4029,10 +4060,14 @@ function handleProvingAreaSelect(areaId: string) {
         sw_percent: bswPercent,
         csw,
         product_sub_group: corrections.product_sub_group,
-        refined_product_type: refinedProductType || null,
-        product_type: refinedProductType || selectedProductGroup || null,
+        refined_unit_type: refinedProductType || null,
+        unit_of_measure_type: refinedProductType || null,
+        refined_product_type: refinedProductCode || null,
+        product_code: refinedProductCode || null,
+        product_type: refinedProductCode || selectedProductGroup || null,
         refined_destination: refinedMovementDestination || null,
         movement_destination: refinedMovementDestination || null,
+        batch_number: ticketBatchNumber || null,
         formula_profile: isApi12 ? 'API 12 2021' : 'API 11.1',
       },
     }
@@ -4117,7 +4152,9 @@ function handleProvingAreaSelect(areaId: string) {
     setSelectedMeter('')
     setManualClosingReading('')
     setRefinedProductType('')
+    setRefinedProductCode('')
     setRefinedMovementDestination('')
+    setTicketBatchNumber('')
     setAutofillPreview(null)
     loadAll()
   }
@@ -4345,8 +4382,10 @@ function handleProvingAreaSelect(areaId: string) {
       mf: ticketEditString(calc.mf ?? observed.mf),
       gsv: ticketEditString(calc.gsv ?? observed.gsv),
       nsv: ticketEditString(calc.nsv ?? observed.nsv ?? observed.net_volume_bbl),
-      refined_product_type: ticketEditString(observed.refined_product_type ?? calc.refined_product_type ?? observed.product_type),
+      refined_unit_type: ticketEditString(observed.refined_unit_type ?? calc.refined_unit_type ?? observed.unit_of_measure_type),
+      refined_product_type: ticketEditString(observed.refined_product_type ?? calc.refined_product_type ?? observed.product_code ?? calc.product_code ?? observed.product_type),
       refined_destination: ticketEditString(observed.refined_destination ?? calc.refined_destination ?? observed.movement_destination ?? observed.destination),
+      batch_number: ticketEditString(observed.batch_number ?? calc.batch_number ?? (selectedTicket as any).batch_number),
       net_volume_adjustment_bbl: ticketEditString(calc.net_volume_adjustment_bbl ?? observed.net_volume_adjustment_bbl ?? observed.manual_net_volume_adjustment_bbl ?? 0),
       net_volume_adjustment_reason: ticketEditString(observed.net_volume_adjustment_reason ?? calc.net_volume_adjustment_reason ?? ''),
       open_date: ticketEditString(observed.open_date),
@@ -4482,11 +4521,16 @@ function handleProvingAreaSelect(areaId: string) {
       net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
       manual_net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
       net_volume_adjustment_reason: netVolumeAdjustmentReason || null,
+      refined_unit_type: values.refined_unit_type || null,
+      unit_of_measure_type: values.refined_unit_type || null,
       refined_product_type: values.refined_product_type || null,
+      product_code: values.refined_product_type || null,
       product_type: values.refined_product_type || observed.product_type || null,
       refined_destination: values.refined_destination || null,
       movement_destination: values.refined_destination || null,
       destination: values.refined_destination || null,
+      batch_number: values.batch_number || null,
+      batch_no: values.batch_number || null,
       open_date: values.open_date || null,
       open_time: values.open_time || null,
       close_date: values.close_date || null,
@@ -4546,10 +4590,14 @@ function handleProvingAreaSelect(areaId: string) {
       net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
       manual_net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
       net_volume_adjustment_reason: netVolumeAdjustmentReason || null,
+      refined_unit_type: values.refined_unit_type || null,
+      unit_of_measure_type: values.refined_unit_type || null,
       refined_product_type: values.refined_product_type || null,
+      product_code: values.refined_product_type || null,
       product_type: values.refined_product_type || calc.product_type || null,
       refined_destination: values.refined_destination || null,
       movement_destination: values.refined_destination || null,
+      batch_number: values.batch_number || null,
       revision_number: isApprovedRevision ? nextObservedInputs.revision_number : calc.revision_number,
       revised_at: isApprovedRevision ? nextObservedInputs.revised_at : calc.revised_at,
     }
@@ -4802,8 +4850,10 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const pdfRevisionAt = observed.revised_at || calc.revised_at || ''
 
     const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name || (ticket.ticket_type === 'meter' ? 'Pipeline Meter' : '—')
-    const refinedProductPdf = observed.refined_product_type || calc.refined_product_type || observed.product_type || calc.product_type || '—'
+    const refinedProductPdf = observed.refined_product_type || calc.refined_product_type || observed.product_code || calc.product_code || observed.product_type || calc.product_type || '—'
+    const refinedUnitPdf = observed.refined_unit_type || calc.refined_unit_type || observed.unit_of_measure_type || calc.unit_of_measure_type || '—'
     const refinedDestinationPdf = observed.refined_destination || calc.refined_destination || observed.movement_destination || observed.destination || '—'
+    const batchNumberPdf = observed.batch_number || calc.batch_number || ticket.batch_number || observed.batch_no || '—'
     const assignedPot = observed.assigned_pot_label || ticket.assigned_pot_id || (observed.pot_source === 'latest_pot_quality' ? 'Sample POT' : '—')
     const potQualitySource = observed.pot_source === 'latest_pot_quality' ? 'Latest POT Quality' : assignedPot
     const pdfRvp = observed.rvp || parsePotExtra(observed.notes, 'rvp') || '—'
@@ -4952,6 +5002,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       <div class="ticket-box">
         <div class="label">Tank Ticket Number</div>
         <div class="number">${ticketNumber}</div>
+        <div class="label" style="margin-top:4px;">Batch</div>
+        <div class="number" style="font-size:12px;">${batchNumberPdf}</div>
         <div class="status">${ticket.status || 'draft'}</div>
         <div class="hero-sub">${revisionLabel}</div>
       </div>
@@ -4967,6 +5019,10 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       <div class="cell"><div class="small-label">Tank</div><div class="value">${tankName}</div></div>
       <div class="cell"><div class="small-label">Strap / Leg</div><div class="value">${strapName}</div></div>
       <div class="cell"><div class="small-label">Movement</div><div class="value">${movementDirection}</div></div>
+      <div class="cell"><div class="small-label">Batch Number</div><div class="value">${batchNumberPdf}</div></div>
+      <div class="cell"><div class="small-label">Product</div><div class="value">${refinedProductPdf}</div></div>
+      <div class="cell"><div class="small-label">Unit / Measure</div><div class="value">${refinedUnitPdf}</div></div>
+      <div class="cell"><div class="small-label">Destination / To</div><div class="value">${refinedDestinationPdf}</div></div>
       <div class="cell"><div class="small-label">Segment</div><div class="value">${segment?.name || observed.segment_name || '—'}</div></div>
       <div class="cell"><div class="small-label">Opening Source</div><div class="value">${openingSource}</div></div>
       <div class="cell"><div class="small-label">Close Date / Time</div><div class="value">${observed.close_date || '—'} ${observed.close_time || ''}</div></div>
@@ -5239,6 +5295,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
         <div class="cell"><div class="small-label">Created</div><div class="value">${createdAt}</div></div>
         <div class="cell"><div class="small-label">Approved</div><div class="value">${approvedAt}</div></div>
         <div class="cell"><div class="small-label">Revision</div><div class="value">${pdfRevisionNumber ? `Revision ${pdfRevisionNumber}` : 'Original'}</div></div>
+        <div class="cell"><div class="small-label">Batch Number</div><div class="value">${batchNumberPdf}</div></div>
         <div class="cell"><div class="small-label">Revision Reason</div><div class="value">${pdfRevisionReason || '—'}</div></div>
         <div class="cell"><div class="small-label">Revised At</div><div class="value">${pdfRevisionAt ? new Date(pdfRevisionAt).toLocaleString() : '—'}</div></div>
         <div class="cell"><div class="small-label">Segment</div><div class="value">${segment?.name || observed.segment_name || '—'}</div></div>
@@ -5246,6 +5303,9 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
         <div class="cell"><div class="small-label">Lease</div><div class="value">${pdfLeaseName || (isFlowX ? `${sourceLeaseCount || '—'} lease(s)` : '—')}</div></div>
         <div class="cell"><div class="small-label">Meter / Rack</div><div class="value">${meter?.meter_number || observed.meter_number || '—'}</div></div>
         <div class="cell"><div class="small-label">Transporter</div><div class="value">${transporter}</div></div>
+        <div class="cell"><div class="small-label">Product</div><div class="value">${refinedProductPdf}</div></div>
+        <div class="cell"><div class="small-label">Unit / Measure</div><div class="value">${refinedUnitPdf}</div></div>
+        <div class="cell"><div class="small-label">Destination / To</div><div class="value">${refinedDestinationPdf}</div></div>
         <div class="cell"><div class="small-label">Assigned POT</div><div class="value">${assignedPot}</div></div>
       </div>
     </div>
@@ -5351,6 +5411,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
 
   function generatePdfPreview(ticket: any) {
     const html = buildTicketPdfHtml(ticket)
+    const fileName = `${getTicketPdfFileName(ticket)}.html`
     const printWindow = window.open('', '_blank')
     if (!printWindow) {
       alert('Popup blocked. Allow popups to preview PDF.')
@@ -5358,7 +5419,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     }
 
     printWindow.document.open()
-    printWindow.document.write(html)
+    printWindow.document.write(html.replace('</body>', `<script>document.title = ${JSON.stringify(fileName.replace(/\.html$/i, ''))};</script></body>`))
     printWindow.document.close()
   }
 
@@ -14423,15 +14484,25 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CPL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <label><div className="ticket-muted">MF / CMF</div><input style={input} value={draftTicketEditValues.mf || ''} onChange={(e) => updateDraftTicketEditField('mf', e.target.value)} /></label>
                       <label>
-                        <div className="ticket-muted">Refined Product</div>
+                        <div className="ticket-muted">Product</div>
                         <select style={input} value={draftTicketEditValues.refined_product_type || ''} onChange={(e) => updateDraftTicketEditField('refined_product_type', e.target.value)}>
                           <option value="">Not refined / blank</option>
+                          {getRefinedProductCodeOptions().map((product) => (
+                            <option key={product} value={product}>{product}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <div className="ticket-muted">Unit / Measure Type</div>
+                        <select style={input} value={draftTicketEditValues.refined_unit_type || ''} onChange={(e) => updateDraftTicketEditField('refined_unit_type', e.target.value)}>
+                          <option value="">Blank</option>
                           {getRefinedProductOptions().map((product) => (
                             <option key={product} value={product}>{product}</option>
                           ))}
                         </select>
                       </label>
                       <label><div className="ticket-muted">Destination / Movement To</div><input style={input} value={draftTicketEditValues.refined_destination || ''} onChange={(e) => updateDraftTicketEditField('refined_destination', e.target.value)} /></label>
+                      <label><div className="ticket-muted">Batch Number</div><input style={input} value={draftTicketEditValues.batch_number || ''} onChange={(e) => updateDraftTicketEditField('batch_number', e.target.value)} /></label>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">GSV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).baseGsv, 2)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">Base NSV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).baseNsv, 2)}</strong><div className="ticket-muted">Before manual net adjustment</div></div>
                       <label><div className="ticket-muted">Net Volume Adjustment (+/- BBLS)</div><input style={input} value={draftTicketEditValues.net_volume_adjustment_bbl || ''} onChange={(e) => updateDraftTicketEditField('net_volume_adjustment_bbl', e.target.value)} /></label>
@@ -14464,8 +14535,10 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     <div><strong>Type:</strong> {selectedTicket!.ticket_type || '—'}</div>
                     <div><strong>Status:</strong> {selectedTicket!.status || 'draft'}</div>
                     <div><strong>Transporter:</strong> {selectedTicket!.observed_inputs?.transporter_name || (selectedTicket as any).transporter_name || (selectedTicket as any).customer_name || '—'}</div>
-                    <div><strong>Refined Product:</strong> {selectedTicket!.observed_inputs?.refined_product_type || selectedTicket!.calculation_results?.refined_product_type || selectedTicket!.observed_inputs?.product_type || '—'}</div>
+                    <div><strong>Product:</strong> {selectedTicket!.observed_inputs?.refined_product_type || selectedTicket!.calculation_results?.refined_product_type || selectedTicket!.observed_inputs?.product_code || selectedTicket!.observed_inputs?.product_type || '—'}</div>
+                    <div><strong>Unit / Measure:</strong> {selectedTicket!.observed_inputs?.refined_unit_type || selectedTicket!.calculation_results?.refined_unit_type || selectedTicket!.observed_inputs?.unit_of_measure_type || '—'}</div>
                     <div><strong>Destination / To:</strong> {selectedTicket!.observed_inputs?.refined_destination || selectedTicket!.calculation_results?.refined_destination || selectedTicket!.observed_inputs?.movement_destination || '—'}</div>
+                    <div><strong>Batch #:</strong> {selectedTicket!.observed_inputs?.batch_number || selectedTicket!.calculation_results?.batch_number || (selectedTicket as any).batch_number || '—'}</div>
                     <div><strong>LACT:</strong> {selectedTicket!.observed_inputs?.lact_name || (selectedTicket as any).lact_name || '—'}</div>
                     <div><strong>Source Rows:</strong> {selectedTicket!.observed_inputs?.source_rows || '—'}</div>
                   </div>
@@ -14604,6 +14677,16 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 </div>
               </div>
 
+              <label style={{ display: 'block' }}>
+                <div className="ticket-muted" style={{ marginBottom: 6 }}>Batch Number</div>
+                <input
+                  style={input}
+                  placeholder="Batch number / movement number"
+                  value={ticketBatchNumber}
+                  onChange={(e) => setTicketBatchNumber(e.target.value)}
+                />
+              </label>
+
               <select style={input} value={ticketType} onChange={(e) => setTicketType(e.target.value)}>
                 <option value="meter">Meter Ticket</option>
                 <option value="tank">Tank Ticket</option>
@@ -14618,11 +14701,20 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <p style={{ color: '#a8b3bd', marginTop: 0 }}>
                     Used only for refined product contracts/meters. This will print/store on the ticket but does not affect crude tickets.
                   </p>
-                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                     <label>
                       <div className="ticket-muted" style={{ marginBottom: 6 }}>Product</div>
-                      <select style={input} value={refinedProductType} onChange={(e) => setRefinedProductType(e.target.value)}>
+                      <select style={input} value={refinedProductCode} onChange={(e) => setRefinedProductCode(e.target.value)}>
                         <option value="">Select Product</option>
+                        {getRefinedProductCodeOptions().map((product) => (
+                          <option key={product} value={product}>{product}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <div className="ticket-muted" style={{ marginBottom: 6 }}>Unit / Measure Type</div>
+                      <select style={input} value={refinedProductType} onChange={(e) => setRefinedProductType(e.target.value)}>
+                        <option value="">Select Unit / Type</option>
                         {getRefinedProductOptions().map((product) => (
                           <option key={product} value={product}>{product}</option>
                         ))}

@@ -48,6 +48,7 @@ type Profile = {
 type Producer = {
   id: string
   name: string
+  producer_name?: string | null
   calculation_profile_id?: string | null
 }
 
@@ -1691,7 +1692,7 @@ const provingCompliancePercent =
   ).trim()
   const selectedTicketProducerRow: any = asArray(producers).find((producer: any) => {
     const producerId = String(producer.id || '').trim()
-    const producerName = String(producer.name || producer.producer_name || '').trim().toLowerCase()
+    const producerName = String(producer.name || (producer as any).producer_name || '').trim().toLowerCase()
     return (producerId && producerId === selectedTicketProducerKey) ||
       (producerName && producerName === selectedTicketProducerKey.toLowerCase())
   })
@@ -2228,7 +2229,7 @@ function handleTicketAreaSelect(areaId: string) {
     const producerKey = leaseRow?.producer_id || onlyMeter?.producer_id || leaseRow?.producer || leaseRow?.producer_name || onlyMeter?.producer || onlyMeter?.producer_name || ''
     const producerRow: any = asArray(producers).find((producer: any) => {
       const producerId = String(producer.id || '').trim()
-      const producerName = String(producer.name || producer.producer_name || '').trim().toLowerCase()
+      const producerName = String(producer.name || (producer as any).producer_name || '').trim().toLowerCase()
       const key = String(producerKey || '').trim()
       return (producerId && producerId === key) || (producerName && producerName === key.toLowerCase())
     })
@@ -10909,7 +10910,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
 
   function getProducerLabelById(producerId: string) {
     const producer = producers.find((item: any) => String(item.id) === String(producerId || ''))
-    return producer?.name || producer?.producer_name || 'Unassigned Producer'
+    return producer?.name || (producer as any)?.producer_name || 'Unassigned Producer'
   }
 
   function getProducersForSegment(segmentId: string) {
@@ -11199,7 +11200,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
           </select>
           <select style={input} value={provingQueueProducerFilter} onChange={(e) => setProvingQueueProducerFilter(e.target.value)}>
             <option value="">{provingQueueSegmentFilter ? 'All Producers in Segment' : 'All Producers'}</option>
-            {getProducersForSegment(provingQueueSegmentFilter).map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>)}
+            {getProducersForSegment(provingQueueSegmentFilter).map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name || (producer as any).producer_name}</option>)}
           </select>
         </div>
 
@@ -13924,7 +13925,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         </select>
                         <select style={input} value={potQueueProducerFilter} onChange={(e) => setPotQueueProducerFilter(e.target.value)}>
                           <option value="">{potQueueSegmentFilter ? 'All Producers in Segment' : 'All Producers'}</option>
-                          {getProducersForSegment(potQueueSegmentFilter).map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>)}
+                          {getProducersForSegment(potQueueSegmentFilter).map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name || (producer as any).producer_name}</option>)}
                         </select>
                       </div>
 
@@ -14427,7 +14428,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 <select style={input} value={reportProducerId} onChange={(e) => setReportProducerId(e.target.value)}>
                   <option value="">{reportSegmentId ? 'All Producers in Segment' : 'All Producers'}</option>
                   {getProducersForSegment(reportSegmentId).map((producer: any) => (
-                    <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>
+                    <option key={producer.id} value={producer.id}>{producer.name || (producer as any).producer_name}</option>
                   ))}
                 </select>
               </div>
@@ -15268,7 +15269,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <select style={input} value={ticketArchiveProducerFilter} onChange={(e) => setTicketArchiveProducerFilter(e.target.value)}>
                         <option value="">{ticketArchiveSegmentFilter ? 'All Producers in Segment' : 'All Producers'}</option>
                         {getProducersForSegment(ticketArchiveSegmentFilter).map((producer: any) => (
-                          <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>
+                          <option key={producer.id} value={producer.id}>{producer.name || (producer as any).producer_name}</option>
                         ))}
                       </select>
                     </div>
@@ -15385,7 +15386,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <select style={input} value={ticketArchiveProducerFilter} onChange={(e) => setTicketArchiveProducerFilter(e.target.value)}>
                         <option value="">{ticketArchiveSegmentFilter ? 'All Producers in Segment' : 'All Producers'}</option>
                         {getProducersForSegment(ticketArchiveSegmentFilter).map((producer: any) => (
-                          <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>
+                          <option key={producer.id} value={producer.id}>{producer.name || (producer as any).producer_name}</option>
                         ))}
                       </select>
                     </div>

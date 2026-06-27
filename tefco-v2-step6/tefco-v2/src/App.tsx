@@ -612,8 +612,11 @@ function App() {
   const [readingQueueSegmentFilter, setReadingQueueSegmentFilter] = useState('')
   const [potQueueMonthFilter, setPotQueueMonthFilter] = useState('')
   const [potQueueSegmentFilter, setPotQueueSegmentFilter] = useState('')
+  const [potQueueProducerFilter, setPotQueueProducerFilter] = useState('')
   const [provingQueueMonthFilter, setProvingQueueMonthFilter] = useState('')
   const [provingQueueSegmentFilter, setProvingQueueSegmentFilter] = useState('')
+  const [provingQueueProducerFilter, setProvingQueueProducerFilter] = useState('')
+  const [ticketArchiveProducerFilter, setTicketArchiveProducerFilter] = useState('')
   const [hierarchySegmentId, setHierarchySegmentId] = useState('')
   const [hierarchyAreaId, setHierarchyAreaId] = useState('')
   const [hierarchyLeaseId, setHierarchyLeaseId] = useState('')
@@ -10897,6 +10900,30 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
     return String(ticket.segment_id || observed.segment_id || '')
   }
 
+  function getTicketProducerId(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const meter = getMeterById(ticket?.meter_id || observed.meter_id || '')
+    const lease = getLeaseById(ticket?.lease_id || observed.lease_id || meter?.lease_id || '')
+    return String(ticket?.producer_id || observed.producer_id || (lease as any)?.producer_id || meter?.producer_id || '')
+  }
+
+  function getProducerLabelById(producerId: string) {
+    const producer = producers.find((item: any) => String(item.id) === String(producerId || ''))
+    return producer?.name || producer?.producer_name || 'Unassigned Producer'
+  }
+
+  function getProducersForSegment(segmentId: string) {
+    if (!segmentId) return producers
+    const producerIds = new Set(
+      leases
+        .filter((lease: any) => String(lease.segment_id || '') === String(segmentId))
+        .map((lease: any) => String(lease.producer_id || ''))
+        .filter(Boolean)
+    )
+
+    return producers.filter((producer: any) => producerIds.has(String(producer.id || '')))
+  }
+
   function getTicketSegmentLabel(ticket: any) {
     const observed = ticket?.observed_inputs || {}
     const segmentId = getTicketSegmentId(ticket)
@@ -11047,6 +11074,18 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
     return String(row?.segment_id || (lease as any)?.segment_id || meter?.segment_id || '')
   }
 
+  function getPotProducerId(row: any) {
+    const meter = getMeterById(row?.meter_id || row?.meterId || '')
+    const lease = getLeaseById(row?.lease_id || row?.leaseId || meter?.lease_id || '')
+    return String(row?.producer_id || (lease as any)?.producer_id || meter?.producer_id || '')
+  }
+
+  function getProvingProducerId(row: any) {
+    const meter = getMeterById(row?.meter_id || '')
+    const lease = getLeaseById(row?.lease_id || meter?.lease_id || '')
+    return String(row?.producer_id || (lease as any)?.producer_id || meter?.producer_id || '')
+  }
+
   function getPotSegmentId(row: any) {
     const meter = getMeterById(row?.meter_id || row?.meterId || '')
     const lease = getLeaseById(row?.lease_id || row?.leaseId || meter?.lease_id || '')
@@ -11142,20 +11181,25 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
     const monthOptions = getGenericMonthOptions(rows, ['proving_date', 'approved_at', 'created_at'])
     const filteredRows = rows.filter((p: any) =>
       (!provingQueueMonthFilter || getGenericMonthKey(p, ['proving_date', 'approved_at', 'created_at']) === provingQueueMonthFilter) &&
-      (!provingQueueSegmentFilter || getProvingSegmentId(p) === provingQueueSegmentFilter)
+      (!provingQueueSegmentFilter || getProvingSegmentId(p) === provingQueueSegmentFilter) &&
+      (!provingQueueProducerFilter || getProvingProducerId(p) === provingQueueProducerFilter)
     )
     const grouped = groupRowsByMonthSegment(filteredRows, ['proving_date', 'approved_at', 'created_at'], getProvingSegmentId)
 
     return (
       <>
-        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
           <select style={input} value={provingQueueMonthFilter} onChange={(e) => setProvingQueueMonthFilter(e.target.value)}>
             <option value="">All Months</option>
             {monthOptions.map((month: any) => <option key={month.monthKey} value={month.monthKey}>{month.label}</option>)}
           </select>
-          <select style={input} value={provingQueueSegmentFilter} onChange={(e) => setProvingQueueSegmentFilter(e.target.value)}>
+          <select style={input} value={provingQueueSegmentFilter} onChange={(e) => { setProvingQueueSegmentFilter(e.target.value); setProvingQueueProducerFilter('') }}>
             <option value="">All Segments</option>
             {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+          </select>
+          <select style={input} value={provingQueueProducerFilter} onChange={(e) => setProvingQueueProducerFilter(e.target.value)}>
+            <option value="">{provingQueueSegmentFilter ? 'All Producers in Segment' : 'All Producers'}</option>
+            {getProducersForSegment(provingQueueSegmentFilter).map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>)}
           </select>
         </div>
 
@@ -13855,7 +13899,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   const monthOptions = getGenericMonthOptions(potQuality, ['sample_date', 'created_at'])
                   const filteredPots = potQuality.filter((p: any) =>
                     (!potQueueMonthFilter || getGenericMonthKey(p, ['sample_date', 'created_at']) === potQueueMonthFilter) &&
-                    (!potQueueSegmentFilter || getPotSegmentId(p) === potQueueSegmentFilter)
+                    (!potQueueSegmentFilter || getPotSegmentId(p) === potQueueSegmentFilter) &&
+                    (!potQueueProducerFilter || getPotProducerId(p) === potQueueProducerFilter)
                   )
                   const grouped = groupRowsByMonthSegment(filteredPots, ['sample_date', 'created_at'], getPotSegmentId)
 
@@ -13868,14 +13913,18 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         </div>
                       </div>
 
-                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
                         <select style={input} value={potQueueMonthFilter} onChange={(e) => setPotQueueMonthFilter(e.target.value)}>
                           <option value="">All Months</option>
                           {monthOptions.map((month: any) => <option key={month.monthKey} value={month.monthKey}>{month.label}</option>)}
                         </select>
-                        <select style={input} value={potQueueSegmentFilter} onChange={(e) => setPotQueueSegmentFilter(e.target.value)}>
+                        <select style={input} value={potQueueSegmentFilter} onChange={(e) => { setPotQueueSegmentFilter(e.target.value); setPotQueueProducerFilter('') }}>
                           <option value="">All Segments</option>
                           {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+                        </select>
+                        <select style={input} value={potQueueProducerFilter} onChange={(e) => setPotQueueProducerFilter(e.target.value)}>
+                          <option value="">{potQueueSegmentFilter ? 'All Producers in Segment' : 'All Producers'}</option>
+                          {getProducersForSegment(potQueueSegmentFilter).map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>)}
                         </select>
                       </div>
 
@@ -14368,17 +14417,17 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <input style={input} type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} />
                 </label>
 
-                <select style={input} value={reportProducerId} onChange={(e) => setReportProducerId(e.target.value)}>
-                  <option value="">All Producers</option>
-                  {producers.map((producer: any) => (
-                    <option key={producer.id} value={producer.id}>{producer.name}</option>
+                <select style={input} value={reportSegmentId} onChange={(e) => { setReportSegmentId(e.target.value); setReportProducerId('') }}>
+                  <option value="">All Segments</option>
+                  {segments.map((segment: any) => (
+                    <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
                   ))}
                 </select>
 
-                <select style={input} value={reportSegmentId} onChange={(e) => setReportSegmentId(e.target.value)}>
-                  <option value="">All Segments</option>
-                  {segments.map((segment: any) => (
-                    <option key={segment.id} value={segment.id}>{segment.name}</option>
+                <select style={input} value={reportProducerId} onChange={(e) => setReportProducerId(e.target.value)}>
+                  <option value="">{reportSegmentId ? 'All Producers in Segment' : 'All Producers'}</option>
+                  {getProducersForSegment(reportSegmentId).map((producer: any) => (
+                    <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>
                   ))}
                 </select>
               </div>
@@ -15189,7 +15238,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 const monthOptions = getTicketMonthOptions(baseTickets)
                 const filteredTickets = baseTickets.filter((ticket: any) =>
                   (!ticketArchiveMonthFilter || getTicketMonthKey(ticket) === ticketArchiveMonthFilter) &&
-                  (!ticketArchiveSegmentFilter || getTicketSegmentId(ticket) === ticketArchiveSegmentFilter)
+                  (!ticketArchiveSegmentFilter || getTicketSegmentId(ticket) === ticketArchiveSegmentFilter) &&
+                  (!ticketArchiveProducerFilter || getTicketProducerId(ticket) === ticketArchiveProducerFilter)
                 )
                 const groupedArchive = groupTicketsByMonthSegmentKind(filteredTickets)
 
@@ -15202,17 +15252,23 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </div>
                     </div>
 
-                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
                       <select style={input} value={ticketArchiveMonthFilter} onChange={(e) => setTicketArchiveMonthFilter(e.target.value)}>
                         <option value="">All Months</option>
                         {monthOptions.map((month: any) => (
                           <option key={month.monthKey} value={month.monthKey}>{month.label}</option>
                         ))}
                       </select>
-                      <select style={input} value={ticketArchiveSegmentFilter} onChange={(e) => setTicketArchiveSegmentFilter(e.target.value)}>
+                      <select style={input} value={ticketArchiveSegmentFilter} onChange={(e) => { setTicketArchiveSegmentFilter(e.target.value); setTicketArchiveProducerFilter('') }}>
                         <option value="">All Segments</option>
                         {segments.map((segment: any) => (
                           <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
+                        ))}
+                      </select>
+                      <select style={input} value={ticketArchiveProducerFilter} onChange={(e) => setTicketArchiveProducerFilter(e.target.value)}>
+                        <option value="">{ticketArchiveSegmentFilter ? 'All Producers in Segment' : 'All Producers'}</option>
+                        {getProducersForSegment(ticketArchiveSegmentFilter).map((producer: any) => (
+                          <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>
                         ))}
                       </select>
                     </div>
@@ -15299,7 +15355,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 const monthOptions = getTicketMonthOptions(baseTickets)
                 const filteredTickets = baseTickets.filter((ticket: any) =>
                   (!ticketArchiveMonthFilter || getTicketMonthKey(ticket) === ticketArchiveMonthFilter) &&
-                  (!ticketArchiveSegmentFilter || getTicketSegmentId(ticket) === ticketArchiveSegmentFilter)
+                  (!ticketArchiveSegmentFilter || getTicketSegmentId(ticket) === ticketArchiveSegmentFilter) &&
+                  (!ticketArchiveProducerFilter || getTicketProducerId(ticket) === ticketArchiveProducerFilter)
                 )
                 const groupedArchive = groupTicketsByMonthSegmentKind(filteredTickets)
 
@@ -15312,17 +15369,23 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </div>
                     </div>
 
-                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
                       <select style={input} value={ticketArchiveMonthFilter} onChange={(e) => setTicketArchiveMonthFilter(e.target.value)}>
                         <option value="">All Months</option>
                         {monthOptions.map((month: any) => (
                           <option key={month.monthKey} value={month.monthKey}>{month.label}</option>
                         ))}
                       </select>
-                      <select style={input} value={ticketArchiveSegmentFilter} onChange={(e) => setTicketArchiveSegmentFilter(e.target.value)}>
+                      <select style={input} value={ticketArchiveSegmentFilter} onChange={(e) => { setTicketArchiveSegmentFilter(e.target.value); setTicketArchiveProducerFilter('') }}>
                         <option value="">All Segments</option>
                         {segments.map((segment: any) => (
                           <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
+                        ))}
+                      </select>
+                      <select style={input} value={ticketArchiveProducerFilter} onChange={(e) => setTicketArchiveProducerFilter(e.target.value)}>
+                        <option value="">{ticketArchiveSegmentFilter ? 'All Producers in Segment' : 'All Producers'}</option>
+                        {getProducersForSegment(ticketArchiveSegmentFilter).map((producer: any) => (
+                          <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name}</option>
                         ))}
                       </select>
                     </div>

@@ -10692,7 +10692,10 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
   const dashboardSystemOsPct = dashboardSystemBook ? (dashboardSystemOs / dashboardSystemBook) * 100 : 0
   const dashboardOpenTickets = getScopedTickets().filter((t: any) => !['approved', 'voided'].includes(String(t.status || 'draft').toLowerCase())).length
   const dashboardPendingProvings = getScopedProvings().filter((p: any) => String(p.status || '').toLowerCase() !== 'approved').length
-  const dashboardPendingPots = getScopedPotQuality().filter((p: any) => !['approved', 'accepted', 'voided'].includes(String(p.status || '').toLowerCase())).length
+  const dashboardPotsCompleted = getScopedPotQuality().filter((p: any) => {
+    const status = String(p.status || 'completed').toLowerCase()
+    return !['draft', 'pending', 'voided', 'rejected'].includes(status)
+  }).length
 
   const mobileHomeModules = [
     { key: 'dashboard', label: 'Dashboard', description: 'Totals and quick status' },
@@ -11805,7 +11808,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <div style={{ color: '#a8b3bd' }}>{dashboardSystemOsPct.toFixed(4)}% of book inventory</div>
                 </div>
                 <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Draft / Working</div><div style={{ fontSize: 34, fontWeight: 900 }}>{dashboardOpenTickets}</div></div>
-                <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Pending POTs</div><div style={{ fontSize: 34, fontWeight: 900 }}>{dashboardPendingPots}</div></div>
+                <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>POTs Completed</div><div style={{ fontSize: 34, fontWeight: 900 }}>{dashboardPotsCompleted}</div></div>
                 <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Pending Provings</div><div style={{ fontSize: 34, fontWeight: 900 }}>{dashboardPendingProvings}</div></div>
                 <div style={kpiCard}><div style={{ color: '#a8b3bd', fontSize: 13 }}>Proving Compliance</div><div style={{ fontSize: 34, fontWeight: 900 }}>{provingCompliance}%</div></div>
               </div>

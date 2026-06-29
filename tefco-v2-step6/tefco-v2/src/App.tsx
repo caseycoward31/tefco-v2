@@ -4301,6 +4301,12 @@ function handleProvingAreaSelect(areaId: string) {
 
     if (normalizedStatus === 'approved') {
       setTicketWorkflowTab('approved')
+      try {
+        await saveTicketPdfToSupabase(updatedTicket)
+      } catch (pdfError: any) {
+        console.warn('Approved ticket PDF auto-save failed:', pdfError)
+        alert('Ticket approved, but the one-page PDF could not be saved: ' + (pdfError?.message || 'Unknown PDF error'))
+      }
     } else if (normalizedStatus === 'submitted') {
       setTicketWorkflowTab('pending')
     } else if (normalizedStatus === 'draft') {
@@ -5617,85 +5623,246 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const doc = new JsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
     const pageWidth = doc.internal.pageSize.getWidth()
     const pageHeight = doc.internal.pageSize.getHeight()
-    const margin = 36
-    const accent = getCompanyAccentColor()
+    const margin = 30
+    const accentHex = getCompanyAccentColor()
+    const accentRgb = hexToRgb(accentHex)
     const ticketNumber = String(ticket.ticket_number || ticket.id || 'Ticket')
     const fileBaseName = getTicketPdfFileName(ticket)
     const rows = getTicketPdfDisplayRows(ticket)
+    const rowMap: Record<string, string> = {}
+    rows.forEach(([label, value]) => { rowMap[String(label)] = String(value ?? '—') })
 
-    let y = margin
-    const addPageIfNeeded = (needed = 24) => {
-      if (y + needed <= pageHeight - margin) return
-      doc.addPage()
-      y = margin
+    const line = (x1: number, y1: number, x2: number, y2: number) => {
+      doc.setDrawColor(17, 24, 39)
+      doc.setLineWidth(0.6)
+      doc.line(x1, y1, x2, y2)
     }
 
-    doc.setFillColor(accent)
-    doc.rect(0, 0, pageWidth, 10, 'F')
+    const cell = (x: number, y: number, w: number, h: number, label: string, value: string, fill = false) => {
+      doc.setDrawColor(209, 213, 219)
+      doc.setLineWidth(0.4)
+      if (fill) {
+        doc.setFillColor(249, 250, 251)
+        doc.rect(x, y, w, h, 'FD')
+      } else {
+        doc.rect(x, y, w, h)
+      }
+      doc.setTextColor(17, 24, 39)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(7.5)
+      doc.text(label, x + 5, y + 8)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(10)
+      const lines = doc.splitTextToSize(String(value || '—'), w - 10)
+      doc.text(lines.slice(0, 1), x + 5, y + 21)
+    }
 
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(18)
-    doc.text(getCompanyDisplayName(), margin, y + 10)
-    doc.setFontSize(10)
-    doc.setFont('helvetica', 'normal')
-    doc.text('Custody Transfer Ticket PDF', margin, y + 28)
+    const tableRow = (x: number, y: number, labelW: number, valueW: number, label: string, value: string, h = 15) => {
+      doc.setDrawColor(209, 213, 219)
+      doc.setLineWidth(0.35)
+      doc.setFillColor(249, 250, 251)
+      doc.rect(x, y, labelW, h, 'FD')
+      doc.rect(x + labelW, y, valueW, h)
+      doc.setTextColor(17, 24, 39)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(7.2)
+      doc.text(label, x + 4, y + 10)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(7.2)
+      const lines = doc.splitTextToSize(String(value || '—'), valueW - 8)
+      doc.text(lines.slice(0, 1), x + labelW + 4, y + 10)
+    }
 
+    const sectionTitle = (title: string, x: number, y: number, w: number) => {
+      doc.setFillColor(17, 24, 39)
+      doc.rect(x, y, w, 15, 'F')
+      doc.setTextColor(255, 255, 255)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(7.5)
+      doc.text(title.toUpperCase(), x + 5, y + 10)
+    }
+
+    // Top brand stripe
+    doc.setFillColor(accentRgb.r, accentRgb.g, accentRgb.b)
+    doc.rect(0, 0, pageWidth, 8, 'F')
+
+    // Logo / company header
+    const logoUrl = getCompanyLogoUrl()
+    if (logoUrl) {
+      try {
+        const logoData = await getImageDataUrl(logoUrl)
+        if (logoData) {
+          doc.addImage(logoData, 'PNG', margin, 24, 82, 38, undefined, 'FAST')
+        }
+      } catch (error) {
+        console.warn('Ticket PDF logo failed:', error)
+      }
+    }
+
+    doc.setTextColor(17, 24, 39)
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(14)
-    doc.text(ticketNumber, pageWidth - margin, y + 12, { align: 'right' })
-    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(15)
+    doc.text(getCompanyDisplayName(), logoUrl ? margin + 95 : margin, 38)
     doc.setFontSize(9)
-    doc.text(fileBaseName, pageWidth - margin, y + 30, { align: 'right' })
+    doc.setFont('helvetica', 'normal')
+    doc.text('CUSTODY TRANSFER TICKET', pageWidth / 2, 42, { align: 'center' })
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    doc.text(ticketNumber, pageWidth - margin, 34, { align: 'right' })
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.text(String(rowMap['Close Date / Time'] || ''), pageWidth - margin, 48, { align: 'right' })
+    doc.text('Page 1 of 1', pageWidth - margin, 60, { align: 'right' })
+
+    line(margin, 72, pageWidth - margin, 72)
+
+    // Summary boxes
+    let y = 82
+    const summaryW = (pageWidth - margin * 2) / 3
+    cell(margin, y, summaryW, 40, 'IV (bbls)', rowMap['IV'] || '—')
+    cell(margin + summaryW, y, summaryW, 40, 'GSV (bbls)', rowMap['GSV'] || '—')
+    cell(margin + summaryW * 2, y, summaryW, 40, 'NSV (bbls)', rowMap['NSV'] || '—')
     y += 52
 
-    const summaryRows = rows.filter(([label]) => ['IV', 'GSV', 'NSV'].includes(label))
-    const boxWidth = (pageWidth - margin * 2 - 18) / 3
-    summaryRows.forEach(([label, val], index) => {
-      const x = margin + index * (boxWidth + 9)
-      doc.setDrawColor(17, 24, 39)
-      doc.setLineWidth(1)
-      doc.rect(x, y, boxWidth, 54)
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(9)
-      doc.text(label, x + 8, y + 17)
-      doc.setFontSize(16)
-      doc.text(String(val), x + 8, y + 40)
-    })
-    y += 74
+    // Main information in two compact columns
+    const colGap = 16
+    const colW = (pageWidth - margin * 2 - colGap) / 2
+    const labelW = 88
+    const valueW = colW - labelW
 
-    doc.setFontSize(10)
-    for (const [label, val] of rows) {
-      addPageIfNeeded(26)
-      const rowHeight = String(val || '').length > 70 ? 38 : 24
-      doc.setDrawColor(229, 231, 235)
+    sectionTitle('Ticket Information', margin, y, colW)
+    sectionTitle('Measurement / Quality', margin + colW + colGap, y, colW)
+    y += 15
+
+    const leftRows = [
+      ['Ticket Number', rowMap['Ticket Number']],
+      ['Batch Number', rowMap['Batch Number']],
+      ['Status', rowMap['Status']],
+      ['Producer', rowMap['Producer']],
+      ['Segment', rowMap['Segment']],
+      ['Lease', rowMap['Lease']],
+      ['Meter', rowMap['Meter']],
+      ['Product', rowMap['Product']],
+      ['Destination / To', rowMap['Destination / To']],
+      ['Open Date / Time', rowMap['Open Date / Time']],
+      ['Close Date / Time', rowMap['Close Date / Time']],
+      ['Opening Reading', rowMap['Opening Reading']],
+      ['Closing Reading', rowMap['Closing Reading']],
+    ]
+
+    const rightRows = [
+      ['Observed API', rowMap['Observed API']],
+      ['API @60', rowMap['API @60']],
+      ['Observed Temp', rowMap['Observed Temp']],
+      ['Avg Temp', rowMap['Avg Temp']],
+      ['Avg Pressure', rowMap['Avg Pressure']],
+      ['CTL', rowMap['CTL']],
+      ['CPL', rowMap['CPL']],
+      ['CTPL', rowMap['CTPL']],
+      ['MF / CMF', rowMap['MF / CMF']],
+      ['GSV', rowMap['GSV']],
+      ['NSV', rowMap['NSV']],
+      ['BS&W %', rowMap['BS&W %']],
+      ['CSW', rowMap['CSW']],
+    ]
+
+    const mainStartY = y
+    leftRows.forEach((row, idx) => tableRow(margin, mainStartY + idx * 15, labelW, valueW, row[0], row[1] || '—'))
+    rightRows.forEach((row, idx) => tableRow(margin + colW + colGap, mainStartY + idx * 15, labelW, valueW, row[0], row[1] || '—'))
+    y = mainStartY + Math.max(leftRows.length, rightRows.length) * 15 + 18
+
+    // Volume calculation table
+    sectionTitle('Volume Calculation', margin, y, pageWidth - margin * 2)
+    y += 15
+    const vCols = [200, 70, 105, 70]
+    const totalTableW = vCols.reduce((a, b) => a + b, 0)
+    const vx = margin
+    const headers = ['Item', 'Factor', 'Value', 'Units']
+    let x = vx
+    headers.forEach((header, idx) => {
       doc.setFillColor(249, 250, 251)
-      doc.rect(margin, y, 170, rowHeight, 'FD')
-      doc.rect(margin + 170, y, pageWidth - margin * 2 - 170, rowHeight)
+      doc.rect(x, y, vCols[idx], 16, 'FD')
       doc.setFont('helvetica', 'bold')
-      doc.setFontSize(9)
-      doc.text(String(label), margin + 8, y + 15)
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(9)
-      const lines = doc.splitTextToSize(String(val), pageWidth - margin * 2 - 190)
-      doc.text(lines.slice(0, 2), margin + 180, y + 15)
-      y += rowHeight
-    }
+      doc.setFontSize(7.2)
+      doc.setTextColor(17, 24, 39)
+      doc.text(header, x + 5, y + 10)
+      x += vCols[idx]
+    })
+    y += 16
 
-    y += 36
-    addPageIfNeeded(50)
+    const volRows = [
+      ['Observed Volume (IV)', '—', rowMap['IV'], 'bbls'],
+      ['Correction to 60°F (CTL)', '×', rowMap['CTL'], '—'],
+      ['Pressure Correction (CPL)', '×', rowMap['CPL'], '—'],
+      ['Temperature & Pressure Corr. (CTPL)', '×', rowMap['CTPL'], '—'],
+      ['Meter Factor (MF / CMF)', '×', rowMap['MF / CMF'], '—'],
+      ['Gross Standard Volume (GSV)', '=', rowMap['GSV'], 'bbls'],
+      ['Net Standard Volume (NSV)', '=', rowMap['NSV'], 'bbls'],
+    ]
+
+    volRows.forEach((row, rowIndex) => {
+      x = vx
+      row.forEach((value, idx) => {
+        doc.setDrawColor(209, 213, 219)
+        doc.rect(x, y, vCols[idx], 16)
+        doc.setFont(rowIndex >= 5 ? 'helvetica' : 'helvetica', rowIndex >= 5 ? 'bold' : 'normal')
+        doc.setFontSize(7.2)
+        doc.text(String(value || '—'), x + 5, y + 10)
+        x += vCols[idx]
+      })
+      y += 16
+    })
+
+    // Small quality box to the right of volume table
+    const qx = margin + totalTableW + 18
+    const qW = pageWidth - margin - qx
+    let qy = y - 16 * (volRows.length + 1)
+    sectionTitle('Quality', qx, qy, qW)
+    qy += 15
+    ;[
+      ['BS&W %', rowMap['BS&W %']],
+      ['CSW', rowMap['CSW']],
+      ['Water %', '—'],
+      ['Sediment %', '—'],
+    ].forEach((row) => {
+      tableRow(qx, qy, 72, qW - 72, row[0], row[1] || '—', 22)
+      qy += 22
+    })
+
+    y += 18
+
+    // Notes
+    sectionTitle('Notes', margin, y, pageWidth - margin * 2)
+    y += 15
+    doc.setDrawColor(209, 213, 219)
+    doc.rect(margin, y, pageWidth - margin * 2, 36)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.setTextColor(17, 24, 39)
+    const noteLines = doc.splitTextToSize(rowMap['Notes'] || '—', pageWidth - margin * 2 - 10)
+    doc.text(noteLines.slice(0, 2), margin + 5, y + 12)
+    y += 52
+
+    // Signature line
     doc.setDrawColor(17, 24, 39)
-    doc.line(margin, y, margin + 200, y)
-    doc.line(pageWidth - margin - 200, y, pageWidth - margin, y)
-    doc.setFontSize(8)
-    doc.text('Prepared By / Date', margin, y + 14)
-    doc.text('Approved By / Date', pageWidth - margin - 200, y + 14)
+    doc.line(margin, y + 18, margin + 175, y + 18)
+    doc.line(margin + 205, y + 18, margin + 380, y + 18)
+    doc.line(pageWidth - margin - 145, y + 18, pageWidth - margin, y + 18)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7)
+    doc.text('LOADED BY / REPRESENTATIVE', margin, y + 31)
+    doc.text('RECEIVED BY / REPRESENTATIVE', margin + 205, y + 31)
+    doc.text('DATE / TIME', pageWidth - margin - 145, y + 31)
 
-    doc.setFontSize(8)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7)
     doc.setTextColor(107, 114, 128)
-    doc.text(`Generated by TEFCO Measurement Platform • ${new Date().toLocaleString()}`, margin, pageHeight - 18)
+    doc.text('This is to certify that the above is a true and correct custody transfer measurement.', pageWidth / 2, pageHeight - 24, { align: 'center' })
+    doc.text(`Generated by TEFCO Measurement Platform • ${new Date().toLocaleString()}`, margin, pageHeight - 12)
 
     return doc.output('blob') as Blob
   }
+
 
   async function saveTicketPdfToSupabase(ticket: any) {
     if (!ticket?.id) {

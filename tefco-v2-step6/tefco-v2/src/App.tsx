@@ -73,6 +73,10 @@ type Ticket = {
   observed_api_gravity?: number | null
   observed_temperature?: number | null
   observed_pressure?: number | null
+  ticket_pdf_url?: string | null
+  ticket_pdf_path?: string | null
+  ticket_pdf_file_name?: string | null
+  ticket_pdf_saved_at?: string | null
 }
 
 type Proving = {
@@ -5531,6 +5535,231 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     printWindow.document.close()
   }
 
+  async function loadJsPdf() {
+    if ((window as any).jspdf?.jsPDF) return (window as any).jspdf.jsPDF
+
+    await new Promise<void>((resolve, reject) => {
+      const existing = document.querySelector('script[data-jspdf="true"]') as HTMLScriptElement | null
+      if (existing) {
+        existing.addEventListener('load', () => resolve(), { once: true })
+        existing.addEventListener('error', () => reject(new Error('jsPDF failed to load')), { once: true })
+        return
+      }
+
+      const script = document.createElement('script')
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+      script.async = true
+      script.dataset.jspdf = 'true'
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('Could not load PDF generator.'))
+      document.head.appendChild(script)
+    })
+
+    if (!(window as any).jspdf?.jsPDF) throw new Error('PDF generator loaded but was not available.')
+    return (window as any).jspdf.jsPDF
+  }
+
+  function getTicketSavedPdfUrl(ticket: any) {
+    return ticket?.ticket_pdf_url || ticket?.pdf_url || ticket?.observed_inputs?.ticket_pdf_url || ticket?.calculation_results?.ticket_pdf_url || ''
+  }
+
+  function getTicketSavedPdfPath(ticket: any) {
+    return ticket?.ticket_pdf_path || ticket?.pdf_path || ticket?.observed_inputs?.ticket_pdf_path || ticket?.calculation_results?.ticket_pdf_path || ''
+  }
+
+  function getTicketPdfDisplayRows(ticket: any) {
+    const observed = ticket.observed_inputs || {}
+    const calc = ticket.calculation_results || {}
+    const meter = meters.find((item: any) => String(item.id || '') === String(ticket.meter_id || observed.meter_id || ''))
+    const lease = leases.find((item: any) => String(item.id || '') === String(ticket.lease_id || observed.lease_id || meter?.lease_id || ''))
+    const segment = segments.find((item: any) => String(item.id || '') === String(ticket.segment_id || observed.segment_id || ''))
+    const producer = producers.find((item: any) => String(item.id || '') === String(ticket.producer_id || observed.producer_id || lease?.producer_id || meter?.producer_id || ''))
+    const value = (v: any) => v === null || v === undefined || v === '' ? '—' : String(v)
+    const num = (v: any, digits = 2) => {
+      const n = Number(v)
+      return Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—'
+    }
+
+    return [
+      ['Ticket Number', value(ticket.ticket_number || ticket.id)],
+      ['Batch Number', value(observed.batch_number || calc.batch_number || ticket.batch_number)],
+      ['Status', value(ticket.status)],
+      ['Producer', value(producer?.name || observed.producer_name)],
+      ['Segment', value(segment?.segment_name || segment?.name || observed.segment_name)],
+      ['Lease', value(lease?.lease_name || lease?.name || observed.lease_name)],
+      ['Meter', value(meter?.meter_number || meter?.meter_name || observed.meter_number)],
+      ['Product', value(observed.refined_product_type || calc.refined_product_type || observed.product_type)],
+      ['Destination / To', value(observed.refined_destination || calc.refined_destination || observed.movement_destination)],
+      ['Open Date / Time', `${value(observed.open_date)} ${observed.open_time || ''}`.trim()],
+      ['Close Date / Time', `${value(observed.close_date)} ${observed.close_time || ''}`.trim()],
+      ['Opening Reading', value(calc.opening_reading ?? observed.opening_reading ?? observed.opening_meter_reading)],
+      ['Closing Reading', value(calc.closing_reading ?? observed.closing_reading ?? observed.closing_meter_reading)],
+      ['IV', num(calc.iv ?? calc.gov ?? observed.iv ?? observed.gov ?? observed.total_batch_barrels, 2)],
+      ['Observed API', num(observed.observed_api_gravity ?? observed.api_observed ?? calc.observed_api_gravity, 2)],
+      ['API @60', num(calc.api_gravity_60 ?? observed.api_gravity_60 ?? calc.api_gravity, 1)],
+      ['Observed Temp', num(observed.observed_temperature ?? observed.temperature, 2)],
+      ['Avg Temp', num(observed.average_temperature ?? observed.avg_temp ?? calc.average_temperature, 2)],
+      ['Avg Pressure', num(observed.average_pressure ?? observed.avg_pressure ?? calc.average_pressure, 2)],
+      ['CTL', num(calc.ctl ?? observed.ctl, 6)],
+      ['CPL', num(calc.cpl ?? observed.cpl, 6)],
+      ['CTPL', num(calc.ctpl ?? observed.ctpl, 6)],
+      ['MF / CMF', num(calc.mf ?? observed.mf, 4)],
+      ['GSV', num(calc.gsv ?? observed.gsv, 2)],
+      ['NSV', num(calc.nsv ?? observed.nsv ?? observed.net_volume_bbl, 2)],
+      ['BS&W %', num(calc.bsw_percent ?? observed.bsw_percent ?? observed.bsw, 4)],
+      ['CSW', num(calc.csw ?? observed.csw, 6)],
+      ['Notes', value(ticket.notes || observed.notes)],
+    ]
+  }
+
+  async function generateTicketPdfBlob(ticket: any) {
+    const JsPDF = await loadJsPdf()
+    const doc = new JsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const pageHeight = doc.internal.pageSize.getHeight()
+    const margin = 36
+    const accent = getCompanyAccentColor()
+    const ticketNumber = String(ticket.ticket_number || ticket.id || 'Ticket')
+    const fileBaseName = getTicketPdfFileName(ticket)
+    const rows = getTicketPdfDisplayRows(ticket)
+
+    let y = margin
+    const addPageIfNeeded = (needed = 24) => {
+      if (y + needed <= pageHeight - margin) return
+      doc.addPage()
+      y = margin
+    }
+
+    doc.setFillColor(accent)
+    doc.rect(0, 0, pageWidth, 10, 'F')
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(18)
+    doc.text(getCompanyDisplayName(), margin, y + 10)
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'normal')
+    doc.text('Custody Transfer Ticket PDF', margin, y + 28)
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(14)
+    doc.text(ticketNumber, pageWidth - margin, y + 12, { align: 'right' })
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.text(fileBaseName, pageWidth - margin, y + 30, { align: 'right' })
+    y += 52
+
+    const summaryRows = rows.filter(([label]) => ['IV', 'GSV', 'NSV'].includes(label))
+    const boxWidth = (pageWidth - margin * 2 - 18) / 3
+    summaryRows.forEach(([label, val], index) => {
+      const x = margin + index * (boxWidth + 9)
+      doc.setDrawColor(17, 24, 39)
+      doc.setLineWidth(1)
+      doc.rect(x, y, boxWidth, 54)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.text(label, x + 8, y + 17)
+      doc.setFontSize(16)
+      doc.text(String(val), x + 8, y + 40)
+    })
+    y += 74
+
+    doc.setFontSize(10)
+    for (const [label, val] of rows) {
+      addPageIfNeeded(26)
+      const rowHeight = String(val || '').length > 70 ? 38 : 24
+      doc.setDrawColor(229, 231, 235)
+      doc.setFillColor(249, 250, 251)
+      doc.rect(margin, y, 170, rowHeight, 'FD')
+      doc.rect(margin + 170, y, pageWidth - margin * 2 - 170, rowHeight)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.text(String(label), margin + 8, y + 15)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      const lines = doc.splitTextToSize(String(val), pageWidth - margin * 2 - 190)
+      doc.text(lines.slice(0, 2), margin + 180, y + 15)
+      y += rowHeight
+    }
+
+    y += 36
+    addPageIfNeeded(50)
+    doc.setDrawColor(17, 24, 39)
+    doc.line(margin, y, margin + 200, y)
+    doc.line(pageWidth - margin - 200, y, pageWidth - margin, y)
+    doc.setFontSize(8)
+    doc.text('Prepared By / Date', margin, y + 14)
+    doc.text('Approved By / Date', pageWidth - margin - 200, y + 14)
+
+    doc.setFontSize(8)
+    doc.setTextColor(107, 114, 128)
+    doc.text(`Generated by TEFCO Measurement Platform • ${new Date().toLocaleString()}`, margin, pageHeight - 18)
+
+    return doc.output('blob') as Blob
+  }
+
+  async function saveTicketPdfToSupabase(ticket: any) {
+    if (!ticket?.id) {
+      alert('Select a ticket first.')
+      return null
+    }
+
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!activeCompanyID) {
+      alert('No company selected.')
+      return null
+    }
+
+    const fileBaseName = getTicketPdfFileName(ticket)
+    const pdfBlob = await generateTicketPdfBlob(ticket)
+    const filePath = `${activeCompanyID}/${ticket.id}/${fileBaseName}.pdf`
+
+    const { error: uploadError } = await supabase.storage
+      .from('ticket-pdfs')
+      .upload(filePath, pdfBlob, { contentType: 'application/pdf', cacheControl: '3600', upsert: true })
+
+    if (uploadError) {
+      alert('Could not upload ticket PDF. Run the ticket PDF storage SQL first. ' + uploadError.message)
+      return null
+    }
+
+    const { data: urlData } = supabase.storage.from('ticket-pdfs').getPublicUrl(filePath)
+    const publicUrl = urlData?.publicUrl || ''
+
+    const patch = {
+      ticket_pdf_url: publicUrl,
+      ticket_pdf_path: filePath,
+      ticket_pdf_file_name: `${fileBaseName}.pdf`,
+      ticket_pdf_saved_at: new Date().toISOString(),
+    }
+
+    const { error: updateError } = await supabase
+      .from('tickets')
+      .update(patch)
+      .eq('id', ticket.id)
+
+    if (updateError) {
+      alert('PDF uploaded, but ticket row could not be updated. Run the ticket PDF columns SQL. ' + updateError.message)
+      return { ...ticket, ...patch }
+    }
+
+    setTickets((prev: any[]) => asArray(prev).map((row: any) => String(row.id) === String(ticket.id) ? { ...row, ...patch } : row))
+    if (selectedTicket && String(selectedTicket.id) === String(ticket.id)) {
+      setSelectedTicket({ ...selectedTicket, ...patch } as any)
+    }
+
+    return { ...ticket, ...patch }
+  }
+
+  async function ensureSavedTicketPdf(ticket: any) {
+    const existingUrl = getTicketSavedPdfUrl(ticket)
+    if (existingUrl) return { ticket, url: existingUrl }
+
+    const saved = await saveTicketPdfToSupabase(ticket)
+    const url = getTicketSavedPdfUrl(saved)
+    if (!url) throw new Error(`Could not save PDF for ticket ${ticket.ticket_number || ticket.id}`)
+    return { ticket: saved, url }
+  }
+
   
   
   
@@ -10397,8 +10626,12 @@ async function saveUserRole() {
         const closeDate = observed.close_date || (getTicketReportDate(ticket) ? new Date(getTicketReportDate(ticket)).toISOString().slice(0,10) : 'no-date')
         const safeLabel = sanitizeFileName(`${leaseName}_${closeDate}_${ticketLabel}`, 'ticket')
 
-        // Use the exact same generated ticket layout, but convert it to an actual PDF before zipping.
-        const pdfBlob = await convertTicketHtmlToPdfBlob(buildTicketPdfHtml(ticket), safeLabel)
+        // Producer bundle uses the real saved PDF from Supabase Storage.
+        // If it is missing, create/save it once, then pull that saved PDF into the ZIP.
+        const savedPdf = await ensureSavedTicketPdf(ticket)
+        const pdfResponse = await fetch(savedPdf.url)
+        if (!pdfResponse.ok) throw new Error(`Could not download saved PDF for ${ticket.ticket_number || ticket.id}`)
+        const pdfBlob = await pdfResponse.blob()
         zip.file(`${producerFolder}/${safeLabel}.pdf`, pdfBlob)
         addedTicketCount += 1
       }
@@ -14827,6 +15060,14 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <button style={{ ...button, width: 'auto' }} onClick={() => generatePdfPreview(selectedTicket)}>
                     Generate Customer PDF
                   </button>
+                  <button style={{ ...button, width: 'auto', background: '#14532d' }} onClick={() => runSafeAction('Saving ticket PDF', () => saveTicketPdfToSupabase(selectedTicket))}>
+                    Save PDF to Supabase
+                  </button>
+                  {getTicketSavedPdfUrl(selectedTicket) && (
+                    <button style={{ ...button, width: 'auto', background: '#0f766e' }} onClick={() => window.open(getTicketSavedPdfUrl(selectedTicket), '_blank')}>
+                      Open Saved PDF
+                    </button>
+                  )}
                   <button style={{ ...button, width: 'auto' }} onClick={() => navigator.clipboard?.writeText(JSON.stringify(selectedTicket, null, 2))}>
                     Copy Ticket JSON
                   </button>

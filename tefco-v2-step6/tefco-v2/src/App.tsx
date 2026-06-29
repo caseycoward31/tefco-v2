@@ -10224,6 +10224,78 @@ async function saveUserRole() {
     downloadCsv(filename, [gqLiquidImportHeaders, ...dataRows])
   }
 
+  async function loadHtml2PdfBundle() {
+    if ((window as any).html2pdf) return (window as any).html2pdf
+
+    await new Promise<void>((resolve, reject) => {
+      const existing = document.querySelector('script[data-html2pdf="true"]') as HTMLScriptElement | null
+      if (existing) {
+        existing.addEventListener('load', () => resolve(), { once: true })
+        existing.addEventListener('error', () => reject(new Error('html2pdf failed to load')), { once: true })
+        return
+      }
+
+      const script = document.createElement('script')
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'
+      script.async = true
+      script.dataset.html2pdf = 'true'
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('Could not load PDF generator. Check internet/CSP settings.'))
+      document.head.appendChild(script)
+    })
+
+    if (!(window as any).html2pdf) throw new Error('PDF generator loaded but was not available.')
+    return (window as any).html2pdf
+  }
+
+  function cleanTicketHtmlForPdfExport(html: string) {
+    return String(html || '')
+      .replace(/<button[^>]*class=["']pdf-back-button["'][\s\S]*?<\/button>/i, '')
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/@media print\s*{[\s\S]*?}/gi, '')
+  }
+
+  async function convertTicketHtmlToPdfBlob(html: string, fileBaseName: string) {
+    const html2pdf = await loadHtml2PdfBundle()
+    const wrapper = document.createElement('div')
+    wrapper.style.position = 'fixed'
+    wrapper.style.left = '-10000px'
+    wrapper.style.top = '0'
+    wrapper.style.width = '8.5in'
+    wrapper.style.background = '#ffffff'
+    wrapper.innerHTML = cleanTicketHtmlForPdfExport(html)
+
+    document.body.appendChild(wrapper)
+
+    try {
+      const options = {
+        margin: 0,
+        filename: `${fileBaseName}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff',
+          logging: false,
+        },
+        jsPDF: {
+          unit: 'in',
+          format: 'letter',
+          orientation: 'portrait',
+          compress: true,
+        },
+        pagebreak: {
+          mode: ['avoid-all', 'css', 'legacy'],
+        },
+      }
+
+      return await html2pdf().set(options).from(wrapper).outputPdf('blob')
+    } finally {
+      wrapper.remove()
+    }
+  }
+
   async function exportProducerPdfBundle() {
     if (!reportStartDate || !reportEndDate) {
       alert('Select a report start date and end date.')
@@ -10257,67 +10329,6 @@ async function saveUserRole() {
 
     const zip = new JSZip()
     let addedTicketCount = 0
-    const value = (v: any) => v === null || v === undefined || v === '' ? '—' : v
-    const numberValue = (v: any, digits = 2) => {
-      const n = Number(v)
-      return Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—'
-    }
-
-    const makeTicketHtml = (ticket: any) => {
-      const observed = ticket.observed_inputs || {}
-      const calc = ticket.calculation_results || {}
-      const producer = producers.find((p: any) => String(p.id || '') === String(getTicketProducerId(ticket)))
-      const meter = meters.find((m: any) => String(m.id || '') === String(ticket.meter_id || observed.meter_id || ''))
-      const segment = segments.find((s: any) => String(s.id || '') === String(ticket.segment_id || observed.segment_id || ''))
-      const lease = leases.find((l: any) => String(l.id || '') === String(ticket.lease_id || observed.lease_id || meter?.lease_id || ''))
-      const ticketDate = getTicketReportDate(ticket)
-      const openDateTime = `${observed.open_date || '—'} ${observed.open_time || ''}`
-      const closeDateTime = `${observed.close_date || '—'} ${observed.close_time || ''}`
-      const revisionNumber = observed.revision_number || calc.revision_number || 0
-
-      return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>${value(ticket.ticket_number || 'Ticket')}</title>
-  <style>
-    body{font-family:Arial,sans-serif;padding:24px;color:#111}
-    .hdr{border-bottom:3px solid #c46a2b;margin-bottom:18px;padding-bottom:10px}
-    h1{margin:0}
-    .grid{display:grid;grid-template-columns:220px 1fr;border:1px solid #ddd}
-    .grid div{padding:8px;border-bottom:1px solid #eee}
-    .label{font-weight:700;background:#fafafa}
-  </style>
-</head>
-<body>
-  <div class="hdr"><h1>${getCompanyDisplayName()}</h1><div>Producer PDF Bundle Ticket</div></div>
-  <h2>${value(ticket.ticket_number || ticket.id)}</h2>
-  <div class="grid">
-    <div class="label">Status</div><div>${value(ticket.status)}</div>
-    <div class="label">Revision</div><div>${revisionNumber ? `Revision ${revisionNumber}` : 'Original'}</div>
-    <div class="label">Revision Reason</div><div>${value(observed.revision_reason)}</div>
-    <div class="label">Producer</div><div>${value(producer?.name || observed.producer_name)}</div>
-    <div class="label">Segment</div><div>${value(segment?.segment_name || segment?.name || observed.segment_name)}</div>
-    <div class="label">Lease</div><div>${value(lease?.lease_name || lease?.name || observed.lease_name)}</div>
-    <div class="label">Meter</div><div>${value(meter?.meter_number || observed.meter_number)}</div>
-    <div class="label">Open Date / Time</div><div>${openDateTime}</div>
-    <div class="label">Close Date / Time</div><div>${closeDateTime}</div>
-    <div class="label">Report Date</div><div>${ticketDate ? new Date(ticketDate).toLocaleString() : '—'}</div>
-    <div class="label">Opening Reading</div><div>${value(calc.opening_reading ?? observed.opening_reading)}</div>
-    <div class="label">Closing Reading</div><div>${value(calc.closing_reading ?? observed.closing_reading)}</div>
-    <div class="label">IV</div><div>${numberValue(calc.iv ?? observed.iv ?? observed.total_batch_barrels, 2)}</div>
-    <div class="label">CTL</div><div>${numberValue(calc.ctl ?? observed.ctl, 6)}</div>
-    <div class="label">CPL</div><div>${numberValue(calc.cpl ?? observed.cpl, 6)}</div>
-    <div class="label">CTPL</div><div>${numberValue(calc.ctpl ?? observed.ctpl, 6)}</div>
-    <div class="label">MF / CMF</div><div>${numberValue(calc.mf ?? observed.mf, 4)}</div>
-    <div class="label">GSV</div><div>${numberValue(calc.gsv ?? observed.gsv, 2)}</div>
-    <div class="label">NSV</div><div>${numberValue(calc.nsv ?? observed.nsv ?? observed.net_volume_bbl, 2)}</div>
-    <div class="label">BS&W</div><div>${numberValue(calc.bsw_percent ?? observed.bsw_percent ?? observed.bsw, 4)}</div>
-    <div class="label">BSW</div><div>${numberValue(calc.csw ?? observed.csw, 5)}</div>
-  </div>
-</body>
-</html>`
-    }
 
     const groupedByProducer: Record<string, any[]> = {}
     for (const ticket of ticketsToExport as any[]) {
@@ -10339,16 +10350,17 @@ async function saveUserRole() {
         const closeDate = observed.close_date || (getTicketReportDate(ticket) ? new Date(getTicketReportDate(ticket)).toISOString().slice(0,10) : 'no-date')
         const safeLabel = sanitizeFileName(`${leaseName}_${closeDate}_${ticketLabel}`, 'ticket')
 
-        // Use the exact same ticket PDF HTML/layout as the app's Generate Customer PDF button.
-        zip.file(`${producerFolder}/${safeLabel}.html`, buildTicketPdfHtml(ticket))
+        // Use the exact same generated ticket layout, but convert it to an actual PDF before zipping.
+        const pdfBlob = await convertTicketHtmlToPdfBlob(buildTicketPdfHtml(ticket), safeLabel)
+        zip.file(`${producerFolder}/${safeLabel}.pdf`, pdfBlob)
         addedTicketCount += 1
       }
     }
 
     zip.file(
       'README.txt',
-      `Producer Measurement Ticket Bundle
-Tickets exported: ${addedTicketCount}
+      `Producer Measurement Ticket PDF Bundle
+PDF tickets exported: ${addedTicketCount}
 Report filters:
 Start: ${reportStartDate}
 End: ${reportEndDate}

@@ -1419,8 +1419,9 @@ useEffect(() => {
     const { data: balanceButaneAdjustmentData, error: balanceButaneAdjustmentError } = await applyCompanyScope(supabase.from('balance_butane_adjustments').select('*')).order('period_start', { ascending: false })
     const { data: segmentBalanceSettingData, error: segmentBalanceSettingError } = await applyCompanyScope(supabase.from('segment_balance_settings').select('*'))
     const { data: segmentProvingSettingData, error: segmentProvingSettingError } = await applyCompanyScope(supabase.from('segment_proving_settings').select('*'))
-    if (balanceCheckGroupError || balanceCheckGroupMeterError || balanceInventoryEntryError || balanceButaneAdjustmentError || segmentBalanceSettingError || segmentProvingSettingError || balanceEquationError || balanceEquationItemError) {
-      console.warn('Balance Center optional tables unavailable:', { balanceCheckGroupError, balanceCheckGroupMeterError, balanceInventoryEntryError, balanceButaneAdjustmentError, segmentBalanceSettingError, segmentProvingSettingError, balanceEquationError, balanceEquationItemError })
+    const { data: provingScheduleData, error: provingScheduleError } = await applyCompanyScope(supabase.from('proving_schedule_rows').select('*')).order('due_date', { ascending: true })
+    if (balanceCheckGroupError || balanceCheckGroupMeterError || balanceInventoryEntryError || balanceButaneAdjustmentError || segmentBalanceSettingError || segmentProvingSettingError || balanceEquationError || balanceEquationItemError || provingScheduleError) {
+      console.warn('Balance Center optional tables unavailable:', { balanceCheckGroupError, balanceCheckGroupMeterError, balanceInventoryEntryError, balanceButaneAdjustmentError, segmentBalanceSettingError, segmentProvingSettingError, balanceEquationError, balanceEquationItemError, provingScheduleError })
     }
 
     setUserAreaAccess(resolvedAreaAccessData)
@@ -1457,6 +1458,7 @@ useEffect(() => {
     if (balanceButaneAdjustmentData) setBalanceButaneAdjustments(balanceButaneAdjustmentData)
     if (segmentBalanceSettingData) setSegmentBalanceSettings(segmentBalanceSettingData)
     if (segmentProvingSettingData) setSegmentProvingSettings(segmentProvingSettingData)
+    if (provingScheduleData) setProvingScheduleRows(provingScheduleData)
 
     const { data: contractProfileData } = await supabase
       .from('contract_profiles')
@@ -1467,25 +1469,19 @@ useEffect(() => {
     if (contractProfileData) setContractProfiles(contractProfileData)
   }
 
+  // Proving schedule is now stored in Supabase so all devices/users see the same KPI.
+  // This keeps old browser-only schedules as a one-time fallback until they are resaved.
   useEffect(() => {
     if (typeof window === 'undefined' || !companyId) return
+    if (provingScheduleRows.length > 0) return
+
     try {
       const raw = window.localStorage.getItem(`proving_schedule_${companyId}`)
-      setProvingScheduleRows(raw ? JSON.parse(raw) : [])
+      if (raw) setProvingScheduleRows(JSON.parse(raw))
     } catch (error) {
-      console.warn('Could not load local proving schedule:', error)
-      setProvingScheduleRows([])
+      console.warn('Could not load legacy local proving schedule:', error)
     }
   }, [companyId])
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !companyId) return
-    try {
-      window.localStorage.setItem(`proving_schedule_${companyId}`, JSON.stringify(provingScheduleRows))
-    } catch (error) {
-      console.warn('Could not save local proving schedule:', error)
-    }
-  }, [companyId, provingScheduleRows])
 
   function getScheduledRowsForMonth(monthKey = provingKpiMonth) {
     return asArray(provingScheduleRows).filter((row: any) =>
@@ -1525,26 +1521,43 @@ useEffect(() => {
     return { label: 'Scheduled', color: '#2563eb', completed: null }
   }
 
-  function upsertProvingScheduleRow(meter: any, patch: any) {
+  async function upsertProvingScheduleRow(meter: any, patch: any) {
     const meterId = String(meter?.id || patch?.meter_id || '')
     if (!meterId) return
+
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (!activeCompanyID) {
+      alert('Select a company first.')
+      return
+    }
+
     const leaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(meter?.lease_id || patch?.lease_id || ''))
     const segmentId = String(patch.segment_id || meter?.segment_id || leaseRow?.segment_id || scheduleSegmentId || '')
     const leaseId = String(patch.lease_id || meter?.lease_id || '')
     const existing = getScheduleRow(provingKpiMonth, meterId)
-    const base = existing || {
-      id: `${provingKpiMonth}_${meterId}`,
+    const nextRow: any = {
+      ...(existing || {}),
+      ...patch,
+      company_id: activeCompanyID,
       month_key: provingKpiMonth,
-      segment_id: segmentId,
-      lease_id: leaseId,
+      segment_id: segmentId || null,
+      lease_id: leaseId || null,
       meter_id: meterId,
-      frequency: 'monthly',
-      due_date: `${provingKpiMonth}-15`,
-      assigned_to: scheduleAssignedTo,
-      active: true,
-      created_at: new Date().toISOString(),
+      frequency: patch.frequency || existing?.frequency || 'monthly',
+      due_date: patch.due_date || existing?.due_date || `${provingKpiMonth}-15`,
+      assigned_to: patch.assigned_to ?? existing?.assigned_to ?? scheduleAssignedTo ?? '',
+      active: patch.active ?? existing?.active ?? true,
+      updated_at: new Date().toISOString(),
     }
-    const nextRow = { ...base, ...patch, month_key: provingKpiMonth, meter_id: meterId, segment_id: segmentId, lease_id: leaseId, updated_at: new Date().toISOString() }
+
+    const { error } = await supabase
+      .from('proving_schedule_rows')
+      .upsert(nextRow, { onConflict: 'company_id,month_key,meter_id' })
+
+    if (error) {
+      alert('Could not save proving schedule to shared database. Run the proving schedule SQL first. ' + error.message)
+      return
+    }
 
     setProvingScheduleRows((prev: any[]) => {
       const others = asArray(prev).filter((row: any) => !(String(row.month_key || '') === String(provingKpiMonth) && String(row.meter_id || '') === meterId))
@@ -1552,7 +1565,22 @@ useEffect(() => {
     })
   }
 
-  function removeProvingScheduleRow(monthKey: string, meterId: string) {
+  async function removeProvingScheduleRow(monthKey: string, meterId: string) {
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    if (activeCompanyID) {
+      const { error } = await supabase
+        .from('proving_schedule_rows')
+        .delete()
+        .eq('company_id', activeCompanyID)
+        .eq('month_key', monthKey)
+        .eq('meter_id', meterId)
+
+      if (error) {
+        alert('Could not delete proving schedule row: ' + error.message)
+        return
+      }
+    }
+
     setProvingScheduleRows((prev: any[]) =>
       asArray(prev).filter((row: any) => !(String(row.month_key || '') === String(monthKey) && String(row.meter_id || '') === String(meterId)))
     )

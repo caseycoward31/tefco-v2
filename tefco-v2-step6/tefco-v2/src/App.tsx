@@ -10255,19 +10255,56 @@ async function saveUserRole() {
       .replace(/@media print\s*{[\s\S]*?}/gi, '')
   }
 
+  async function waitForPdfImages(root: HTMLElement) {
+    const images = Array.from(root.querySelectorAll('img')) as HTMLImageElement[]
+    await Promise.all(images.map((img) => {
+      if (img.complete) return Promise.resolve()
+      return new Promise<void>((resolve) => {
+        img.onload = () => resolve()
+        img.onerror = () => resolve()
+      })
+    }))
+  }
+
   async function convertTicketHtmlToPdfBlob(html: string, fileBaseName: string) {
     const html2pdf = await loadHtml2PdfBundle()
-    const wrapper = document.createElement('div')
-    wrapper.style.position = 'fixed'
-    wrapper.style.left = '-10000px'
-    wrapper.style.top = '0'
-    wrapper.style.width = '8.5in'
-    wrapper.style.background = '#ffffff'
-    wrapper.innerHTML = cleanTicketHtmlForPdfExport(html)
 
-    document.body.appendChild(wrapper)
+    // html2canvas can render a blank page when the source element is far off-screen,
+    // hidden, or fixed outside the viewport. Keep the clone in normal document flow,
+    // visible, and only move the page down while the PDF is generated.
+    const host = document.createElement('div')
+    host.setAttribute('data-pdf-export-host', 'true')
+    host.style.position = 'absolute'
+    host.style.left = '0'
+    host.style.top = `${Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) + 200}px`
+    host.style.width = '8.5in'
+    host.style.minHeight = '11in'
+    host.style.background = '#ffffff'
+    host.style.color = '#111827'
+    host.style.zIndex = '-1'
+    host.style.pointerEvents = 'none'
+    host.innerHTML = cleanTicketHtmlForPdfExport(html)
+
+    const style = document.createElement('style')
+    style.textContent = `
+      [data-pdf-export-host="true"] .pdf-back-button { display: none !important; }
+      [data-pdf-export-host="true"] body { background: #fff !important; }
+      [data-pdf-export-host="true"] .page {
+        width: 8.5in !important;
+        min-height: 11in !important;
+        margin: 0 !important;
+        background: #fff !important;
+        box-shadow: none !important;
+      }
+    `
+    host.prepend(style)
+    document.body.appendChild(host)
 
     try {
+      await waitForPdfImages(host)
+      await new Promise((resolve) => setTimeout(resolve, 150))
+
+      const pageElement = (host.querySelector('.page') || host) as HTMLElement
       const options = {
         margin: 0,
         filename: `${fileBaseName}.pdf`,
@@ -10278,6 +10315,10 @@ async function saveUserRole() {
           allowTaint: true,
           backgroundColor: '#ffffff',
           logging: false,
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: pageElement.scrollWidth || 816,
+          windowHeight: pageElement.scrollHeight || 1056,
         },
         jsPDF: {
           unit: 'in',
@@ -10286,13 +10327,19 @@ async function saveUserRole() {
           compress: true,
         },
         pagebreak: {
-          mode: ['avoid-all', 'css', 'legacy'],
+          mode: ['css', 'legacy'],
         },
       }
 
-      return await html2pdf().set(options).from(wrapper).outputPdf('blob')
+      const blob = await html2pdf().set(options).from(pageElement).outputPdf('blob')
+
+      if (!blob || blob.size < 1000) {
+        throw new Error('Generated PDF was empty. Try again after the page fully loads.')
+      }
+
+      return blob
     } finally {
-      wrapper.remove()
+      host.remove()
     }
   }
 

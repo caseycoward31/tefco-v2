@@ -1706,6 +1706,13 @@ useEffect(() => {
     }
   }
 
+  async function replaceMeterScheduleFrequency(meter: any, frequency: string) {
+    const meterId = String(meter?.id || '')
+    if (!meterId) return
+    await removeProvingScheduleRow(provingKpiMonth, meterId)
+    await scheduleMeterByFrequency(meter, frequency)
+  }
+
   async function addManualScheduleOccurrence(meter: any) {
     const dueDate = window.prompt('Enter due date for this proving (YYYY-MM-DD):', `${provingKpiMonth}-15`)
     if (!dueDate) return
@@ -14860,9 +14867,9 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     <label>
                       <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Default Frequency</div>
                       <select style={input} value={scheduleDefaultFrequency} onChange={(e) => setScheduleDefaultFrequency(e.target.value)}>
-                        <option value="monthly">Monthly</option>
-                        <option value="bi_weekly">Bi-Weekly</option>
-                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly - one due date</option>
+                        <option value="bi_weekly">Bi-Weekly - multiple due dates</option>
+                        <option value="weekly">Weekly - multiple due dates</option>
                       </select>
                     </label>
                     <label>
@@ -14870,6 +14877,15 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <input style={input} placeholder="Optional" value={scheduleAssignedTo} onChange={(e) => setScheduleAssignedTo(e.target.value)} />
                     </label>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button type="button" style={{ ...button, width: 'auto' }} onClick={async () => {
+                        const scheduledMeterIds = Array.from(new Set(getScheduledRowsForMonth(provingKpiMonth).map((row: any) => String(row.meter_id || '')).filter(Boolean)))
+                        for (const meterId of scheduledMeterIds) {
+                          const meter = getMeterById(meterId)
+                          if (meter) await replaceMeterScheduleFrequency(meter, scheduleDefaultFrequency)
+                        }
+                      }}>
+                        Apply Frequency to Scheduled Meters
+                      </button>
                       <button type="button" style={{ ...button, width: 'auto' }} onClick={exportProvingScheduleCsv}>
                         Export Schedule CSV
                       </button>
@@ -14909,9 +14925,9 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                           </div>
 
                           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                            <button type="button" style={{ ...button, width: 'auto', marginTop: 0 }} onClick={() => scheduleMeterByFrequency(meter, 'monthly')}>Monthly</button>
-                            <button type="button" style={{ ...button, width: 'auto', marginTop: 0 }} onClick={() => scheduleMeterByFrequency(meter, 'bi_weekly')}>Bi-Weekly</button>
-                            <button type="button" style={{ ...button, width: 'auto', marginTop: 0 }} onClick={() => scheduleMeterByFrequency(meter, 'weekly')}>Weekly</button>
+                            <button type="button" style={{ ...button, width: 'auto', marginTop: 0 }} onClick={() => replaceMeterScheduleFrequency(meter, 'monthly')}>Make Monthly</button>
+                            <button type="button" style={{ ...button, width: 'auto', marginTop: 0 }} onClick={() => replaceMeterScheduleFrequency(meter, 'bi_weekly')}>Make Bi-Weekly</button>
+                            <button type="button" style={{ ...button, width: 'auto', marginTop: 0 }} onClick={() => replaceMeterScheduleFrequency(meter, 'weekly')}>Make Weekly</button>
                             <button type="button" style={{ ...button, width: 'auto', marginTop: 0, background: '#14532d' }} onClick={() => addManualScheduleOccurrence(meter)}>Add Date</button>
                             {isScheduled && (
                               <button type="button" style={{ ...button, width: 'auto', marginTop: 0, background: '#7f1d1d', border: '1px solid #ef4444' }} onClick={() => removeProvingScheduleRow(provingKpiMonth, meter.id)}>
@@ -14937,11 +14953,18 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                                   <select
                                     style={input}
                                     value={row?.frequency || 'monthly'}
-                                    onChange={(e) => upsertProvingScheduleRow(meter, { ...row, frequency: e.target.value })}
+                                    onChange={(e) => {
+                                      const nextFrequency = e.target.value
+                                      if (nextFrequency === 'weekly' || nextFrequency === 'bi_weekly' || nextFrequency === 'monthly') {
+                                        replaceMeterScheduleFrequency(meter, nextFrequency)
+                                      } else {
+                                        upsertProvingScheduleRow(meter, { ...row, frequency: nextFrequency })
+                                      }
+                                    }}
                                   >
-                                    <option value="monthly">Monthly</option>
-                                    <option value="bi_weekly">Bi-Weekly</option>
-                                    <option value="weekly">Weekly</option>
+                                    <option value="monthly">Monthly - one proving</option>
+                                    <option value="bi_weekly">Bi-Weekly - two/three provings</option>
+                                    <option value="weekly">Weekly - every week</option>
                                     <option value="manual">Manual Date</option>
                                   </select>
 

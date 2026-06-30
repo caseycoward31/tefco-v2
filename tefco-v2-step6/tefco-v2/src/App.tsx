@@ -766,8 +766,6 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [provingScheduleRows, setProvingScheduleRows] = useState<any[]>([])
   const [scheduleSegmentId, setScheduleSegmentId] = useState('')
   const [scheduleAssignedTo, setScheduleAssignedTo] = useState('')
-  const [scheduleDefaultFrequency, setScheduleDefaultFrequency] = useState('monthly')
-  const [scheduleStartDate, setScheduleStartDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [meterAssetConfigs, setMeterAssetConfigs] = useState<any[]>([])
   const [tankCalibrationVersions, setTankCalibrationVersions] = useState<any[]>([])
   const [tankStrappingRows, setTankStrappingRows] = useState<any[]>([])
@@ -1490,132 +1488,24 @@ useEffect(() => {
   }, [companyId])
 
   function getScheduledRowsForMonth(monthKey = provingKpiMonth) {
-    return asArray(provingScheduleRows)
-      .filter((row: any) => row?.active !== false && String(row.month_key || '') === String(monthKey))
-      .sort((a: any, b: any) => String(a.due_date || '').localeCompare(String(b.due_date || '')))
-  }
-
-  function getScheduleRowsForMeter(monthKey: string, meterId: string) {
-    return getScheduledRowsForMonth(monthKey).filter((row: any) => String(row.meter_id || '') === String(meterId))
+    return asArray(provingScheduleRows).filter((row: any) =>
+      row?.active !== false && String(row.month_key || '') === String(monthKey)
+    )
   }
 
   function getScheduleRow(monthKey: string, meterId: string) {
-    return getScheduleRowsForMeter(monthKey, meterId)[0] || null
-  }
-
-  function getMonthDateRange(monthKey: string) {
-    const [year, month] = String(monthKey || new Date().toISOString().slice(0, 7)).split('-').map(Number)
-    const start = new Date(year, (month || 1) - 1, 1)
-    const end = new Date(year, month || 1, 0)
-    return { start, end }
-  }
-
-  function formatLocalDateInput(date: Date) {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-  }
-
-  function addDays(date: Date, days: number) {
-    const next = new Date(date)
-    next.setDate(next.getDate() + days)
-    return next
-  }
-
-  function getProvingScheduleOccurrences(monthKey: string, frequency: string, startDateValue?: string) {
-    const { start, end } = getMonthDateRange(monthKey)
-    const safeFrequency = String(frequency || 'monthly').toLowerCase()
-    const candidateStart = startDateValue ? makeLocalDateTime(startDateValue) : null
-    const firstDate = candidateStart && candidateStart.getMonth() === start.getMonth() && candidateStart.getFullYear() === start.getFullYear()
-      ? candidateStart
-      : start
-
-    const dates: Date[] = []
-
-    if (safeFrequency === 'weekly') {
-      for (let d = new Date(firstDate); d <= end; d = addDays(d, 7)) dates.push(new Date(d))
-    } else if (safeFrequency === 'bi_weekly' || safeFrequency === 'biweekly') {
-      for (let d = new Date(firstDate); d <= end; d = addDays(d, 14)) dates.push(new Date(d))
-    } else {
-      dates.push(new Date(firstDate))
-    }
-
-    return dates.map((dueDate, index) => {
-      const nextDate = dates[index + 1] ? addDays(dates[index + 1], -1) : end
-      return {
-        due_date: formatLocalDateInput(dueDate),
-        period_start: formatLocalDateInput(dueDate),
-        period_end: formatLocalDateInput(nextDate),
-      }
-    })
-  }
-
-  function getApprovedProvingDate(proving: any) {
-    return proving?.proving_date || proving?.approved_at || proving?.created_at || ''
-  }
-
-  function getApprovedProvingsForMeterMonth(meterId: string, monthKey: string) {
-    return asArray(provings)
-      .filter((proving: any) =>
-        String(proving.status || '').toLowerCase() === 'approved' &&
-        String(proving.meter_id || '') === String(meterId || '') &&
-        isProvingInKpiMonth(proving, monthKey)
-      )
-      .sort((a: any, b: any) => new Date(getApprovedProvingDate(a) || 0).getTime() - new Date(getApprovedProvingDate(b) || 0).getTime())
+    return getScheduledRowsForMonth(monthKey).find((row: any) => String(row.meter_id || '') === String(meterId)) || null
   }
 
   function getApprovedProvingForScheduledRow(row: any) {
     if (!row?.meter_id) return null
-    const approvedRows = getApprovedProvingsForMeterMonth(row.meter_id, row.month_key || provingKpiMonth)
-    if (!approvedRows.length) return null
-
-    // If only one proving exists for the month, let that one satisfy the monthly schedule.
-    // When multiple proving rows exist, the period_start/period_end window keeps each due slot separate.
-    if (approvedRows.length === 1 && String(row.frequency || '').toLowerCase() === 'monthly') {
-      return approvedRows[0]
-    }
-
-    const periodStart = makeLocalDateTime(row.period_start || row.due_date || `${row.month_key || provingKpiMonth}-01`)
-    const periodEnd = makeLocalDateTime(row.period_end || row.due_date || `${row.month_key || provingKpiMonth}-28`)
-    const endOfPeriod = periodEnd ? new Date(periodEnd.getFullYear(), periodEnd.getMonth(), periodEnd.getDate(), 23, 59, 59) : null
-
-    return approvedRows.find((proving: any) => {
-      const proved = makeLocalDateTime(getApprovedProvingDate(proving))
-      if (!proved) return false
-      if (periodStart && proved.getTime() < periodStart.getTime()) return false
-      if (endOfPeriod && proved.getTime() > endOfPeriod.getTime()) return false
-      return true
-    }) || null
-  }
-
-  function getEffectiveApprovedProvingForTicket(meterId: string, ticketDateValue: any) {
-    if (!meterId) return null
-    const ticketDate = makeLocalDateTime(ticketDateValue || new Date().toISOString())
-    const monthKey = ticketDate
-      ? `${ticketDate.getFullYear()}-${String(ticketDate.getMonth() + 1).padStart(2, '0')}`
-      : provingKpiMonth
-
-    const monthApproved = getApprovedProvingsForMeterMonth(meterId, monthKey)
-    if (monthApproved.length === 1) return monthApproved[0]
-
-    const ticketMs = ticketDate ? ticketDate.getTime() : Date.now()
-    const effective = monthApproved
-      .filter((proving: any) => {
-        const proved = makeLocalDateTime(getApprovedProvingDate(proving))
-        return proved && proved.getTime() <= ticketMs
-      })
-      .sort((a: any, b: any) => new Date(getApprovedProvingDate(b) || 0).getTime() - new Date(getApprovedProvingDate(a) || 0).getTime())[0]
-
-    if (effective) return effective
-
     return asArray(provings)
       .filter((proving: any) =>
         String(proving.status || '').toLowerCase() === 'approved' &&
-        String(proving.meter_id || '') === String(meterId)
+        String(proving.meter_id || '') === String(row.meter_id || '') &&
+        isProvingInKpiMonth(proving, row.month_key || provingKpiMonth)
       )
-      .filter((proving: any) => {
-        const proved = makeLocalDateTime(getApprovedProvingDate(proving))
-        return proved && proved.getTime() <= ticketMs
-      })
-      .sort((a: any, b: any) => new Date(getApprovedProvingDate(b) || 0).getTime() - new Date(getApprovedProvingDate(a) || 0).getTime())[0] || null
+      .sort((a: any, b: any) => new Date(a.proving_date || a.approved_at || a.created_at || 0).getTime() - new Date(b.proving_date || b.approved_at || b.created_at || 0).getTime())[0] || null
   }
 
   function getScheduleStatus(row: any) {
@@ -1623,7 +1513,7 @@ useEffect(() => {
     const today = new Date()
     const due = row?.due_date ? makeLocalDateTime(row.due_date) : null
     if (completed) {
-      const provedDate = makeLocalDateTime(getApprovedProvingDate(completed))
+      const provedDate = makeLocalDateTime(completed.proving_date || completed.approved_at || completed.created_at)
       if (due && provedDate && provedDate.getTime() > new Date(due.getFullYear(), due.getMonth(), due.getDate(), 23, 59, 59).getTime()) {
         return { label: 'Completed Late', color: '#f59e0b', completed }
       }
@@ -1637,128 +1527,57 @@ useEffect(() => {
 
   async function upsertProvingScheduleRow(meter: any, patch: any) {
     const meterId = String(meter?.id || patch?.meter_id || '')
-    if (!meterId) return null
+    if (!meterId) return
 
     const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
     if (!activeCompanyID) {
       alert('Select a company first.')
-      return null
+      return
     }
 
     const leaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(meter?.lease_id || patch?.lease_id || ''))
     const segmentId = String(patch.segment_id || meter?.segment_id || leaseRow?.segment_id || scheduleSegmentId || '')
     const leaseId = String(patch.lease_id || meter?.lease_id || '')
-    const dueDate = patch.due_date || scheduleStartDate || `${provingKpiMonth}-15`
-
-    const existing = patch.id
-      ? asArray(provingScheduleRows).find((row: any) => String(row.id || '') === String(patch.id))
-      : null
-
+    const existing = getScheduleRow(provingKpiMonth, meterId)
     const nextRow: any = {
+      ...(existing || {}),
       ...patch,
       company_id: activeCompanyID,
       month_key: provingKpiMonth,
       segment_id: segmentId || null,
       lease_id: leaseId || null,
       meter_id: meterId,
-      frequency: patch.frequency || existing?.frequency || scheduleDefaultFrequency || 'monthly',
-      due_date: dueDate,
-      period_start: patch.period_start || existing?.period_start || dueDate,
-      period_end: patch.period_end || existing?.period_end || dueDate,
+      frequency: patch.frequency || existing?.frequency || 'monthly',
+      due_date: patch.due_date || existing?.due_date || `${provingKpiMonth}-15`,
       assigned_to: patch.assigned_to ?? existing?.assigned_to ?? scheduleAssignedTo ?? '',
       active: patch.active ?? existing?.active ?? true,
       updated_at: new Date().toISOString(),
     }
 
-    let result
-    if (existing?.id) {
-      result = await supabase
-        .from('proving_schedule_rows')
-        .update(nextRow)
-        .eq('id', existing.id)
-        .select()
-        .maybeSingle()
-    } else {
-      const { id, ...insertRow } = nextRow
-      result = await supabase
-        .from('proving_schedule_rows')
-        .insert(insertRow)
-        .select()
-        .maybeSingle()
-    }
+    const { error } = await supabase
+      .from('proving_schedule_rows')
+      .upsert(nextRow, { onConflict: 'company_id,month_key,meter_id' })
 
-    const { data, error } = result
     if (error) {
-      alert('Could not save proving schedule to shared database. Run the updated proving schedule SQL first. ' + error.message)
-      return null
+      alert('Could not save proving schedule to shared database. Run the proving schedule SQL first. ' + error.message)
+      return
     }
 
-    const savedRow = data || nextRow
     setProvingScheduleRows((prev: any[]) => {
-      const others = asArray(prev).filter((row: any) => {
-        if (savedRow.id && String(row.id || '') === String(savedRow.id)) return false
-        return !(
-          String(row.month_key || '') === String(provingKpiMonth) &&
-          String(row.meter_id || '') === meterId &&
-          String(row.due_date || '') === String(savedRow.due_date || dueDate) &&
-          String(row.frequency || '') === String(savedRow.frequency || '')
-        )
-      })
-      return [...others, savedRow]
-    })
-
-    return savedRow
-  }
-
-  async function scheduleMeterByFrequency(meter: any, frequency = scheduleDefaultFrequency, startDateValue = scheduleStartDate) {
-    const occurrences = getProvingScheduleOccurrences(provingKpiMonth, frequency, startDateValue)
-    for (const occurrence of occurrences) {
-      await upsertProvingScheduleRow(meter, {
-        active: true,
-        assigned_to: scheduleAssignedTo,
-        frequency,
-        ...occurrence,
-      })
-    }
-  }
-
-  async function replaceMeterScheduleFrequency(meter: any, frequency: string, startDateValue = scheduleStartDate) {
-    const meterId = String(meter?.id || '')
-    if (!meterId) return
-    await removeProvingScheduleRow(provingKpiMonth, meterId)
-    await scheduleMeterByFrequency(meter, frequency, startDateValue)
-  }
-
-  async function addManualScheduleOccurrence(meter: any) {
-    const dueDate = window.prompt('Enter due date for this proving (YYYY-MM-DD):', `${provingKpiMonth}-15`)
-    if (!dueDate) return
-    await upsertProvingScheduleRow(meter, {
-      active: true,
-      assigned_to: scheduleAssignedTo,
-      frequency: 'manual',
-      due_date: dueDate,
-      period_start: dueDate,
-      period_end: dueDate,
+      const others = asArray(prev).filter((row: any) => !(String(row.month_key || '') === String(provingKpiMonth) && String(row.meter_id || '') === meterId))
+      return [...others, nextRow]
     })
   }
 
-  async function removeProvingScheduleRow(monthKey: string, meterId: string, rowId?: string, dueDate?: string) {
+  async function removeProvingScheduleRow(monthKey: string, meterId: string) {
     const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
     if (activeCompanyID) {
-      let query = supabase
+      const { error } = await supabase
         .from('proving_schedule_rows')
         .delete()
         .eq('company_id', activeCompanyID)
         .eq('month_key', monthKey)
         .eq('meter_id', meterId)
-
-      if (rowId) {
-        query = query.eq('id', rowId)
-      } else if (dueDate) {
-        query = query.eq('due_date', dueDate)
-      }
-
-      const { error } = await query
 
       if (error) {
         alert('Could not delete proving schedule row: ' + error.message)
@@ -1767,16 +1586,9 @@ useEffect(() => {
     }
 
     setProvingScheduleRows((prev: any[]) =>
-      asArray(prev).filter((row: any) => {
-        const sameBase = String(row.month_key || '') === String(monthKey) && String(row.meter_id || '') === String(meterId)
-        if (!sameBase) return true
-        if (rowId) return String(row.id || '') !== String(rowId)
-        if (dueDate) return String(row.due_date || '') !== String(dueDate)
-        return false
-      })
+      asArray(prev).filter((row: any) => !(String(row.month_key || '') === String(monthKey) && String(row.meter_id || '') === String(meterId)))
     )
   }
-
 
   function getScheduleSegmentMeters() {
     if (!scheduleSegmentId) return []
@@ -4100,7 +3912,7 @@ function handleProvingAreaSelect(areaId: string) {
     const producer = producers.find((p) => p.id === selectedProducer)
     const profile = profiles.find((p) => p.id === producer?.calculation_profile_id)
     const latestReading = readings.find((r: any) => r.meter_id === selectedMeter)
-    const latestApprovedProving = getEffectiveApprovedProvingForTicket(selectedMeter, ticketCloseDate ? `${ticketCloseDate}T${ticketCloseTime || '00:00'}` : new Date().toISOString())
+    const latestApprovedProving = provings.find((p) => p.meter_id === selectedMeter && p.status === 'approved')
     const latestPot = potQuality.find(
       (p: any) =>
         String(p.segment_id || '') === String(selectedSegment) &&
@@ -14862,7 +14674,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     Select the month and segment, then choose which lease / meter records are scheduled for proving. KPI counts only these scheduled meters.
                   </p>
 
-                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '190px 230px 210px 180px 210px 1fr', gap: 12, alignItems: 'end' }}>
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '220px 260px 220px 1fr', gap: 12, alignItems: 'end' }}>
                     <label>
                       <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Schedule Month</div>
                       <input style={input} type="month" value={provingKpiMonth} onChange={(e) => setProvingKpiMonth(e.target.value)} />
@@ -14881,31 +14693,10 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </select>
                     </label>
                     <label>
-                      <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Default Frequency</div>
-                      <select style={input} value={scheduleDefaultFrequency} onChange={(e) => setScheduleDefaultFrequency(e.target.value)}>
-                        <option value="monthly">Monthly - one due date</option>
-                        <option value="bi_weekly">Bi-Weekly - repeats every 14 days</option>
-                        <option value="weekly">Weekly - repeats every 7 days</option>
-                      </select>
-                    </label>
-                    <label>
-                      <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Start Date</div>
-                      <input style={input} type="date" value={scheduleStartDate} onChange={(e) => setScheduleStartDate(e.target.value)} />
-                    </label>
-                    <label>
                       <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Assigned To</div>
                       <input style={input} placeholder="Optional" value={scheduleAssignedTo} onChange={(e) => setScheduleAssignedTo(e.target.value)} />
                     </label>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <button type="button" style={{ ...button, width: 'auto' }} onClick={async () => {
-                        const scheduledMeterIds = Array.from(new Set(getScheduledRowsForMonth(provingKpiMonth).map((row: any) => String(row.meter_id || '')).filter(Boolean)))
-                        for (const meterId of scheduledMeterIds) {
-                          const meter = getMeterById(meterId)
-                          if (meter) await replaceMeterScheduleFrequency(meter, scheduleDefaultFrequency)
-                        }
-                      }}>
-                        Apply Frequency to Scheduled Meters
-                      </button>
                       <button type="button" style={{ ...button, width: 'auto' }} onClick={exportProvingScheduleCsv}>
                         Export Schedule CSV
                       </button>
@@ -14920,123 +14711,63 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
 
                   {scheduleSegmentId && getScheduleSegmentMeters().map((meter: any) => {
                     const lease: any = getLeaseById(meter.lease_id || '')
-                    const rows = getScheduleRowsForMeter(provingKpiMonth, meter.id)
-                    const isScheduled = rows.length > 0
+                    const row = getScheduleRow(provingKpiMonth, meter.id)
+                    const status = row ? getScheduleStatus(row) : null
                     return (
-                      <div key={meter.id} style={{ ...card, display: 'grid', gap: 10 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 220px', gap: 10, alignItems: 'center' }}>
-                          <label style={{ display: 'flex', gap: 10, alignItems: 'center', margin: 0 }}>
-                            <input
-                              type="checkbox"
-                              checked={isScheduled}
-                              onChange={(e) => e.target.checked ? scheduleMeterByFrequency(meter, scheduleDefaultFrequency) : removeProvingScheduleRow(provingKpiMonth, meter.id)}
-                            />
-                            <span>
-                              <strong>{lease?.lease_name || lease?.name || lease?.lease_number || 'Unlinked Lease'}</strong>
-                              <div style={{ color: '#a8b3bd', fontSize: 12 }}>Meter: {meter.meter_number || meter.meter_name}</div>
-                            </span>
-                          </label>
+                      <div key={meter.id} style={{ ...card, display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 160px 160px 160px 160px', gap: 10, alignItems: 'center' }}>
+                        <label style={{ display: 'flex', gap: 10, alignItems: 'center', margin: 0 }}>
+                          <input
+                            type="checkbox"
+                            checked={!!row}
+                            onChange={(e) => e.target.checked ? upsertProvingScheduleRow(meter, { active: true, assigned_to: scheduleAssignedTo }) : removeProvingScheduleRow(provingKpiMonth, meter.id)}
+                          />
+                          <span>
+                            <strong>{lease?.lease_name || lease?.name || lease?.lease_number || 'Unlinked Lease'}</strong>
+                            <div style={{ color: '#a8b3bd', fontSize: 12 }}>Meter: {meter.meter_number || meter.meter_name}</div>
+                          </span>
+                        </label>
 
-                          <div>
-                            <strong>{isScheduled ? `${rows.length} proving(s) scheduled` : 'Not Scheduled'}</strong>
-                            <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                              {isScheduled ? rows.map((row: any) => row.due_date).join(', ') : 'Use Monthly, Bi-Weekly, Weekly, or Add Date'}
-                            </div>
-                          </div>
-
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 155px auto auto', gap: 8, alignItems: 'center' }}>
-                            <select
-                              style={input}
-                              value={rows[0]?.frequency || scheduleDefaultFrequency}
-                              onChange={(e) => replaceMeterScheduleFrequency(meter, e.target.value, rows[0]?.due_date || scheduleStartDate)}
-                            >
-                              <option value="monthly">Monthly - one due date</option>
-                              <option value="bi_weekly">Bi-Weekly - every 14 days</option>
-                              <option value="weekly">Weekly - every 7 days</option>
-                            </select>
-
-                            <input
-                              style={input}
-                              type="date"
-                              title="Start date for this meter"
-                              value={rows[0]?.due_date || scheduleStartDate}
-                              onChange={(e) => replaceMeterScheduleFrequency(meter, rows[0]?.frequency || scheduleDefaultFrequency, e.target.value)}
-                            />
-
-                            <button type="button" style={{ ...button, width: 'auto', marginTop: 0, background: '#14532d' }} onClick={() => addManualScheduleOccurrence(meter)}>
-                              Add Date
-                            </button>
-
-                            {isScheduled && (
-                              <button type="button" style={{ ...button, width: 'auto', marginTop: 0, background: '#7f1d1d', border: '1px solid #ef4444' }} onClick={() => removeProvingScheduleRow(provingKpiMonth, meter.id)}>
-                                Clear
-                              </button>
-                            )}
-                          </div>
+                        <div>
+                          {status ? <strong style={{ color: status.color }}>{status.label}</strong> : <span style={{ color: '#a8b3bd' }}>Not Scheduled</span>}
+                          {status?.completed?.proving_date && <div style={{ color: '#a8b3bd', fontSize: 12 }}>Proved: {status.completed.proving_date}</div>}
                         </div>
 
-                        {isScheduled && (
-                          <div style={{ display: 'grid', gap: 8 }}>
-                            {rows.map((row: any) => {
-                              const status = getScheduleStatus(row)
-                              return (
-                                <div key={row.id || `${row.meter_id}_${row.due_date}`} style={{ display: 'grid', gridTemplateColumns: '150px 150px 150px 1fr 160px', gap: 8, alignItems: 'center', borderTop: '1px solid #1f2937', paddingTop: 8 }}>
-                                  <input
-                                    style={input}
-                                    type="date"
-                                    value={row?.due_date || ''}
-                                    onChange={(e) => {
-                                      const nextDue = e.target.value
-                                      const dueDateObj = makeLocalDateTime(nextDue)
-                                      const nextEndDate = row.frequency === 'weekly'
-                                        ? (dueDateObj ? formatLocalDateInput(addDays(dueDateObj, 6)) : nextDue)
-                                        : (row.frequency === 'bi_weekly' || row.frequency === 'biweekly')
-                                          ? (dueDateObj ? formatLocalDateInput(addDays(dueDateObj, 13)) : nextDue)
-                                          : nextDue
-                                      upsertProvingScheduleRow(meter, { ...row, due_date: nextDue, period_start: nextDue, period_end: nextEndDate })
-                                    }}
-                                  />
+                        <input
+                          style={input}
+                          type="date"
+                          value={row?.due_date || `${provingKpiMonth}-15`}
+                          disabled={!row}
+                          onChange={(e) => upsertProvingScheduleRow(meter, { due_date: e.target.value })}
+                        />
 
-                                  <select
-                                    style={input}
-                                    value={row?.frequency || 'monthly'}
-                                    onChange={(e) => {
-                                      const nextFrequency = e.target.value
-                                      if (nextFrequency === 'weekly' || nextFrequency === 'bi_weekly' || nextFrequency === 'monthly') {
-                                        replaceMeterScheduleFrequency(meter, nextFrequency)
-                                      } else {
-                                        upsertProvingScheduleRow(meter, { ...row, frequency: nextFrequency })
-                                      }
-                                    }}
-                                  >
-                                    <option value="monthly">Monthly - one proving</option>
-                                    <option value="bi_weekly">Bi-Weekly - two/three provings</option>
-                                    <option value="weekly">Weekly - every week</option>
-                                    <option value="manual">Manual Date</option>
-                                  </select>
+                        <select
+                          style={input}
+                          value={row?.frequency || 'monthly'}
+                          disabled={!row}
+                          onChange={(e) => upsertProvingScheduleRow(meter, { frequency: e.target.value })}
+                        >
+                          <option value="monthly">Monthly</option>
+                          <option value="quarterly">Quarterly</option>
+                          <option value="semi_annual">Semi Annual</option>
+                          <option value="annual">Annual</option>
+                        </select>
 
-                                  <input
-                                    style={input}
-                                    placeholder="Assigned To"
-                                    value={row?.assigned_to || ''}
-                                    onChange={(e) => upsertProvingScheduleRow(meter, { ...row, assigned_to: e.target.value })}
-                                  />
+                        <input
+                          style={input}
+                          placeholder="Assigned To"
+                          value={row?.assigned_to || ''}
+                          disabled={!row}
+                          onChange={(e) => upsertProvingScheduleRow(meter, { assigned_to: e.target.value })}
+                        />
 
-                                  <div>
-                                    <strong style={{ color: status.color }}>{status.label}</strong>
-                                    <div style={{ color: '#a8b3bd', fontSize: 12 }}>
-                                      Window: {row.period_start || row.due_date || '—'} to {row.period_end || row.due_date || '—'}
-                                      {status?.completed?.proving_date ? ` • Proved: ${status.completed.proving_date}` : ''}
-                                    </div>
-                                  </div>
-
-                                  <button type="button" style={{ ...button, marginTop: 0, background: '#7f1d1d', border: '1px solid #ef4444' }} onClick={() => removeProvingScheduleRow(provingKpiMonth, meter.id, row.id, row.due_date)}>
-                                    Remove Date
-                                  </button>
-                                </div>
-                              )
-                            })}
-                          </div>
+                        {row ? (
+                          <button type="button" style={{ ...button, marginTop: 0, background: '#7f1d1d', border: '1px solid #ef4444' }} onClick={() => removeProvingScheduleRow(provingKpiMonth, meter.id)}>
+                            Remove
+                          </button>
+                        ) : (
+                          <button type="button" style={{ ...button, marginTop: 0 }} onClick={() => upsertProvingScheduleRow(meter, { active: true, assigned_to: scheduleAssignedTo })}>
+                            Schedule
+                          </button>
                         )}
                       </div>
                     )
@@ -15062,11 +14793,11 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         const lease = getLeaseById(row.lease_id || meter?.lease_id || '')
                         const status = getScheduleStatus(row)
                         return (
-                          <tr key={row.id || `${row.month_key}_${row.meter_id}_${row.due_date}`}>
+                          <tr key={row.id || `${row.month_key}_${row.meter_id}`}>
                             <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{lease?.lease_name || lease?.name || lease?.lease_number || '—'}</td>
                             <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{meter?.meter_number || meter?.meter_name || '—'}</td>
                             <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.due_date || '—'}</td>
-                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{String(row.frequency || 'monthly').replace('_', '-')}</td>
+                            <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.frequency || 'monthly'}</td>
                             <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}>{row.assigned_to || '—'}</td>
                             <td style={{ borderBottom: '1px solid #1f2937', padding: 8 }}><strong style={{ color: status.color }}>{status.label}</strong></td>
                           </tr>

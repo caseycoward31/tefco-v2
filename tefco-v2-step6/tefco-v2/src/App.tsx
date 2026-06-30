@@ -561,16 +561,16 @@ function calculateApi11Corrections(input: {
     observed_pressure: roundTo(observedPressure, 2),
 
     // Display value: API gravity @60 is rounded to nearest tenth for tickets.
-    api_gravity_60: roundTo(base.apiGravity60, apiDecimals),
+    api_gravity_60: roundApiHalfEven(base.apiGravity60, apiDecimals),
     density_60: roundTo(base.density60, 6),
     average_temperature: roundTo(averageTemperature, 2),
     average_pressure: roundTo(averagePressure, 2),
 
     // Display / ticket factors. Chapter 12.2 R2021 tickets use these rounded factors.
-    ctl: roundTo(volumeCorrection.ctl, factorDecimals),
-    cpl: roundTo(volumeCorrection.cpl, factorDecimals),
-    ctlp: roundTo(volumeCorrection.ctlp, factorDecimals),
-    ccf: roundTo(volumeCorrection.ccf, factorDecimals),
+    ctl: roundApiFactor(volumeCorrection.ctl, factorDecimals),
+    cpl: roundApiFactor(volumeCorrection.cpl, factorDecimals),
+    ctlp: roundApiFactor(volumeCorrection.ctlp, factorDecimals),
+    ccf: roundApiFactor(volumeCorrection.ccf, factorDecimals),
 
     // Audit values: full precision is retained for validation and troubleshooting.
     raw_api_gravity_60: base.apiGravity60,
@@ -3985,9 +3985,14 @@ function handleProvingAreaSelect(areaId: string) {
     const corrections = calculateApi11Corrections({
       productGroup,
       observedApiGravity: Number(
-        latestPot?.observed_api_gravity ||
-          latestPot?.api_gravity ||
-          latestPot?.api_gravity_60 ||
+        latestPot?.observed_api_gravity_raw ??
+          latestPot?.observed_api_raw ??
+          latestPot?.sample_gravity_raw ??
+          latestPot?.observed_api_exact ??
+          latestPot?.api_gravity_exact ??
+          latestPot?.observed_api_gravity ??
+          latestPot?.api_gravity ??
+          latestPot?.api_gravity_60 ??
           0
       ),
       observedTemperature: Number(
@@ -4001,9 +4006,9 @@ function handleProvingAreaSelect(areaId: string) {
       apiRounding,
     })
 
-    const ctl = roundTo(corrections.ctl, ctlRounding)
-    const cpl = roundTo(corrections.cpl, cplRounding)
-    const ctlp = roundTo(corrections.ctlp, ctlpRounding)
+    const ctl = roundApiFactor(corrections.ctl, ctlRounding)
+    const cpl = roundApiFactor(corrections.cpl, cplRounding)
+    const ctlp = roundApiFactor(corrections.ctlp, ctlpRounding)
     const ccf = corrections.ccf
 
     const finalCtl = tankTicketSnapshot ? tankTicketSnapshot.ctl : ctl
@@ -4012,17 +4017,17 @@ function handleProvingAreaSelect(areaId: string) {
     const finalCcf = tankTicketSnapshot ? tankTicketSnapshot.ccf : ccf
 
     const factorToUse = Number(latestApprovedProving?.accepted_meter_factor || latestReading?.meter_factor || 1)
-    const mf = roundTo(factorToUse, 4)
+    const mf = roundApiHalfEven(factorToUse, 4)
     const csw = Number(latestPot?.csw || 1)
     const bswPercent = getPotBswPercentValue(latestPot) ?? roundTo((1 - csw) * 100, 4)
-    const isApi12 = selectedContractStandard.includes('API 12')
+    const isApi12 = selectedContractStandard.includes('API 12') || selectedCalculationMethod === 'chapter12_2_2021'
     const gsvRaw = tankTicketSnapshot
       ? tankTicketSnapshot.gsv
       : isApi12 ? iv * mf * ctl * cpl : iv * ccf * mf
-    const gsv = roundTo(gsvRaw, volumeRounding)
+    const gsv = roundApiHalfEven(gsvRaw, volumeRounding)
     const nsv = tankTicketSnapshot
-      ? roundTo(tankTicketSnapshot.nsv, volumeRounding)
-      : roundTo(gsvRaw * csw, volumeRounding)
+      ? roundApiHalfEven(tankTicketSnapshot.nsv, volumeRounding)
+      : roundApiHalfEven(gsvRaw * csw, volumeRounding)
 
     const ticketInsertPayload: any = {
       company_id: companyId,
@@ -4149,6 +4154,23 @@ function handleProvingAreaSelect(areaId: string) {
         pot_source: latestPot ? 'latest_pot_quality' : 'none',
         api_engine: corrections.api_engine,
         api_engine_note: corrections.api_engine_note,
+        api_11_1_section: '11.1.6.1',
+        chapter_12_2_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : null,
+        raw_observed_api_used: Number(
+          latestPot?.observed_api_gravity_raw ??
+            latestPot?.observed_api_raw ??
+            latestPot?.sample_gravity_raw ??
+            latestPot?.observed_api_exact ??
+            latestPot?.api_gravity_exact ??
+            latestPot?.observed_api_gravity ??
+            latestPot?.api_gravity ??
+            latestPot?.api_gravity_60 ??
+            0
+        ),
+        raw_api_gravity_60: corrections.raw_api_gravity_60 ?? null,
+        raw_ctl: corrections.raw_ctl ?? null,
+        raw_cpl: corrections.raw_cpl ?? null,
+        raw_ctlp: corrections.raw_ctlp ?? null,
         contract_profile_name: contractProfile?.name || null,
         calculation_method: selectedCalculationMethod,
         product_group: selectedProductGroup,

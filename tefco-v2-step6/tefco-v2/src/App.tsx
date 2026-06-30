@@ -4152,7 +4152,6 @@ function handleProvingAreaSelect(areaId: string) {
         contract_profile_name: contractProfile?.name || null,
         calculation_method: selectedCalculationMethod,
         product_group: selectedProductGroup,
-        api_engine: corrections.api_engine,
         calculation_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
         raw_api_gravity_60: corrections.raw_api_gravity_60 ?? null,
         raw_ctl: corrections.raw_ctl ?? null,

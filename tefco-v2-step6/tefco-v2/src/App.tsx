@@ -3990,13 +3990,16 @@ function handleProvingAreaSelect(areaId: string) {
     const selectedFactorType =
       contractProfile?.factor_type || latestApprovedProving?.factor_type || 'MF'
 
-    const selectedApiVersion = String((contractProfile as any)?.api_version || (selectedContractStandard.includes('12.2') ? 'api_chapter_12_2_r2021' : ''))
+    const selectedApiVersion = String((contractProfile as any)?.api_version || (selectedContractStandard.includes('12.2') || selectedCalculationMethod === 'chapter12_2021' || selectedCalculationMethod === 'chapter12_2_2021' ? 'api_chapter_12_2_r2021' : ''))
     const isChapter122021Ticket =
       selectedApiVersion === 'api_chapter_12_2_r2021' ||
       selectedApiVersion === 'chapter12_2_2021' ||
+      selectedApiVersion === 'chapter12_2021' ||
       selectedCalculationMethod === 'chapter12_2_2021' ||
+      selectedCalculationMethod === 'chapter12_2021' ||
       selectedContractStandard.includes('12.2') ||
-      selectedContractStandard.includes('Chapter 12.2')
+      selectedContractStandard.includes('Chapter 12.2') ||
+      selectedContractStandard.includes('Chapter 12')
 
     // Do not let older contract profile rows with 3/5-decimal factor settings override Ch. 12.2 R2021.
     // Ch. 12.2 display profile here is API @60 to 0.1, CTL/CPL/CTPL to 6, MF/CMF to 4, volumes to 2.
@@ -4053,7 +4056,7 @@ function handleProvingAreaSelect(areaId: string) {
     const mf = roundApiHalfEven(factorToUse, 4)
     const csw = Number(latestPot?.csw || 1)
     const bswPercent = getPotBswPercentValue(latestPot) ?? roundTo((1 - csw) * 100, 4)
-    const isApi12 = isChapter122021Ticket || selectedContractStandard.includes('API 12') || selectedCalculationMethod === 'chapter12_2_2021'
+    const isApi12 = isChapter122021Ticket || selectedContractStandard.includes('API 12') || selectedCalculationMethod === 'chapter12_2_2021' || selectedCalculationMethod === 'chapter12_2021'
     const gsvRaw = tankTicketSnapshot
       ? tankTicketSnapshot.gsv
       : isApi12 ? iv * mf * ctl * cpl : iv * ccf * mf
@@ -4206,7 +4209,7 @@ function handleProvingAreaSelect(areaId: string) {
         raw_cpl: corrections.raw_cpl ?? null,
         raw_ctlp: corrections.raw_ctlp ?? null,
         contract_profile_name: contractProfile?.name || null,
-        calculation_method: selectedCalculationMethod,
+        calculation_method: isChapter122021Ticket ? 'API Chapter 12.2 R2021' : selectedCalculationMethod,
         product_group: selectedProductGroup,
         calculation_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
         refined_unit_type: refinedProductType || null,

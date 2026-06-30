@@ -305,7 +305,8 @@ function its90ToIpts68F(tempF: number) {
     correctionC += coeffs[i] * Math.pow(scaled, i + 1)
   }
 
-  return (tempC + correctionC) * 1.8 + 32
+  // API MPMS 11.1 11.1.5.3: t68 = t90 - Δt, then convert back to °F.
+  return (tempC - correctionC) * 1.8 + 32
 }
 
 function getApi11Coefficients(productGroup: string, density60: number) {
@@ -551,22 +552,39 @@ function calculateApi11Corrections(input: {
     productGroup
   )
 
+  const apiDecimals = Number(input.apiRounding ?? 1)
+  const factorDecimals = 6
+
   return {
     observed_api_gravity: roundTo(observedApiGravity, 5),
     observed_temperature: roundTo(observedTemperature, 2),
     observed_pressure: roundTo(observedPressure, 2),
-    api_gravity_60: roundTo(base.apiGravity60, Number(input.apiRounding || 1)),
+
+    // Display value: API gravity @60 is rounded to nearest tenth for tickets.
+    api_gravity_60: roundTo(base.apiGravity60, apiDecimals),
     density_60: roundTo(base.density60, 6),
     average_temperature: roundTo(averageTemperature, 2),
     average_pressure: roundTo(averagePressure, 2),
-    ctl: roundTo(volumeCorrection.ctl, 5),
-    cpl: roundTo(volumeCorrection.cpl, 5),
-    ctlp: roundTo(volumeCorrection.ctlp, 5),
-    ccf: roundTo(volumeCorrection.ccf, 5),
+
+    // Display / ticket factors. Chapter 12.2 R2021 tickets use these rounded factors.
+    ctl: roundTo(volumeCorrection.ctl, factorDecimals),
+    cpl: roundTo(volumeCorrection.cpl, factorDecimals),
+    ctlp: roundTo(volumeCorrection.ctlp, factorDecimals),
+    ccf: roundTo(volumeCorrection.ccf, factorDecimals),
+
+    // Audit values: full precision is retained for validation and troubleshooting.
+    raw_api_gravity_60: base.apiGravity60,
+    raw_density_60: base.density60,
+    raw_ctl: volumeCorrection.ctl,
+    raw_cpl: volumeCorrection.cpl,
+    raw_ctlp: volumeCorrection.ctlp,
+    raw_ccf: volumeCorrection.ccf,
+    raw_fp: volumeCorrection.fp,
+    raw_alpha60: volumeCorrection.alpha60,
     product_sub_group: volumeCorrection.productSubGroup,
-    api_engine: 'API MPMS 11.1 Stage 1',
+    api_engine: 'API MPMS 11.1 / 11.1.6.1',
     api_engine_note: base.converged
-      ? 'Calculated from observed API gravity and observed temperature.'
+      ? 'Calculated using API MPMS 11.1 implementation procedure with rounded display factors.'
       : 'Calculated but density iteration did not fully converge.',
   }
 }
@@ -642,7 +660,6 @@ function App() {
   const [contractSegmentId, setContractSegmentId] = useState('')
   const [contractLeaseId, setContractLeaseId] = useState('')
   const [contractProductGroup, setContractProductGroup] = useState('crude')
-  const [selectedTicketContractProfileId, setSelectedTicketContractProfileId] = useState('')
   const [apiTesterVersion, setApiTesterVersion] = useState('api_11_1_2021')
   const [apiTesterGravity, setApiTesterGravity] = useState('40')
   const [apiTesterTemp, setApiTesterTemp] = useState('80')
@@ -2266,12 +2283,7 @@ function handleTicketAreaSelect(areaId: string) {
       const key = String(producerKey || '').trim()
       return (producerId && producerId === key) || (producerName && producerName === key.toLowerCase())
     })
-    const resolvedProducerId = producerRow?.id ? String(producerRow.id) : (producerKey ? String(producerKey) : '')
-    setSelectedProducer(resolvedProducerId)
-
-    const leaseProfile: any = getLeaseContractProfile(leaseId)
-    const producerProfile: any = getProducerProfile(contractProfiles, resolvedProducerId || null)
-    setSelectedTicketContractProfileId(leaseProfile?.id || producerProfile?.id || '')
+    setSelectedProducer(producerRow?.id ? String(producerRow.id) : (producerKey ? String(producerKey) : ''))
 
     setSelectedMeter(onlyMeter ? String(onlyMeter.id) : '')
   }
@@ -3844,109 +3856,8 @@ function handleProvingAreaSelect(areaId: string) {
     )
   }
 
-  function getLeaseContractProfile(leaseId?: string | null) {
-    if (!leaseId) return null
-    return asArray(contractProfiles).find((profile: any) =>
-      String(profile.lease_id || '') === String(leaseId) &&
-      profile.active !== false &&
-      profile.is_active !== false
-    ) || null
-  }
-
-  function getTicketContractProfileOptions() {
-    const selectedLeaseProfile = getLeaseContractProfile(selectedLease)
-    const producerProfiles = asArray(contractProfiles).filter((profile: any) =>
-      profile.active !== false &&
-      profile.is_active !== false &&
-      (
-        String(profile.lease_id || '') === String(selectedLease || '') ||
-        String(profile.producer_id || '') === String(selectedProducer || '') ||
-        !profile.lease_id
-      )
-    )
-
-    const merged = [selectedLeaseProfile, ...producerProfiles, ...asArray(contractProfiles)]
-      .filter(Boolean)
-      .filter((profile: any) => profile.active !== false && profile.is_active !== false)
-
-    const seen = new Set<string>()
-    return merged.filter((profile: any) => {
-      const id = String(profile.id || '')
-      if (!id || seen.has(id)) return false
-      seen.add(id)
-      return true
-    })
-  }
-
   function getSelectedTicketContractProfile() {
-    const selectedProfile = asArray(contractProfiles).find((profile: any) => String(profile.id || '') === String(selectedTicketContractProfileId || ''))
-    if (selectedProfile) return selectedProfile
-
-    const leaseProfile = getLeaseContractProfile(selectedLease)
-    if (leaseProfile) return leaseProfile
-
     return getProducerProfile(contractProfiles, selectedProducer || null)
-  }
-
-  function isChapter122021Profile(profile: any) {
-    const apiVersion = String(profile?.api_version || '').toLowerCase()
-    const standard = String(profile?.standard || '').toLowerCase()
-    const method = String(profile?.calculation_method || '').toLowerCase()
-    return apiVersion.includes('12_2') || apiVersion.includes('12.2') || standard.includes('12.2') || method.includes('12_2') || method.includes('12.2')
-  }
-
-  async function rememberTicketContractProfile(profile: any) {
-    if (!profile || !selectedLease || !companyId) return
-
-    const leaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(selectedLease || ''))
-    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
-    const apiVersion = isChapter122021Profile(profile)
-      ? 'api_chapter_12_2_r2021'
-      : (profile.api_version || 'api_11_1_2021')
-    const apiLabel = getApiVersionLabel(apiVersion) || profile.standard || profile.name || 'API Profile'
-    const existingLeaseProfile: any = getLeaseContractProfile(selectedLease)
-
-    const payload: any = {
-      company_id: activeCompanyID,
-      area_id: selectedTicketArea || leaseRow?.area_id || profile.area_id || null,
-      segment_id: selectedSegment || leaseRow?.segment_id || profile.segment_id || null,
-      lease_id: selectedLease,
-      producer_id: selectedProducer || leaseRow?.producer_id || profile.producer_id || null,
-      name: `${leaseRow?.lease_name || leaseRow?.name || leaseRow?.lease_number || 'Lease'} — ${apiLabel}`,
-      product_group: profile.product_group || 'crude',
-      calculation_method: isChapter122021Profile(profile) ? 'chapter12_2_2021' : (profile.calculation_method || 'api_11_1'),
-      factor_type: profile.factor_type || 'MF',
-      api_version: apiVersion,
-      standard: apiLabel,
-      correction_source: profile.correction_source || 'app_calculated',
-      api_rounding: profile.api_rounding ?? 1,
-      ctl_rounding: profile.ctl_rounding ?? 6,
-      cpl_rounding: profile.cpl_rounding ?? 6,
-      ctlp_rounding: profile.ctlp_rounding ?? 6,
-      volume_rounding: profile.volume_rounding ?? 2,
-      use_pressure: profile.use_pressure !== false,
-      use_shrink: profile.use_shrink || false,
-      active: true,
-      is_active: true,
-      updated_at: new Date().toISOString(),
-    }
-
-    const result = existingLeaseProfile?.id
-      ? await supabase.from('contract_profiles').update(payload).eq('id', existingLeaseProfile.id).select().maybeSingle()
-      : await supabase.from('contract_profiles').insert(payload).select().maybeSingle()
-
-    if (result.error) {
-      alert('Ticket was created, but the lease API profile could not be remembered: ' + result.error.message)
-      return
-    }
-
-    if (result.data) {
-      setSelectedTicketContractProfileId(result.data.id)
-      setContractProfiles((prev: any[]) => {
-        const others = asArray(prev).filter((item: any) => String(item.id || '') !== String(result.data.id))
-        return [...others, result.data]
-      })
-    }
   }
 
   function getRefinedProductOptions() {
@@ -4043,13 +3954,12 @@ function handleProvingAreaSelect(areaId: string) {
       ? Number(tankTicketSnapshot.gov || 0)
       : Number(closingReading || latestReading?.indicated_volume || 0)
     const contractProfile = getSelectedTicketContractProfile()
-    const selectedApiVersion = contractProfile?.api_version || (isChapter122021Profile(contractProfile) ? 'api_chapter_12_2_r2021' : 'api_11_1_2021')
 
     const selectedContractStandard =
-      getApiVersionLabel(selectedApiVersion) || contractProfile?.standard || profile?.standard || ''
+      contractProfile?.standard || profile?.standard || ''
 
     const selectedCalculationMethod =
-      contractProfile?.calculation_method || (selectedApiVersion === 'api_chapter_12_2_r2021' ? 'chapter12_2_2021' : 'CTPL')
+      contractProfile?.calculation_method || 'CTPL'
 
     const selectedProductGroup =
       contractProfile?.product_group || 'crude'
@@ -4058,9 +3968,9 @@ function handleProvingAreaSelect(areaId: string) {
       contractProfile?.factor_type || latestApprovedProving?.factor_type || 'MF'
 
     const apiRounding = Number(contractProfile?.api_rounding ?? 1)
-    const ctlRounding = Number(contractProfile?.ctl_rounding ?? 5)
-    const cplRounding = Number(contractProfile?.cpl_rounding ?? 5)
-    const ctlpRounding = Number(contractProfile?.ctlp_rounding ?? 5)
+    const ctlRounding = Number(contractProfile?.ctl_rounding ?? 6)
+    const cplRounding = Number(contractProfile?.cpl_rounding ?? 6)
+    const ctlpRounding = Number(contractProfile?.ctlp_rounding ?? 6)
     const volumeRounding = Number(contractProfile?.volume_rounding ?? 2)
     const usePressure = contractProfile?.use_pressure !== false
     const shrinkFactor = contractProfile?.use_shrink
@@ -4105,13 +4015,14 @@ function handleProvingAreaSelect(areaId: string) {
     const mf = roundTo(factorToUse, 4)
     const csw = Number(latestPot?.csw || 1)
     const bswPercent = getPotBswPercentValue(latestPot) ?? roundTo((1 - csw) * 100, 4)
-    const isApi12 = selectedApiVersion === 'api_chapter_12_2_r2021' || selectedCalculationMethod === 'chapter12_2_2021' || selectedContractStandard.includes('API 12')
-    const gsv = tankTicketSnapshot
+    const isApi12 = selectedContractStandard.includes('API 12')
+    const gsvRaw = tankTicketSnapshot
       ? tankTicketSnapshot.gsv
       : isApi12 ? iv * mf * ctl * cpl : iv * ccf * mf
+    const gsv = roundTo(gsvRaw, volumeRounding)
     const nsv = tankTicketSnapshot
-      ? tankTicketSnapshot.nsv
-      : gsv * csw
+      ? roundTo(tankTicketSnapshot.nsv, volumeRounding)
+      : roundTo(gsvRaw * csw, volumeRounding)
 
     const ticketInsertPayload: any = {
       company_id: companyId,
@@ -4141,17 +4052,14 @@ function handleProvingAreaSelect(areaId: string) {
         selected_calculation_method: selectedCalculationMethod,
         selected_product_group: selectedProductGroup,
         selected_factor_type: selectedFactorType,
-        selected_api_version: selectedApiVersion,
-        selected_contract_profile_id: contractProfile?.id || null,
-        ch12_2_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : null,
         refined_unit_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
         product_code: refinedProductCode || null,
         refined_destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
       },
-      api_chapter: selectedContractStandard || profile?.standard || null,
-      calculation_method: selectedCalculationMethod || corrections.api_engine,
+      api_chapter: profile?.standard || null,
+      calculation_method: corrections.api_engine,
       observed_api_gravity: corrections.observed_api_gravity,
       observed_temperature: corrections.observed_temperature,
       observed_pressure: corrections.observed_pressure,
@@ -4244,10 +4152,12 @@ function handleProvingAreaSelect(areaId: string) {
         contract_profile_name: contractProfile?.name || null,
         calculation_method: selectedCalculationMethod,
         product_group: selectedProductGroup,
-        api_version: selectedApiVersion,
-        api_chapter: selectedContractStandard,
-        calculation_method_used: selectedContractStandard,
-        calculation_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : null,
+        api_engine: corrections.api_engine,
+        calculation_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
+        raw_api_gravity_60: corrections.raw_api_gravity_60 ?? null,
+        raw_ctl: corrections.raw_ctl ?? null,
+        raw_cpl: corrections.raw_cpl ?? null,
+        raw_ctlp: corrections.raw_ctlp ?? null,
         refined_unit_type: refinedProductType || null,
         unit_of_measure_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
@@ -4287,10 +4197,12 @@ function handleProvingAreaSelect(areaId: string) {
         sw_percent: bswPercent,
         csw,
         product_sub_group: corrections.product_sub_group,
-        api_version: selectedApiVersion,
-        api_chapter: selectedContractStandard,
-        calculation_method_used: selectedContractStandard,
-        calculation_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : null,
+        api_engine: corrections.api_engine,
+        calculation_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
+        raw_api_gravity_60: corrections.raw_api_gravity_60 ?? null,
+        raw_ctl: corrections.raw_ctl ?? null,
+        raw_cpl: corrections.raw_cpl ?? null,
+        raw_ctlp: corrections.raw_ctlp ?? null,
         refined_unit_type: refinedProductType || null,
         unit_of_measure_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
@@ -4380,13 +4292,8 @@ function handleProvingAreaSelect(areaId: string) {
     setSelectedSegment('')
     setSelectedProducer('')
     setSelectedLease('')
-    if (contractProfile) {
-      await rememberTicketContractProfile(contractProfile)
-    }
-
     setSelectedMeter('')
     setManualClosingReading('')
-    setSelectedTicketContractProfileId('')
     setRefinedProductType('')
     setRefinedProductCode('')
     setRefinedMovementDestination('')
@@ -8204,47 +8111,68 @@ async function createCompany() {
   }
 
   function getApiVersionRoundingProfile(version: string) {
-    // These are configurable app rounding profiles by API 11.1 generation.
-    // Exact contractual rounding should be verified against the contract/API implementation you are matching.
+    // Custody transfer profile defaults. Chapter 12.2 R2021 uses API @60 to 0.1,
+    // CTL/CPL to 6, MF/CMF to 4, and final volumes to 2 decimals.
     if (version === 'api_11_1_2004') {
       return {
-        ctlDecimals: 4,
-        cplDecimals: 4,
-        ctplDecimals: 4,
-        gsvDecimals: 1,
-        nsvDecimals: 1,
-        label: 'Legacy 2004 rounding profile',
+        apiDecimals: 1,
+        ctlDecimals: 5,
+        cplDecimals: 5,
+        ctplDecimals: 5,
+        mfDecimals: 4,
+        gsvDecimals: 2,
+        nsvDecimals: 2,
+        label: 'API 11.1 2004 rounding profile',
       }
     }
 
     if (version === 'api_11_1_2007') {
       return {
+        apiDecimals: 1,
         ctlDecimals: 5,
         cplDecimals: 5,
         ctplDecimals: 5,
-        gsvDecimals: 1,
-        nsvDecimals: 1,
-        label: '2007 rounding profile',
+        mfDecimals: 4,
+        gsvDecimals: 2,
+        nsvDecimals: 2,
+        label: 'API 11.1 2007 rounding profile',
       }
     }
 
     if (version === 'api_11_1_2019') {
       return {
-        ctlDecimals: 5,
-        cplDecimals: 5,
-        ctplDecimals: 5,
-        gsvDecimals: 1,
-        nsvDecimals: 1,
-        label: '2019 rounding profile',
+        apiDecimals: 1,
+        ctlDecimals: 6,
+        cplDecimals: 6,
+        ctplDecimals: 6,
+        mfDecimals: 4,
+        gsvDecimals: 2,
+        nsvDecimals: 2,
+        label: 'API 11.1 2019 rounding profile',
+      }
+    }
+
+    if (version === 'api_chapter_12_2_r2021' || version === 'chapter12_2_2021' || version === 'chapter12_2021') {
+      return {
+        apiDecimals: 1,
+        ctlDecimals: 6,
+        cplDecimals: 6,
+        ctplDecimals: 6,
+        mfDecimals: 4,
+        gsvDecimals: 2,
+        nsvDecimals: 2,
+        label: 'API MPMS Chapter 12.2 R2021 rounding profile',
       }
     }
 
     return {
+      apiDecimals: 1,
       ctlDecimals: 6,
       cplDecimals: 6,
       ctplDecimals: 6,
-      gsvDecimals: 1,
-      nsvDecimals: 1,
+      mfDecimals: 4,
+      gsvDecimals: 2,
+      nsvDecimals: 2,
       label: '2021 rounding profile',
     }
   }
@@ -8256,8 +8184,10 @@ async function createCompany() {
       ...result,
       iv: result.iv !== undefined ? roundToDecimals(result.iv, 1) : result.iv,
       ctl: roundToDecimals(result.ctl, profile.ctlDecimals),
+      api_gravity_60: result.api_gravity_60 !== undefined ? roundToDecimals(result.api_gravity_60, profile.apiDecimals) : result.api_gravity_60,
       cpl: roundToDecimals(result.cpl, profile.cplDecimals),
       ctpl: roundToDecimals(result.ctpl, profile.ctplDecimals),
+      mf: result.mf !== undefined ? roundToDecimals(result.mf, profile.mfDecimals) : result.mf,
       gsv: result.gsv !== undefined ? roundToDecimals(result.gsv, profile.gsvDecimals) : result.gsv,
       nsv: result.nsv !== undefined ? roundToDecimals(result.nsv, profile.nsvDecimals) : result.nsv,
       rounding_profile: profile,
@@ -8265,14 +8195,10 @@ async function createCompany() {
   }
 
   function getApiVersionLabel(version: string) {
-    if (version === 'api_11_1_1980') return 'API MPMS 11.1 (1980)'
     if (version === 'api_11_1_2004') return 'API MPMS 11.1 (2004)'
     if (version === 'api_11_1_2007') return 'API MPMS 11.1 (2007)'
     if (version === 'api_11_1_2019') return 'API MPMS 11.1 (2019)'
     if (version === 'api_11_1_2021') return 'API MPMS 11.1 (2021)'
-    if (version === 'api_chapter_12_2_r2021') return 'API MPMS Chapter 12.2 R2021'
-    if (version === 'chapter12_2_2021') return 'API MPMS Chapter 12.2 R2021'
-    if (version === 'chapter12_2021') return 'API MPMS Chapter 12 R2021'
     return version || 'API MPMS 11.1'
   }
 
@@ -8280,95 +8206,111 @@ async function createCompany() {
     const apiVersion = input.api_version || 'api_11_1_2021'
     const observedTemp = Number(input.observed_temperature || input.temperature || 60)
     const observedPressure = Number(input.observed_pressure || input.pressure || 0)
-    const apiGravity = Number(input.api_gravity || 40)
-    const baseTemp = Number(input.base_temperature || 60)
-
-    const tempDelta = observedTemp - baseTemp
-    const gravityAdjustment = Math.max(0.00025, Math.min(0.00065, 0.00045 - ((apiGravity - 40) * 0.000002)))
-    const pressureCompressibility = Math.max(0.000002, Math.min(0.000008, 0.0000045 + ((apiGravity - 40) * 0.00000003)))
-
-    const ctl = 1 / (1 + (gravityAdjustment * tempDelta))
-    const cpl = 1 / (1 - (pressureCompressibility * observedPressure))
-    const ctpl = ctl * cpl
-
+    const apiGravity = Number(input.api_gravity || input.observed_api_gravity || 40)
+    const productGroup = input.product_group || input.productGroup || 'crude'
     const roundingProfile = getApiVersionRoundingProfile(apiVersion)
-    const roundedCtl = roundToDecimals(ctl, roundingProfile.ctlDecimals)
-    const roundedCpl = roundToDecimals(cpl, roundingProfile.cplDecimals)
-    const roundedCtpl = roundToDecimals(ctpl, roundingProfile.ctplDecimals)
+
+    const corrections = calculateApi11Corrections({
+      productGroup,
+      observedApiGravity: apiGravity,
+      observedTemperature: Number(input.sample_temperature || input.observed_sample_temperature || 60),
+      observedPressure: 0,
+      averageTemperature: observedTemp,
+      averagePressure: observedPressure,
+      apiRounding: roundingProfile.apiDecimals,
+    })
 
     return {
       api_version: apiVersion,
       api_version_label: getApiVersionLabel(apiVersion),
-      ctl: roundedCtl,
-      cpl: roundedCpl,
-      ctpl: roundedCtpl,
-      correction_source: 'app_calculated_placeholder',
+      observed_api_gravity: corrections.observed_api_gravity,
+      api_gravity_60: corrections.api_gravity_60,
+      density_60: corrections.density_60,
+      ctl: roundToDecimals(corrections.ctl, roundingProfile.ctlDecimals),
+      cpl: roundToDecimals(corrections.cpl, roundingProfile.cplDecimals),
+      ctpl: roundToDecimals(corrections.ctlp, roundingProfile.ctplDecimals),
+      correction_source: 'api_11_1_6_1',
       rounding_profile: roundingProfile,
-      warning: 'API 11.1 framework active. Replace placeholder approximation with licensed/verified API MPMS 11.1 implementation before custody-transfer reliance.',
       audit: {
         api_version: apiVersion,
         api_version_label: getApiVersionLabel(apiVersion),
-        observed_temperature: observedTemp,
-        observed_pressure: observedPressure,
-        base_temperature: baseTemp,
-        raw_ctl: ctl,
-        raw_cpl: cpl,
-        raw_ctpl: ctpl,
-        rounded_ctl: roundedCtl,
-        rounded_cpl: roundedCpl,
-        rounded_ctpl: roundedCtpl,
-        rounding_profile: roundingProfile,
+        product_group: productGroup,
+        observed_api_gravity: apiGravity,
+        api_gravity_60_exact: corrections.raw_api_gravity_60,
+        api_gravity_60_display: corrections.api_gravity_60,
+        observed_temperature_for_api60: Number(input.sample_temperature || input.observed_sample_temperature || 60),
+        meter_temperature: observedTemp,
+        meter_pressure: observedPressure,
+        raw_ctl: corrections.raw_ctl,
+        raw_cpl: corrections.raw_cpl,
+        raw_ctpl: corrections.raw_ctlp,
+        rounded_ctl: roundToDecimals(corrections.ctl, roundingProfile.ctlDecimals),
+        rounded_cpl: roundToDecimals(corrections.cpl, roundingProfile.cplDecimals),
+        rounded_ctpl: roundToDecimals(corrections.ctlp, roundingProfile.ctplDecimals),
+        fp: corrections.raw_fp,
+        alpha60: corrections.raw_alpha60,
+        method: 'API MPMS 11.1 Section 11.1.6.1',
       },
     }
   }
 
+
   function calculateChapter122021(input: any) {
     const ivRaw = Number(input.iv ?? input.gross_volume_bbl ?? 0)
-    const ctl = Number(input.ctl || 1)
-    const cpl = Number(input.cpl || 1)
-    const mf = Number(input.mf || 1)
+    const apiVersion = input.api_version || 'api_chapter_12_2_r2021'
+    const profile = getApiVersionRoundingProfile(apiVersion)
+
+    // Chapter 12.2 R2021 calculation sequence for dynamic measurement:
+    // IV × MF × CTL × CPL = GSV; then GSV × CSW = NSV.
+    // Per field practice / VMACS-style tickets, use the rounded custody factors shown on the ticket:
+    // API @60 to 0.1, CTL/CPL to 6, MF/CMF to 4.
+    const ctlRounded = roundToDecimals(Number(input.ctl || 1), profile.ctlDecimals)
+    const cplRounded = roundToDecimals(Number(input.cpl || 1), profile.cplDecimals)
+    const mfRounded = roundToDecimals(Number(input.mf || 1), profile.mfDecimals)
     const bswPercent = Number(input.bsw_percent || 0)
-    const apiVersion = input.api_version || 'api_11_1_2021'
+    const csw = roundToDecimals(1 - (bswPercent / 100), 6)
+    const ctplRounded = roundToDecimals(ctlRounded * cplRounded, profile.ctplDecimals)
 
-    const csw = 1 - (bswPercent / 100)
-    const ccf = Number(input.ccf || input.ctpl || (ctl * cpl * mf))
-
-    const isChapter122021 = ['api_chapter_12_2_r2021', 'chapter12_2_2021', 'chapter12_2021'].includes(apiVersion)
-    const usesCombinedCorrectionFactor = !isChapter122021 && ['api_11_1_2004', 'api_11_1_2007', 'api_11_1_2019'].includes(apiVersion)
+    const usesCombinedCorrectionFactor = ['api_11_1_2004', 'api_11_1_2007', 'api_11_1_2019'].includes(apiVersion)
 
     const gsvRaw = usesCombinedCorrectionFactor
-      ? ivRaw * ccf
-      : ivRaw * ctl * cpl * mf
+      ? ivRaw * Number(input.ccf || input.ctpl || ctplRounded) * mfRounded
+      : ivRaw * mfRounded * ctlRounded * cplRounded
 
     const nsvRaw = gsvRaw * csw
 
     const rounded = applyApiVersionRounding({
       iv: ivRaw,
-      ctl,
-      cpl,
-      mf,
-      ccf,
+      ctl: ctlRounded,
+      cpl: cplRounded,
+      ctpl: ctplRounded,
+      mf: mfRounded,
+      ccf: ctplRounded,
       csw,
       gsv: gsvRaw,
       nsv: nsvRaw,
       raw_iv: ivRaw,
+      raw_ctl_input: Number(input.ctl || 1),
+      raw_cpl_input: Number(input.cpl || 1),
+      raw_mf_input: Number(input.mf || 1),
       raw_gsv: gsvRaw,
       raw_nsv: nsvRaw,
-      method: isChapter122021 ? 'api_chapter_12_2_r2021' : (usesCombinedCorrectionFactor ? `${apiVersion}_ccf` : 'api_11_1_2021_separate_factors'),
+      method: usesCombinedCorrectionFactor ? `${apiVersion}_ccf` : 'api_chapter_12_2_r2021',
       formula: usesCombinedCorrectionFactor
-        ? 'GSV = IV × CCF; NSV = GSV × CSW'
+        ? 'GSV = IV × CTPL × MF; NSV = GSV × CSW'
         : 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW',
+      api_chapter: getApiVersionLabel(apiVersion),
       uses_combined_correction_factor: usesCombinedCorrectionFactor,
-      api_chapter: isChapter122021 ? 'API MPMS Chapter 12.2 R2021' : getApiVersionLabel(apiVersion),
     }, apiVersion)
 
     return {
       ...rounded,
-      iv: roundToDecimals(ivRaw, 1),
-      gsv: roundToDecimals(rounded.gsv, 1),
-      nsv: roundToDecimals(rounded.nsv, 1),
+      iv: roundToDecimals(ivRaw, 2),
+      gsv: roundToDecimals(rounded.gsv, profile.gsvDecimals),
+      nsv: roundToDecimals(rounded.nsv, profile.nsvDecimals),
     }
   }
+
 
   function getContractProfileForTransporter(transporterName: string) {
     const name = String(transporterName || '').trim().toLowerCase()
@@ -8446,10 +8388,7 @@ async function createCompany() {
     const leaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(contractLeaseId))
     const producerRow: any = asArray(producers).find((producer: any) => String(producer.id || '') === String(leaseRow?.producer_id || ''))
     const leaseLabel = String(leaseRow?.lease_name || leaseRow?.name || leaseRow?.lease_number || 'Lease Contract').trim()
-    const selectedApiVersionForSave = newContractMethod === 'chapter12_2_2021'
-      ? 'api_chapter_12_2_r2021'
-      : newContractApiVersion
-    const apiLabel = getApiVersionLabel(selectedApiVersionForSave) || selectedApiVersionForSave
+    const apiLabel = getApiVersionLabel(newContractApiVersion) || newContractApiVersion
     const contractDisplayName = `${leaseLabel} — ${apiLabel}`
 
     const payload: any = {
@@ -8462,7 +8401,7 @@ async function createCompany() {
       product_group: contractProductGroup,
       calculation_method: newContractMethod,
       factor_type: newContractMethod,
-      api_version: selectedApiVersionForSave,
+      api_version: newContractApiVersion,
       standard: apiLabel,
       correction_source: newContractCorrectionSource,
       api_rounding: 1,
@@ -14315,7 +14254,6 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 </select>
 
                 <select style={input} value={newContractMethod} onChange={(e) => setNewContractMethod(e.target.value)}>
-                  <option value="chapter12_2_2021">API Ch. 12.2 R2021</option>
                   <option value="chapter12_2021">Chapter 12 / 2021</option>
                   <option value="api_11_1">API 11.1</option>
                   <option value="flowx_summary">Flow-X Summary Volumes</option>
@@ -14328,7 +14266,6 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <option value="api_11_1_2007">API 11.1 / 2007</option>
                   <option value="api_11_1_2019">API 11.1 / 2019</option>
                   <option value="api_11_1_2021">API 11.1 / 2021</option>
-                  <option value="api_chapter_12_2_r2021">API Ch. 12.2 R2021</option>
                   <option value="chapter12_2021">API Chapter 12 / 2021</option>
                   <option value="butane_api_2019">Butane API 2019 LPG Ticketing</option>
                   <option value="butane_mpms_12_3">Butane MPMS 12.3 Shrinkage O/S</option>
@@ -15632,7 +15569,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
               </div>
             )}
             <div style={box}>
-              <div className="ticket-section-title"><div><h2 style={{ margin: 0 }}>Create Draft Ticket</h2><div className="ticket-muted">Segment → Lease → Meter. Producer and measurement data auto-fill. Dates stay with the ticket.</div></div><button style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => { setSelectedLease(''); setSelectedMeter(''); setManualClosingReading(''); setSelectedTicketContractProfileId('') }}>Clear Form</button></div>
+              <div className="ticket-section-title"><div><h2 style={{ margin: 0 }}>Create Draft Ticket</h2><div className="ticket-muted">Segment → Lease → Meter. Producer and measurement data auto-fill. Dates stay with the ticket.</div></div><button style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => { setSelectedLease(''); setSelectedMeter(''); setManualClosingReading('') }}>Clear Form</button></div>
               {!shouldHideAreaSelector() ? (
                 <select style={input} value={selectedTicketArea} onChange={(e) => handleTicketAreaSelect(e.target.value)}>
                   <option value="">Select Area</option>
@@ -15660,29 +15597,6 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
               </select>
 
               <div style={card}>Producer: <strong>{selectedTicketProducerDisplay || (selectedLease ? 'No producer linked' : 'Auto-fills after lease')}</strong></div>
-
-              <div style={card}>
-                <strong>Ticket API / Calculation Profile</strong>
-                <p style={{ color: '#a8b3bd', marginTop: 6 }}>
-                  Pick the API chapter/version for this lease. After you build the ticket, this selection is remembered for that lease.
-                </p>
-                <select
-                  style={input}
-                  value={selectedTicketContractProfileId || getLeaseContractProfile(selectedLease)?.id || ''}
-                  onChange={(e) => setSelectedTicketContractProfileId(e.target.value)}
-                  disabled={!selectedLease}
-                >
-                  <option value="">{selectedLease ? 'Use producer/default profile' : 'Select lease first'}</option>
-                  {getTicketContractProfileOptions().map((profile: any) => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.name || profile.contract_name || getApiVersionLabel(profile.api_version || '') || 'API Profile'} — {getApiVersionLabel(profile.api_version || '') || profile.standard || profile.calculation_method || 'API'}
-                    </option>
-                  ))}
-                </select>
-                <div style={{ color: '#a8b3bd', marginTop: 8 }}>
-                  Current: <strong>{getSelectedTicketContractProfile()?.standard || getApiVersionLabel(getSelectedTicketContractProfile()?.api_version || '') || 'Default API profile'}</strong>
-                </div>
-              </div>
 
               <div style={card}>
                 <strong>Open / Close Date & Time</strong>

@@ -1676,7 +1676,7 @@ useEffect(() => {
       .maybeSingle()
 
     if (error) {
-      alert('Could not save proving schedule to shared database. Run the updated proving schedule SQL first. ' + error.message)
+      alert('Could not save proving schedule to shared database. Run the updated proving schedule SQL first, especially the DROP/CREATE unique index part. ' + error.message)
       return
     }
 
@@ -14924,11 +14924,21 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                             </div>
                           </div>
 
-                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                            <button type="button" style={{ ...button, width: 'auto', marginTop: 0 }} onClick={() => replaceMeterScheduleFrequency(meter, 'monthly')}>Make Monthly</button>
-                            <button type="button" style={{ ...button, width: 'auto', marginTop: 0 }} onClick={() => replaceMeterScheduleFrequency(meter, 'bi_weekly')}>Make Bi-Weekly</button>
-                            <button type="button" style={{ ...button, width: 'auto', marginTop: 0 }} onClick={() => replaceMeterScheduleFrequency(meter, 'weekly')}>Make Weekly</button>
-                            <button type="button" style={{ ...button, width: 'auto', marginTop: 0, background: '#14532d' }} onClick={() => addManualScheduleOccurrence(meter)}>Add Date</button>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center' }}>
+                            <select
+                              style={input}
+                              value={rows[0]?.frequency || scheduleDefaultFrequency}
+                              onChange={(e) => replaceMeterScheduleFrequency(meter, e.target.value)}
+                            >
+                              <option value="monthly">Monthly - one due date</option>
+                              <option value="bi_weekly">Bi-Weekly - multiple due dates</option>
+                              <option value="weekly">Weekly - multiple due dates</option>
+                            </select>
+
+                            <button type="button" style={{ ...button, width: 'auto', marginTop: 0, background: '#14532d' }} onClick={() => addManualScheduleOccurrence(meter)}>
+                              Add Date
+                            </button>
+
                             {isScheduled && (
                               <button type="button" style={{ ...button, width: 'auto', marginTop: 0, background: '#7f1d1d', border: '1px solid #ef4444' }} onClick={() => removeProvingScheduleRow(provingKpiMonth, meter.id)}>
                                 Clear

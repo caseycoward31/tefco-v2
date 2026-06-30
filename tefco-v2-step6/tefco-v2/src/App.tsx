@@ -767,6 +767,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [scheduleSegmentId, setScheduleSegmentId] = useState('')
   const [scheduleAssignedTo, setScheduleAssignedTo] = useState('')
   const [scheduleDefaultFrequency, setScheduleDefaultFrequency] = useState('monthly')
+  const [scheduleStartDate, setScheduleStartDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [meterAssetConfigs, setMeterAssetConfigs] = useState<any[]>([])
   const [tankCalibrationVersions, setTankCalibrationVersions] = useState<any[]>([])
   const [tankStrappingRows, setTankStrappingRows] = useState<any[]>([])
@@ -1519,18 +1520,22 @@ useEffect(() => {
     return next
   }
 
-  function getProvingScheduleOccurrences(monthKey: string, frequency: string) {
+  function getProvingScheduleOccurrences(monthKey: string, frequency: string, startDateValue?: string) {
     const { start, end } = getMonthDateRange(monthKey)
     const safeFrequency = String(frequency || 'monthly').toLowerCase()
+    const candidateStart = startDateValue ? makeLocalDateTime(startDateValue) : null
+    const firstDate = candidateStart && candidateStart.getMonth() === start.getMonth() && candidateStart.getFullYear() === start.getFullYear()
+      ? candidateStart
+      : start
+
     const dates: Date[] = []
 
     if (safeFrequency === 'weekly') {
-      for (let d = new Date(start); d <= end; d = addDays(d, 7)) dates.push(new Date(d))
+      for (let d = new Date(firstDate); d <= end; d = addDays(d, 7)) dates.push(new Date(d))
     } else if (safeFrequency === 'bi_weekly' || safeFrequency === 'biweekly') {
-      for (let d = new Date(start); d <= end; d = addDays(d, 14)) dates.push(new Date(d))
+      for (let d = new Date(firstDate); d <= end; d = addDays(d, 14)) dates.push(new Date(d))
     } else {
-      const mid = new Date(start.getFullYear(), start.getMonth(), Math.min(15, end.getDate()))
-      dates.push(mid)
+      dates.push(new Date(firstDate))
     }
 
     return dates.map((dueDate, index) => {
@@ -1632,28 +1637,24 @@ useEffect(() => {
 
   async function upsertProvingScheduleRow(meter: any, patch: any) {
     const meterId = String(meter?.id || patch?.meter_id || '')
-    if (!meterId) return
+    if (!meterId) return null
 
     const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
     if (!activeCompanyID) {
       alert('Select a company first.')
-      return
+      return null
     }
 
     const leaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(meter?.lease_id || patch?.lease_id || ''))
     const segmentId = String(patch.segment_id || meter?.segment_id || leaseRow?.segment_id || scheduleSegmentId || '')
     const leaseId = String(patch.lease_id || meter?.lease_id || '')
-    const dueDate = patch.due_date || `${provingKpiMonth}-15`
+    const dueDate = patch.due_date || scheduleStartDate || `${provingKpiMonth}-15`
+
     const existing = patch.id
       ? asArray(provingScheduleRows).find((row: any) => String(row.id || '') === String(patch.id))
-      : asArray(provingScheduleRows).find((row: any) =>
-          String(row.month_key || '') === String(provingKpiMonth) &&
-          String(row.meter_id || '') === meterId &&
-          String(row.due_date || '') === String(dueDate)
-        )
+      : null
 
     const nextRow: any = {
-      ...(existing || {}),
       ...patch,
       company_id: activeCompanyID,
       month_key: provingKpiMonth,
@@ -1669,15 +1670,27 @@ useEffect(() => {
       updated_at: new Date().toISOString(),
     }
 
-    const { data, error } = await supabase
-      .from('proving_schedule_rows')
-      .upsert(nextRow, { onConflict: 'company_id,month_key,meter_id,due_date' })
-      .select()
-      .maybeSingle()
+    let result
+    if (existing?.id) {
+      result = await supabase
+        .from('proving_schedule_rows')
+        .update(nextRow)
+        .eq('id', existing.id)
+        .select()
+        .maybeSingle()
+    } else {
+      const { id, ...insertRow } = nextRow
+      result = await supabase
+        .from('proving_schedule_rows')
+        .insert(insertRow)
+        .select()
+        .maybeSingle()
+    }
 
+    const { data, error } = result
     if (error) {
-      alert('Could not save proving schedule to shared database. Run the updated proving schedule SQL first, especially the DROP/CREATE unique index part. ' + error.message)
-      return
+      alert('Could not save proving schedule to shared database. Run the updated proving schedule SQL first. ' + error.message)
+      return null
     }
 
     const savedRow = data || nextRow
@@ -1687,15 +1700,18 @@ useEffect(() => {
         return !(
           String(row.month_key || '') === String(provingKpiMonth) &&
           String(row.meter_id || '') === meterId &&
-          String(row.due_date || '') === String(savedRow.due_date || dueDate)
+          String(row.due_date || '') === String(savedRow.due_date || dueDate) &&
+          String(row.frequency || '') === String(savedRow.frequency || '')
         )
       })
       return [...others, savedRow]
     })
+
+    return savedRow
   }
 
-  async function scheduleMeterByFrequency(meter: any, frequency = scheduleDefaultFrequency) {
-    const occurrences = getProvingScheduleOccurrences(provingKpiMonth, frequency)
+  async function scheduleMeterByFrequency(meter: any, frequency = scheduleDefaultFrequency, startDateValue = scheduleStartDate) {
+    const occurrences = getProvingScheduleOccurrences(provingKpiMonth, frequency, startDateValue)
     for (const occurrence of occurrences) {
       await upsertProvingScheduleRow(meter, {
         active: true,
@@ -1706,11 +1722,11 @@ useEffect(() => {
     }
   }
 
-  async function replaceMeterScheduleFrequency(meter: any, frequency: string) {
+  async function replaceMeterScheduleFrequency(meter: any, frequency: string, startDateValue = scheduleStartDate) {
     const meterId = String(meter?.id || '')
     if (!meterId) return
     await removeProvingScheduleRow(provingKpiMonth, meterId)
-    await scheduleMeterByFrequency(meter, frequency)
+    await scheduleMeterByFrequency(meter, frequency, startDateValue)
   }
 
   async function addManualScheduleOccurrence(meter: any) {
@@ -14846,7 +14862,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     Select the month and segment, then choose which lease / meter records are scheduled for proving. KPI counts only these scheduled meters.
                   </p>
 
-                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '220px 260px 180px 220px 1fr', gap: 12, alignItems: 'end' }}>
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '190px 230px 210px 180px 210px 1fr', gap: 12, alignItems: 'end' }}>
                     <label>
                       <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Schedule Month</div>
                       <input style={input} type="month" value={provingKpiMonth} onChange={(e) => setProvingKpiMonth(e.target.value)} />
@@ -14868,9 +14884,13 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Default Frequency</div>
                       <select style={input} value={scheduleDefaultFrequency} onChange={(e) => setScheduleDefaultFrequency(e.target.value)}>
                         <option value="monthly">Monthly - one due date</option>
-                        <option value="bi_weekly">Bi-Weekly - multiple due dates</option>
-                        <option value="weekly">Weekly - multiple due dates</option>
+                        <option value="bi_weekly">Bi-Weekly - repeats every 14 days</option>
+                        <option value="weekly">Weekly - repeats every 7 days</option>
                       </select>
+                    </label>
+                    <label>
+                      <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Start Date</div>
+                      <input style={input} type="date" value={scheduleStartDate} onChange={(e) => setScheduleStartDate(e.target.value)} />
                     </label>
                     <label>
                       <div style={{ color: '#a8b3bd', marginBottom: 6 }}>Assigned To</div>
@@ -14924,16 +14944,24 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                             </div>
                           </div>
 
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 155px auto auto', gap: 8, alignItems: 'center' }}>
                             <select
                               style={input}
                               value={rows[0]?.frequency || scheduleDefaultFrequency}
-                              onChange={(e) => replaceMeterScheduleFrequency(meter, e.target.value)}
+                              onChange={(e) => replaceMeterScheduleFrequency(meter, e.target.value, rows[0]?.due_date || scheduleStartDate)}
                             >
                               <option value="monthly">Monthly - one due date</option>
-                              <option value="bi_weekly">Bi-Weekly - multiple due dates</option>
-                              <option value="weekly">Weekly - multiple due dates</option>
+                              <option value="bi_weekly">Bi-Weekly - every 14 days</option>
+                              <option value="weekly">Weekly - every 7 days</option>
                             </select>
+
+                            <input
+                              style={input}
+                              type="date"
+                              title="Start date for this meter"
+                              value={rows[0]?.due_date || scheduleStartDate}
+                              onChange={(e) => replaceMeterScheduleFrequency(meter, rows[0]?.frequency || scheduleDefaultFrequency, e.target.value)}
+                            />
 
                             <button type="button" style={{ ...button, width: 'auto', marginTop: 0, background: '#14532d' }} onClick={() => addManualScheduleOccurrence(meter)}>
                               Add Date
@@ -14957,7 +14985,16 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                                     style={input}
                                     type="date"
                                     value={row?.due_date || ''}
-                                    onChange={(e) => upsertProvingScheduleRow(meter, { ...row, due_date: e.target.value, period_start: e.target.value })}
+                                    onChange={(e) => {
+                                      const nextDue = e.target.value
+                                      const dueDateObj = makeLocalDateTime(nextDue)
+                                      const nextEndDate = row.frequency === 'weekly'
+                                        ? (dueDateObj ? formatLocalDateInput(addDays(dueDateObj, 6)) : nextDue)
+                                        : (row.frequency === 'bi_weekly' || row.frequency === 'biweekly')
+                                          ? (dueDateObj ? formatLocalDateInput(addDays(dueDateObj, 13)) : nextDue)
+                                          : nextDue
+                                      upsertProvingScheduleRow(meter, { ...row, due_date: nextDue, period_start: nextDue, period_end: nextEndDate })
+                                    }}
                                   />
 
                                   <select

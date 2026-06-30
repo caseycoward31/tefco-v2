@@ -3855,7 +3855,7 @@ function handleProvingAreaSelect(areaId: string) {
   }
 
   function getRefinedProductCodeOptions() {
-    return ['Diesel', 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
+    return ['Crude Oil', 'Diesel', 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
   }
 
   function getTicketBatchNumberValue(ticket: any) {
@@ -4503,7 +4503,10 @@ function handleProvingAreaSelect(areaId: string) {
       refined_unit_type: ticketEditString(observed.refined_unit_type ?? calc.refined_unit_type ?? observed.unit_of_measure_type),
       refined_product_type: ticketEditString(observed.refined_product_type ?? calc.refined_product_type ?? observed.product_code ?? calc.product_code ?? observed.product_type),
       refined_destination: ticketEditString(observed.refined_destination ?? calc.refined_destination ?? observed.movement_destination ?? observed.destination),
-      batch_number: ticketEditString(observed.batch_number ?? calc.batch_number ?? (selectedTicket as any).batch_number),
+      batch_number: ticketEditString(observed.batch_number ?? calc.batch_number ?? (ticket as any).batch_number),
+      ticket_prepared_by: ticketEditString(observed.ticket_prepared_by ?? observed.loaded_by_name ?? calc.ticket_prepared_by),
+      company_representative_name: ticketEditString(observed.company_representative_name ?? observed.company_rep_name ?? calc.company_representative_name),
+      calculation_method_used: ticketEditString(observed.calculation_method_used ?? calc.calculation_method_used ?? calc.formula_profile ?? ticket.calculation_method ?? ticket.api_chapter),
       net_volume_adjustment_bbl: ticketEditString(calc.net_volume_adjustment_bbl ?? observed.net_volume_adjustment_bbl ?? observed.manual_net_volume_adjustment_bbl ?? 0),
       net_volume_adjustment_reason: ticketEditString(observed.net_volume_adjustment_reason ?? calc.net_volume_adjustment_reason ?? ''),
       open_date: ticketEditString(observed.open_date),
@@ -4649,6 +4652,11 @@ function handleProvingAreaSelect(areaId: string) {
       destination: values.refined_destination || null,
       batch_number: values.batch_number || null,
       batch_no: values.batch_number || null,
+      ticket_prepared_by: values.ticket_prepared_by || null,
+      loaded_by_name: values.ticket_prepared_by || null,
+      company_representative_name: values.company_representative_name || null,
+      company_rep_name: values.company_representative_name || null,
+      calculation_method_used: values.calculation_method_used || getTicketCalculationMethodLabel(selectedTicket),
       open_date: values.open_date || null,
       open_time: values.open_time || null,
       close_date: values.close_date || null,
@@ -4716,6 +4724,9 @@ function handleProvingAreaSelect(areaId: string) {
       refined_destination: values.refined_destination || null,
       movement_destination: values.refined_destination || null,
       batch_number: values.batch_number || null,
+      ticket_prepared_by: values.ticket_prepared_by || null,
+      company_representative_name: values.company_representative_name || null,
+      calculation_method_used: values.calculation_method_used || getTicketCalculationMethodLabel(selectedTicket),
       revision_number: isApprovedRevision ? nextObservedInputs.revision_number : calc.revision_number,
       revised_at: isApprovedRevision ? nextObservedInputs.revised_at : calc.revised_at,
     }
@@ -5573,6 +5584,39 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     return ticket?.ticket_pdf_path || ticket?.pdf_path || ticket?.observed_inputs?.ticket_pdf_path || ticket?.calculation_results?.ticket_pdf_path || ''
   }
 
+  function getTicketCalculationMethodLabel(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const calc = ticket?.calculation_results || {}
+    const snapshot = ticket?.calculation_profile_snapshot || {}
+    const raw =
+      observed.calculation_method_used ||
+      observed.formula_profile ||
+      calc.calculation_method_used ||
+      calc.formula_profile ||
+      ticket?.calculation_method ||
+      ticket?.api_chapter ||
+      snapshot.selected_standard ||
+      snapshot.standard ||
+      snapshot.calculation_method ||
+      ''
+
+    const textValue = String(raw || '').trim()
+    const lower = textValue.toLowerCase()
+
+    if (lower.includes('12.1')) return textValue.includes('2021') ? 'API 12.1 - 2021' : `API 12.1${textValue ? ` - ${textValue}` : ''}`
+    if (lower.includes('api 12') || lower.includes('chapter 12')) return textValue.includes('2021') ? 'API 12 - 2021' : 'API 12 - 2021'
+    if (lower.includes('11.1')) {
+      if (lower.includes('2019')) return 'API 11.1 - 2019'
+      if (lower.includes('2007')) return 'API 11.1 - 2007'
+      if (lower.includes('2004')) return 'API 11.1 - 2004'
+      if (lower.includes('1980')) return 'API 11.1 - 1980'
+      return 'API 11.1'
+    }
+    if (lower.includes('api')) return textValue
+
+    return textValue || '—'
+  }
+
   function getTicketPdfDisplayRows(ticket: any) {
     const observed = ticket.observed_inputs || {}
     const calc = ticket.calculation_results || {}
@@ -5590,12 +5634,15 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['Ticket Number', value(ticket.ticket_number || ticket.id)],
       ['Batch Number', value(observed.batch_number || calc.batch_number || ticket.batch_number)],
       ['Status', value(ticket.status)],
+      ['Calculation Method', value(getTicketCalculationMethodLabel(ticket))],
       ['Producer', value(producer?.name || observed.producer_name)],
       ['Segment', value(segment?.segment_name || segment?.name || observed.segment_name)],
       ['Lease', value(lease?.lease_name || lease?.name || observed.lease_name)],
       ['Meter', value(meter?.meter_number || meter?.meter_name || observed.meter_number)],
       ['Product', value(observed.refined_product_type || calc.refined_product_type || observed.product_type)],
       ['Destination / To', value(observed.refined_destination || calc.refined_destination || observed.movement_destination)],
+      ['Your Name', value(observed.ticket_prepared_by || observed.loaded_by_name || calc.ticket_prepared_by)],
+      ['Company Representative', value(observed.company_representative_name || observed.company_rep_name || calc.company_representative_name)],
       ['Open Date / Time', `${value(observed.open_date)} ${observed.open_time || ''}`.trim()],
       ['Close Date / Time', `${value(observed.close_date)} ${observed.close_time || ''}`.trim()],
       ['Opening Reading', value(calc.opening_reading ?? observed.opening_reading ?? observed.opening_meter_reading)],
@@ -5738,6 +5785,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['Ticket Number', rowMap['Ticket Number']],
       ['Batch Number', rowMap['Batch Number']],
       ['Status', rowMap['Status']],
+      ['Method', rowMap['Calculation Method']],
       ['Producer', rowMap['Producer']],
       ['Segment', rowMap['Segment']],
       ['Lease', rowMap['Lease']],
@@ -5834,8 +5882,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     doc.line(pageWidth - margin - 145, y + 18, pageWidth - margin, y + 18)
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(7)
-    doc.text('LOADED BY / REPRESENTATIVE', margin, y + 31)
-    doc.text('RECEIVED BY / REPRESENTATIVE', margin + 205, y + 31)
+    doc.text(rowMap['Your Name'] && rowMap['Your Name'] !== '—' ? `PREPARED BY: ${rowMap['Your Name']}` : 'PREPARED BY / DATE', margin, y + 31)
+    doc.text(rowMap['Company Representative'] && rowMap['Company Representative'] !== '—' ? `COMPANY REP: ${rowMap['Company Representative']}` : 'COMPANY REPRESENTATIVE / DATE', margin + 205, y + 31)
     doc.text('DATE / TIME', pageWidth - margin - 145, y + 31)
 
     doc.setFont('helvetica', 'normal')
@@ -15287,6 +15335,9 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </label>
                       <label><div className="ticket-muted">Destination / Movement To</div><input style={input} value={draftTicketEditValues.refined_destination || ''} onChange={(e) => updateDraftTicketEditField('refined_destination', e.target.value)} /></label>
                       <label><div className="ticket-muted">Batch Number</div><input style={input} value={draftTicketEditValues.batch_number || ''} onChange={(e) => updateDraftTicketEditField('batch_number', e.target.value)} /></label>
+                      <label><div className="ticket-muted">Your Name</div><input style={input} value={draftTicketEditValues.ticket_prepared_by || ''} onChange={(e) => updateDraftTicketEditField('ticket_prepared_by', e.target.value)} placeholder="Person preparing ticket" /></label>
+                      <label><div className="ticket-muted">Company Representative Name</div><input style={input} value={draftTicketEditValues.company_representative_name || ''} onChange={(e) => updateDraftTicketEditField('company_representative_name', e.target.value)} placeholder="Company representative" /></label>
+                      <label><div className="ticket-muted">Calculation Method</div><input style={input} value={draftTicketEditValues.calculation_method_used || getTicketCalculationMethodLabel(selectedTicket)} onChange={(e) => updateDraftTicketEditField('calculation_method_used', e.target.value)} placeholder="API 11.1 - 2007, API 12.1 - 2021, etc." /></label>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">GSV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).baseGsv, 2)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">Base NSV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).baseNsv, 2)}</strong><div className="ticket-muted">Before manual net adjustment</div></div>
                       <label><div className="ticket-muted">Net Volume Adjustment (+/- BBLS)</div><input style={input} value={draftTicketEditValues.net_volume_adjustment_bbl || ''} onChange={(e) => updateDraftTicketEditField('net_volume_adjustment_bbl', e.target.value)} /></label>
@@ -15318,6 +15369,9 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     ) || 'No lease linked'}</div>
                     <div><strong>Type:</strong> {selectedTicket!.ticket_type || '—'}</div>
                     <div><strong>Status:</strong> {selectedTicket!.status || 'draft'}</div>
+                    <div><strong>Calculation Method:</strong> {getTicketCalculationMethodLabel(selectedTicket)}</div>
+                    <div><strong>Your Name:</strong> {selectedTicket!.observed_inputs?.ticket_prepared_by || selectedTicket!.calculation_results?.ticket_prepared_by || '—'}</div>
+                    <div><strong>Company Representative:</strong> {selectedTicket!.observed_inputs?.company_representative_name || selectedTicket!.calculation_results?.company_representative_name || '—'}</div>
                     <div><strong>Transporter:</strong> {selectedTicket!.observed_inputs?.transporter_name || (selectedTicket as any).transporter_name || (selectedTicket as any).customer_name || '—'}</div>
                     <div><strong>Product:</strong> {selectedTicket!.observed_inputs?.refined_product_type || selectedTicket!.calculation_results?.refined_product_type || selectedTicket!.observed_inputs?.product_code || selectedTicket!.observed_inputs?.product_type || '—'}</div>
                     <div><strong>Unit / Measure:</strong> {selectedTicket!.observed_inputs?.refined_unit_type || selectedTicket!.calculation_results?.refined_unit_type || selectedTicket!.observed_inputs?.unit_of_measure_type || '—'}</div>

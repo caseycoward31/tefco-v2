@@ -3990,11 +3990,21 @@ function handleProvingAreaSelect(areaId: string) {
     const selectedFactorType =
       contractProfile?.factor_type || latestApprovedProving?.factor_type || 'MF'
 
-    const apiRounding = Number(contractProfile?.api_rounding ?? 1)
-    const ctlRounding = Number(contractProfile?.ctl_rounding ?? 6)
-    const cplRounding = Number(contractProfile?.cpl_rounding ?? 6)
-    const ctlpRounding = Number(contractProfile?.ctlp_rounding ?? 6)
-    const volumeRounding = Number(contractProfile?.volume_rounding ?? 2)
+    const selectedApiVersion = String((contractProfile as any)?.api_version || (selectedContractStandard.includes('12.2') ? 'api_chapter_12_2_r2021' : ''))
+    const isChapter122021Ticket =
+      selectedApiVersion === 'api_chapter_12_2_r2021' ||
+      selectedApiVersion === 'chapter12_2_2021' ||
+      selectedCalculationMethod === 'chapter12_2_2021' ||
+      selectedContractStandard.includes('12.2') ||
+      selectedContractStandard.includes('Chapter 12.2')
+
+    // Do not let older contract profile rows with 3/5-decimal factor settings override Ch. 12.2 R2021.
+    // Ch. 12.2 display profile here is API @60 to 0.1, CTL/CPL/CTPL to 6, MF/CMF to 4, volumes to 2.
+    const apiRounding = isChapter122021Ticket ? 1 : Number(contractProfile?.api_rounding ?? 1)
+    const ctlRounding = isChapter122021Ticket ? 6 : Number(contractProfile?.ctl_rounding ?? 6)
+    const cplRounding = isChapter122021Ticket ? 6 : Number(contractProfile?.cpl_rounding ?? 6)
+    const ctlpRounding = isChapter122021Ticket ? 6 : Number(contractProfile?.ctlp_rounding ?? 6)
+    const volumeRounding = isChapter122021Ticket ? 2 : Number(contractProfile?.volume_rounding ?? 2)
     const usePressure = contractProfile?.use_pressure !== false
     const shrinkFactor = contractProfile?.use_shrink
       ? Number(contractProfile?.shrink_factor || 1)
@@ -4043,7 +4053,7 @@ function handleProvingAreaSelect(areaId: string) {
     const mf = roundApiHalfEven(factorToUse, 4)
     const csw = Number(latestPot?.csw || 1)
     const bswPercent = getPotBswPercentValue(latestPot) ?? roundTo((1 - csw) * 100, 4)
-    const isApi12 = selectedContractStandard.includes('API 12') || selectedCalculationMethod === 'chapter12_2_2021'
+    const isApi12 = isChapter122021Ticket || selectedContractStandard.includes('API 12') || selectedCalculationMethod === 'chapter12_2_2021'
     const gsvRaw = tankTicketSnapshot
       ? tankTicketSnapshot.gsv
       : isApi12 ? iv * mf * ctl * cpl : iv * ccf * mf
@@ -4178,6 +4188,7 @@ function handleProvingAreaSelect(areaId: string) {
         api_engine: corrections.api_engine,
         api_engine_note: corrections.api_engine_note,
         api_11_1_section: '11.1.6.1',
+        rounding_profile_used: isChapter122021Ticket ? 'API Ch. 12.2 R2021: API@60 0.1, CTL/CPL 6, MF 4, Volumes 2' : 'Contract profile',
         chapter_12_2_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : null,
         raw_observed_api_used: Number(
           ((latestPot as any)?.observed_api_gravity_raw) ??

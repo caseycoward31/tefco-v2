@@ -275,6 +275,29 @@ function roundTo(value: number, decimals: number) {
   return Math.round(value * p) / p
 }
 
+function roundApiHalfEven(value: number, decimals = 5) {
+  if (!Number.isFinite(value)) return 0
+  const increment = 10 ** -decimals
+  const sign = value < 0 ? -1 : 1
+  const normalized = Math.abs(value) / increment
+  const floorValue = Math.floor(normalized)
+  const fraction = normalized - floorValue
+  const epsilon = 1e-12
+
+  let roundedInteger = floorValue
+  if (Math.abs(fraction - 0.5) <= epsilon) {
+    roundedInteger = floorValue % 2 === 0 ? floorValue : floorValue + 1
+  } else {
+    roundedInteger = Math.floor(normalized + 0.5)
+  }
+
+  return sign * roundedInteger * increment
+}
+
+function roundApiFactor(value: number, decimals = 6) {
+  return roundApiHalfEven(value, decimals)
+}
+
 function apiToDensityKgM3(apiGravity: number) {
   if (!Number.isFinite(apiGravity)) return 0
   return (999.016 * 141.5) / (apiGravity + 131.5)
@@ -3985,11 +4008,11 @@ function handleProvingAreaSelect(areaId: string) {
     const corrections = calculateApi11Corrections({
       productGroup,
       observedApiGravity: Number(
-        latestPot?.observed_api_gravity_raw ??
-          latestPot?.observed_api_raw ??
-          latestPot?.sample_gravity_raw ??
-          latestPot?.observed_api_exact ??
-          latestPot?.api_gravity_exact ??
+        ((latestPot as any)?.observed_api_gravity_raw) ??
+          ((latestPot as any)?.observed_api_raw) ??
+          ((latestPot as any)?.sample_gravity_raw) ??
+          ((latestPot as any)?.observed_api_exact) ??
+          ((latestPot as any)?.api_gravity_exact) ??
           latestPot?.observed_api_gravity ??
           latestPot?.api_gravity ??
           latestPot?.api_gravity_60 ??
@@ -4157,11 +4180,11 @@ function handleProvingAreaSelect(areaId: string) {
         api_11_1_section: '11.1.6.1',
         chapter_12_2_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : null,
         raw_observed_api_used: Number(
-          latestPot?.observed_api_gravity_raw ??
-            latestPot?.observed_api_raw ??
-            latestPot?.sample_gravity_raw ??
-            latestPot?.observed_api_exact ??
-            latestPot?.api_gravity_exact ??
+          ((latestPot as any)?.observed_api_gravity_raw) ??
+            ((latestPot as any)?.observed_api_raw) ??
+            ((latestPot as any)?.sample_gravity_raw) ??
+            ((latestPot as any)?.observed_api_exact) ??
+            ((latestPot as any)?.api_gravity_exact) ??
             latestPot?.observed_api_gravity ??
             latestPot?.api_gravity ??
             latestPot?.api_gravity_60 ??
@@ -4175,10 +4198,6 @@ function handleProvingAreaSelect(areaId: string) {
         calculation_method: selectedCalculationMethod,
         product_group: selectedProductGroup,
         calculation_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
-        raw_api_gravity_60: corrections.raw_api_gravity_60 ?? null,
-        raw_ctl: corrections.raw_ctl ?? null,
-        raw_cpl: corrections.raw_cpl ?? null,
-        raw_ctlp: corrections.raw_ctlp ?? null,
         refined_unit_type: refinedProductType || null,
         unit_of_measure_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,

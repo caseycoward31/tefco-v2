@@ -642,6 +642,7 @@ function App() {
   const [contractSegmentId, setContractSegmentId] = useState('')
   const [contractLeaseId, setContractLeaseId] = useState('')
   const [contractProductGroup, setContractProductGroup] = useState('crude')
+  const [selectedTicketContractProfileId, setSelectedTicketContractProfileId] = useState('')
   const [apiTesterVersion, setApiTesterVersion] = useState('api_11_1_2021')
   const [apiTesterGravity, setApiTesterGravity] = useState('40')
   const [apiTesterTemp, setApiTesterTemp] = useState('80')
@@ -2265,7 +2266,12 @@ function handleTicketAreaSelect(areaId: string) {
       const key = String(producerKey || '').trim()
       return (producerId && producerId === key) || (producerName && producerName === key.toLowerCase())
     })
-    setSelectedProducer(producerRow?.id ? String(producerRow.id) : (producerKey ? String(producerKey) : ''))
+    const resolvedProducerId = producerRow?.id ? String(producerRow.id) : (producerKey ? String(producerKey) : '')
+    setSelectedProducer(resolvedProducerId)
+
+    const leaseProfile: any = getLeaseContractProfile(leaseId)
+    const producerProfile: any = getProducerProfile(contractProfiles, resolvedProducerId || null)
+    setSelectedTicketContractProfileId(leaseProfile?.id || producerProfile?.id || '')
 
     setSelectedMeter(onlyMeter ? String(onlyMeter.id) : '')
   }
@@ -3838,8 +3844,109 @@ function handleProvingAreaSelect(areaId: string) {
     )
   }
 
+  function getLeaseContractProfile(leaseId?: string | null) {
+    if (!leaseId) return null
+    return asArray(contractProfiles).find((profile: any) =>
+      String(profile.lease_id || '') === String(leaseId) &&
+      profile.active !== false &&
+      profile.is_active !== false
+    ) || null
+  }
+
+  function getTicketContractProfileOptions() {
+    const selectedLeaseProfile = getLeaseContractProfile(selectedLease)
+    const producerProfiles = asArray(contractProfiles).filter((profile: any) =>
+      profile.active !== false &&
+      profile.is_active !== false &&
+      (
+        String(profile.lease_id || '') === String(selectedLease || '') ||
+        String(profile.producer_id || '') === String(selectedProducer || '') ||
+        !profile.lease_id
+      )
+    )
+
+    const merged = [selectedLeaseProfile, ...producerProfiles, ...asArray(contractProfiles)]
+      .filter(Boolean)
+      .filter((profile: any) => profile.active !== false && profile.is_active !== false)
+
+    const seen = new Set<string>()
+    return merged.filter((profile: any) => {
+      const id = String(profile.id || '')
+      if (!id || seen.has(id)) return false
+      seen.add(id)
+      return true
+    })
+  }
+
   function getSelectedTicketContractProfile() {
+    const selectedProfile = asArray(contractProfiles).find((profile: any) => String(profile.id || '') === String(selectedTicketContractProfileId || ''))
+    if (selectedProfile) return selectedProfile
+
+    const leaseProfile = getLeaseContractProfile(selectedLease)
+    if (leaseProfile) return leaseProfile
+
     return getProducerProfile(contractProfiles, selectedProducer || null)
+  }
+
+  function isChapter122021Profile(profile: any) {
+    const apiVersion = String(profile?.api_version || '').toLowerCase()
+    const standard = String(profile?.standard || '').toLowerCase()
+    const method = String(profile?.calculation_method || '').toLowerCase()
+    return apiVersion.includes('12_2') || apiVersion.includes('12.2') || standard.includes('12.2') || method.includes('12_2') || method.includes('12.2')
+  }
+
+  async function rememberTicketContractProfile(profile: any) {
+    if (!profile || !selectedLease || !companyId) return
+
+    const leaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(selectedLease || ''))
+    const activeCompanyID = userIsSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : companyId
+    const apiVersion = isChapter122021Profile(profile)
+      ? 'api_chapter_12_2_r2021'
+      : (profile.api_version || 'api_11_1_2021')
+    const apiLabel = getApiVersionLabel(apiVersion) || profile.standard || profile.name || 'API Profile'
+    const existingLeaseProfile: any = getLeaseContractProfile(selectedLease)
+
+    const payload: any = {
+      company_id: activeCompanyID,
+      area_id: selectedTicketArea || leaseRow?.area_id || profile.area_id || null,
+      segment_id: selectedSegment || leaseRow?.segment_id || profile.segment_id || null,
+      lease_id: selectedLease,
+      producer_id: selectedProducer || leaseRow?.producer_id || profile.producer_id || null,
+      name: `${leaseRow?.lease_name || leaseRow?.name || leaseRow?.lease_number || 'Lease'} — ${apiLabel}`,
+      product_group: profile.product_group || 'crude',
+      calculation_method: isChapter122021Profile(profile) ? 'chapter12_2_2021' : (profile.calculation_method || 'api_11_1'),
+      factor_type: profile.factor_type || 'MF',
+      api_version: apiVersion,
+      standard: apiLabel,
+      correction_source: profile.correction_source || 'app_calculated',
+      api_rounding: profile.api_rounding ?? 1,
+      ctl_rounding: profile.ctl_rounding ?? 6,
+      cpl_rounding: profile.cpl_rounding ?? 6,
+      ctlp_rounding: profile.ctlp_rounding ?? 6,
+      volume_rounding: profile.volume_rounding ?? 2,
+      use_pressure: profile.use_pressure !== false,
+      use_shrink: profile.use_shrink || false,
+      active: true,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    }
+
+    const result = existingLeaseProfile?.id
+      ? await supabase.from('contract_profiles').update(payload).eq('id', existingLeaseProfile.id).select().maybeSingle()
+      : await supabase.from('contract_profiles').insert(payload).select().maybeSingle()
+
+    if (result.error) {
+      alert('Ticket was created, but the lease API profile could not be remembered: ' + result.error.message)
+      return
+    }
+
+    if (result.data) {
+      setSelectedTicketContractProfileId(result.data.id)
+      setContractProfiles((prev: any[]) => {
+        const others = asArray(prev).filter((item: any) => String(item.id || '') !== String(result.data.id))
+        return [...others, result.data]
+      })
+    }
   }
 
   function getRefinedProductOptions() {
@@ -3936,12 +4043,13 @@ function handleProvingAreaSelect(areaId: string) {
       ? Number(tankTicketSnapshot.gov || 0)
       : Number(closingReading || latestReading?.indicated_volume || 0)
     const contractProfile = getSelectedTicketContractProfile()
+    const selectedApiVersion = contractProfile?.api_version || (isChapter122021Profile(contractProfile) ? 'api_chapter_12_2_r2021' : 'api_11_1_2021')
 
     const selectedContractStandard =
-      contractProfile?.standard || profile?.standard || ''
+      getApiVersionLabel(selectedApiVersion) || contractProfile?.standard || profile?.standard || ''
 
     const selectedCalculationMethod =
-      contractProfile?.calculation_method || 'CTPL'
+      contractProfile?.calculation_method || (selectedApiVersion === 'api_chapter_12_2_r2021' ? 'chapter12_2_2021' : 'CTPL')
 
     const selectedProductGroup =
       contractProfile?.product_group || 'crude'
@@ -3997,10 +4105,10 @@ function handleProvingAreaSelect(areaId: string) {
     const mf = roundTo(factorToUse, 4)
     const csw = Number(latestPot?.csw || 1)
     const bswPercent = getPotBswPercentValue(latestPot) ?? roundTo((1 - csw) * 100, 4)
-    const isApi12 = selectedContractStandard.includes('API 12')
+    const isApi12 = selectedApiVersion === 'api_chapter_12_2_r2021' || selectedCalculationMethod === 'chapter12_2_2021' || selectedContractStandard.includes('API 12')
     const gsv = tankTicketSnapshot
       ? tankTicketSnapshot.gsv
-      : isApi12 ? iv * ctl * cpl * mf : iv * ccf * mf
+      : isApi12 ? iv * mf * ctl * cpl : iv * ccf * mf
     const nsv = tankTicketSnapshot
       ? tankTicketSnapshot.nsv
       : gsv * csw
@@ -4033,14 +4141,17 @@ function handleProvingAreaSelect(areaId: string) {
         selected_calculation_method: selectedCalculationMethod,
         selected_product_group: selectedProductGroup,
         selected_factor_type: selectedFactorType,
+        selected_api_version: selectedApiVersion,
+        selected_contract_profile_id: contractProfile?.id || null,
+        ch12_2_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : null,
         refined_unit_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
         product_code: refinedProductCode || null,
         refined_destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
       },
-      api_chapter: profile?.standard || null,
-      calculation_method: corrections.api_engine,
+      api_chapter: selectedContractStandard || profile?.standard || null,
+      calculation_method: selectedCalculationMethod || corrections.api_engine,
       observed_api_gravity: corrections.observed_api_gravity,
       observed_temperature: corrections.observed_temperature,
       observed_pressure: corrections.observed_pressure,
@@ -4133,6 +4244,10 @@ function handleProvingAreaSelect(areaId: string) {
         contract_profile_name: contractProfile?.name || null,
         calculation_method: selectedCalculationMethod,
         product_group: selectedProductGroup,
+        api_version: selectedApiVersion,
+        api_chapter: selectedContractStandard,
+        calculation_method_used: selectedContractStandard,
+        calculation_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : null,
         refined_unit_type: refinedProductType || null,
         unit_of_measure_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
@@ -4172,6 +4287,10 @@ function handleProvingAreaSelect(areaId: string) {
         sw_percent: bswPercent,
         csw,
         product_sub_group: corrections.product_sub_group,
+        api_version: selectedApiVersion,
+        api_chapter: selectedContractStandard,
+        calculation_method_used: selectedContractStandard,
+        calculation_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : null,
         refined_unit_type: refinedProductType || null,
         unit_of_measure_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
@@ -4261,8 +4380,13 @@ function handleProvingAreaSelect(areaId: string) {
     setSelectedSegment('')
     setSelectedProducer('')
     setSelectedLease('')
+    if (contractProfile) {
+      await rememberTicketContractProfile(contractProfile)
+    }
+
     setSelectedMeter('')
     setManualClosingReading('')
+    setSelectedTicketContractProfileId('')
     setRefinedProductType('')
     setRefinedProductCode('')
     setRefinedMovementDestination('')
@@ -8141,10 +8265,14 @@ async function createCompany() {
   }
 
   function getApiVersionLabel(version: string) {
+    if (version === 'api_11_1_1980') return 'API MPMS 11.1 (1980)'
     if (version === 'api_11_1_2004') return 'API MPMS 11.1 (2004)'
     if (version === 'api_11_1_2007') return 'API MPMS 11.1 (2007)'
     if (version === 'api_11_1_2019') return 'API MPMS 11.1 (2019)'
     if (version === 'api_11_1_2021') return 'API MPMS 11.1 (2021)'
+    if (version === 'api_chapter_12_2_r2021') return 'API MPMS Chapter 12.2 R2021'
+    if (version === 'chapter12_2_2021') return 'API MPMS Chapter 12.2 R2021'
+    if (version === 'chapter12_2021') return 'API MPMS Chapter 12 R2021'
     return version || 'API MPMS 11.1'
   }
 
@@ -8205,7 +8333,8 @@ async function createCompany() {
     const csw = 1 - (bswPercent / 100)
     const ccf = Number(input.ccf || input.ctpl || (ctl * cpl * mf))
 
-    const usesCombinedCorrectionFactor = ['api_11_1_2004', 'api_11_1_2007', 'api_11_1_2019'].includes(apiVersion)
+    const isChapter122021 = ['api_chapter_12_2_r2021', 'chapter12_2_2021', 'chapter12_2021'].includes(apiVersion)
+    const usesCombinedCorrectionFactor = !isChapter122021 && ['api_11_1_2004', 'api_11_1_2007', 'api_11_1_2019'].includes(apiVersion)
 
     const gsvRaw = usesCombinedCorrectionFactor
       ? ivRaw * ccf
@@ -8225,11 +8354,12 @@ async function createCompany() {
       raw_iv: ivRaw,
       raw_gsv: gsvRaw,
       raw_nsv: nsvRaw,
-      method: usesCombinedCorrectionFactor ? `${apiVersion}_ccf` : 'api_11_1_2021_separate_factors',
+      method: isChapter122021 ? 'api_chapter_12_2_r2021' : (usesCombinedCorrectionFactor ? `${apiVersion}_ccf` : 'api_11_1_2021_separate_factors'),
       formula: usesCombinedCorrectionFactor
         ? 'GSV = IV × CCF; NSV = GSV × CSW'
-        : 'GSV = IV × CTL × CPL × MF; NSV = GSV × CSW',
+        : 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW',
       uses_combined_correction_factor: usesCombinedCorrectionFactor,
+      api_chapter: isChapter122021 ? 'API MPMS Chapter 12.2 R2021' : getApiVersionLabel(apiVersion),
     }, apiVersion)
 
     return {
@@ -8316,7 +8446,10 @@ async function createCompany() {
     const leaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(contractLeaseId))
     const producerRow: any = asArray(producers).find((producer: any) => String(producer.id || '') === String(leaseRow?.producer_id || ''))
     const leaseLabel = String(leaseRow?.lease_name || leaseRow?.name || leaseRow?.lease_number || 'Lease Contract').trim()
-    const apiLabel = getApiVersionLabel(newContractApiVersion) || newContractApiVersion
+    const selectedApiVersionForSave = newContractMethod === 'chapter12_2_2021'
+      ? 'api_chapter_12_2_r2021'
+      : newContractApiVersion
+    const apiLabel = getApiVersionLabel(selectedApiVersionForSave) || selectedApiVersionForSave
     const contractDisplayName = `${leaseLabel} — ${apiLabel}`
 
     const payload: any = {
@@ -8329,7 +8462,7 @@ async function createCompany() {
       product_group: contractProductGroup,
       calculation_method: newContractMethod,
       factor_type: newContractMethod,
-      api_version: newContractApiVersion,
+      api_version: selectedApiVersionForSave,
       standard: apiLabel,
       correction_source: newContractCorrectionSource,
       api_rounding: 1,
@@ -14182,6 +14315,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 </select>
 
                 <select style={input} value={newContractMethod} onChange={(e) => setNewContractMethod(e.target.value)}>
+                  <option value="chapter12_2_2021">API Ch. 12.2 R2021</option>
                   <option value="chapter12_2021">Chapter 12 / 2021</option>
                   <option value="api_11_1">API 11.1</option>
                   <option value="flowx_summary">Flow-X Summary Volumes</option>
@@ -14194,6 +14328,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <option value="api_11_1_2007">API 11.1 / 2007</option>
                   <option value="api_11_1_2019">API 11.1 / 2019</option>
                   <option value="api_11_1_2021">API 11.1 / 2021</option>
+                  <option value="api_chapter_12_2_r2021">API Ch. 12.2 R2021</option>
                   <option value="chapter12_2021">API Chapter 12 / 2021</option>
                   <option value="butane_api_2019">Butane API 2019 LPG Ticketing</option>
                   <option value="butane_mpms_12_3">Butane MPMS 12.3 Shrinkage O/S</option>
@@ -15497,7 +15632,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
               </div>
             )}
             <div style={box}>
-              <div className="ticket-section-title"><div><h2 style={{ margin: 0 }}>Create Draft Ticket</h2><div className="ticket-muted">Segment → Lease → Meter. Producer and measurement data auto-fill. Dates stay with the ticket.</div></div><button style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => { setSelectedLease(''); setSelectedMeter(''); setManualClosingReading('') }}>Clear Form</button></div>
+              <div className="ticket-section-title"><div><h2 style={{ margin: 0 }}>Create Draft Ticket</h2><div className="ticket-muted">Segment → Lease → Meter. Producer and measurement data auto-fill. Dates stay with the ticket.</div></div><button style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => { setSelectedLease(''); setSelectedMeter(''); setManualClosingReading(''); setSelectedTicketContractProfileId('') }}>Clear Form</button></div>
               {!shouldHideAreaSelector() ? (
                 <select style={input} value={selectedTicketArea} onChange={(e) => handleTicketAreaSelect(e.target.value)}>
                   <option value="">Select Area</option>
@@ -15525,6 +15660,29 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
               </select>
 
               <div style={card}>Producer: <strong>{selectedTicketProducerDisplay || (selectedLease ? 'No producer linked' : 'Auto-fills after lease')}</strong></div>
+
+              <div style={card}>
+                <strong>Ticket API / Calculation Profile</strong>
+                <p style={{ color: '#a8b3bd', marginTop: 6 }}>
+                  Pick the API chapter/version for this lease. After you build the ticket, this selection is remembered for that lease.
+                </p>
+                <select
+                  style={input}
+                  value={selectedTicketContractProfileId || getLeaseContractProfile(selectedLease)?.id || ''}
+                  onChange={(e) => setSelectedTicketContractProfileId(e.target.value)}
+                  disabled={!selectedLease}
+                >
+                  <option value="">{selectedLease ? 'Use producer/default profile' : 'Select lease first'}</option>
+                  {getTicketContractProfileOptions().map((profile: any) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name || profile.contract_name || getApiVersionLabel(profile.api_version || '') || 'API Profile'} — {getApiVersionLabel(profile.api_version || '') || profile.standard || profile.calculation_method || 'API'}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ color: '#a8b3bd', marginTop: 8 }}>
+                  Current: <strong>{getSelectedTicketContractProfile()?.standard || getApiVersionLabel(getSelectedTicketContractProfile()?.api_version || '') || 'Default API profile'}</strong>
+                </div>
+              </div>
 
               <div style={card}>
                 <strong>Open / Close Date & Time</strong>

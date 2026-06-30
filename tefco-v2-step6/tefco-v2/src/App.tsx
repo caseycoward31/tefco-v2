@@ -4789,6 +4789,16 @@ function handleProvingAreaSelect(areaId: string) {
 
     setSelectedTicket(updatedTicket)
     setIsDraftTicketEditOpen(false)
+
+    if (String(updatedTicket.status || selectedTicket.status || '').toLowerCase() === 'approved') {
+      try {
+        await saveTicketPdfToSupabase(updatedTicket)
+      } catch (pdfError: any) {
+        console.warn('Approved ticket PDF refresh failed:', pdfError)
+        alert('Ticket saved, but the approved PDF could not be refreshed: ' + (pdfError?.message || 'Unknown PDF error'))
+      }
+    }
+
     loadAll()
     alert(String(selectedTicket.status || '').toLowerCase() === 'approved' ? 'Approved ticket revised.' : 'Draft ticket updated.')
   }
@@ -5639,7 +5649,15 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['Segment', value(segment?.segment_name || segment?.name || observed.segment_name)],
       ['Lease', value(lease?.lease_name || lease?.name || observed.lease_name)],
       ['Meter', value(meter?.meter_number || meter?.meter_name || observed.meter_number)],
-      ['Product', value(observed.refined_product_type || calc.refined_product_type || observed.product_type)],
+      ['Product', value(
+        observed.product_code ||
+        calc.product_code ||
+        observed.refined_product_type ||
+        calc.refined_product_type ||
+        observed.product_name ||
+        calc.product_name ||
+        observed.product_type
+      )],
       ['Destination / To', value(observed.refined_destination || calc.refined_destination || observed.movement_destination)],
       ['Your Name', value(observed.ticket_prepared_by || observed.loaded_by_name || calc.ticket_prepared_by)],
       ['Company Representative', value(observed.company_representative_name || observed.company_rep_name || calc.company_representative_name)],
@@ -5820,7 +5838,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     y = mainStartY + Math.max(leftRows.length, rightRows.length) * 15 + 18
 
     // Volume calculation table - full page width. No separate blank Quality box.
-    sectionTitle('Volume Calculation', margin, y, pageWidth - margin * 2)
+    const methodLabel = rowMap['Calculation Method'] && rowMap['Calculation Method'] !== '—' ? rowMap['Calculation Method'] : 'API Method'
+    sectionTitle(`Volume Calculation (${methodLabel})`, margin, y, pageWidth - margin * 2)
     y += 15
     const tableW = pageWidth - margin * 2
     const vCols = [tableW * 0.48, tableW * 0.14, tableW * 0.24, tableW * 0.14]
@@ -5876,15 +5895,29 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     y += 52
 
     // Signature line
-    doc.setDrawColor(17, 24, 39)
-    doc.line(margin, y + 18, margin + 175, y + 18)
-    doc.line(margin + 205, y + 18, margin + 380, y + 18)
-    doc.line(pageWidth - margin - 145, y + 18, pageWidth - margin, y + 18)
+    const preparedByName = rowMap['Your Name'] && rowMap['Your Name'] !== '—' ? rowMap['Your Name'] : ''
+    const companyRepName = rowMap['Company Representative'] && rowMap['Company Representative'] !== '—' ? rowMap['Company Representative'] : ''
+    const signatureDateTime = rowMap['Close Date / Time'] && rowMap['Close Date / Time'] !== '—' ? rowMap['Close Date / Time'] : ''
+
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(7)
-    doc.text(rowMap['Your Name'] && rowMap['Your Name'] !== '—' ? `PREPARED BY: ${rowMap['Your Name']}` : 'PREPARED BY / DATE', margin, y + 31)
-    doc.text(rowMap['Company Representative'] && rowMap['Company Representative'] !== '—' ? `COMPANY REP: ${rowMap['Company Representative']}` : 'COMPANY REPRESENTATIVE / DATE', margin + 205, y + 31)
-    doc.text('DATE / TIME', pageWidth - margin - 145, y + 31)
+    doc.setTextColor(17, 24, 39)
+    doc.text('PREPARED BY / REPRESENTATIVE', margin, y + 7)
+    doc.text('COMPANY REPRESENTATIVE', margin + 205, y + 7)
+    doc.text('DATE / TIME', pageWidth - margin - 145, y + 7)
+
+    doc.setFont('times', 'italic')
+    doc.setFontSize(13)
+    doc.text(preparedByName || ' ', margin + 6, y + 23)
+    doc.text(companyRepName || ' ', margin + 211, y + 23)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.text(signatureDateTime || ' ', pageWidth - margin - 139, y + 23)
+
+    doc.setDrawColor(17, 24, 39)
+    doc.line(margin, y + 28, margin + 175, y + 28)
+    doc.line(margin + 205, y + 28, margin + 380, y + 28)
+    doc.line(pageWidth - margin - 145, y + 28, pageWidth - margin, y + 28)
 
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(7)

@@ -15210,9 +15210,6 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <button style={{ ...button, width: 'auto' }} onClick={() => generatePdfPreview(selectedTicket)}>
                     Generate Customer PDF
                   </button>
-                  <button style={{ ...button, width: 'auto', background: '#14532d' }} onClick={() => runSafeAction('Saving ticket PDF', () => saveTicketPdfToSupabase(selectedTicket))}>
-                    Save PDF to Supabase
-                  </button>
                   {getTicketSavedPdfUrl(selectedTicket) && (
                     <button style={{ ...button, width: 'auto', background: '#0f766e' }} onClick={() => window.open(getTicketSavedPdfUrl(selectedTicket), '_blank')}>
                       Open Saved PDF

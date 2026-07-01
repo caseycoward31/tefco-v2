@@ -5887,10 +5887,11 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
 
     // Summary boxes
     let y = 82
-    const summaryW = (pageWidth - margin * 2) / 3
+    const summaryW = (pageWidth - margin * 2) / 4
     cell(margin, y, summaryW, 40, 'IV (bbls)', rowMap['IV'] || '—')
-    cell(margin + summaryW, y, summaryW, 40, 'GSV (bbls)', rowMap['GSV'] || '—')
-    cell(margin + summaryW * 2, y, summaryW, 40, 'NSV (bbls)', rowMap['NSV'] || '—')
+    cell(margin + summaryW, y, summaryW, 40, 'GV (bbls)', rowMap['GV'] || '—')
+    cell(margin + summaryW * 2, y, summaryW, 40, 'GSV (bbls)', rowMap['GSV'] || '—')
+    cell(margin + summaryW * 3, y, summaryW, 40, 'NSV (bbls)', rowMap['NSV'] || '—')
     y += 52
 
     // Main information in two compact columns
@@ -5930,6 +5931,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['CPL', rowMap['CPL']],
       ['CTPL', rowMap['CTPL']],
       ['MF / CMF', rowMap['MF / CMF']],
+      ['GV', rowMap['GV']],
       ['GSV', rowMap['GSV']],
       ['NSV', rowMap['NSV']],
       ['BS&W %', rowMap['BS&W %']],
@@ -5962,13 +5964,13 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     y += 16
 
     const volRows = [
-      ['Observed Volume (IV)', '—', rowMap['IV'], 'bbls'],
+      ['Indicated Volume (IV)', '—', rowMap['IV'], 'bbls'],
       ['Correction to 60°F (CTL)', '×', rowMap['CTL'], '—'],
       ['Pressure Correction (CPL)', '×', rowMap['CPL'], '—'],
-      ['Temperature & Pressure Corr. (CTPL)', '×', rowMap['CTPL'], '—'],
+      ['Gross Volume (GV = IV × CTL × CPL)', '=', rowMap['GV'], 'bbls'],
       ['Meter Factor (MF / CMF)', '×', rowMap['MF / CMF'], '—'],
-      ['Gross Standard Volume (GSV)', '=', rowMap['GSV'], 'bbls'],
-      ['Net Standard Volume (NSV)', '=', rowMap['NSV'], 'bbls'],
+      ['Gross Standard Volume (GSV = GV × MF)', '=', rowMap['GSV'], 'bbls'],
+      ['Net Standard Volume (NSV = GSV × CSW)', '=', rowMap['NSV'], 'bbls'],
     ]
 
     volRows.forEach((row, rowIndex) => {
@@ -8346,9 +8348,11 @@ async function createCompany() {
 
     const usesCombinedCorrectionFactor = ['api_11_1_2004', 'api_11_1_2007', 'api_11_1_2019'].includes(apiVersion)
 
-    const gsvRaw = usesCombinedCorrectionFactor
-      ? ivRaw * Number(input.ccf || input.ctpl || ctplRounded) * mfRounded
-      : ivRaw * mfRounded * ctlRounded * cplRounded
+    const gvRaw = usesCombinedCorrectionFactor
+      ? ivRaw * Number(input.ccf || input.ctpl || ctplRounded)
+      : ivRaw * ctlRounded * cplRounded
+
+    const gsvRaw = gvRaw * mfRounded
 
     const nsvRaw = gsvRaw * csw
 
@@ -8360,12 +8364,16 @@ async function createCompany() {
       mf: mfRounded,
       ccf: ctplRounded,
       csw,
+      gv: gvRaw,
+      gross_volume: gvRaw,
+      gross_volume_bbl: gvRaw,
       gsv: gsvRaw,
       nsv: nsvRaw,
       raw_iv: ivRaw,
       raw_ctl_input: Number(input.ctl || 1),
       raw_cpl_input: Number(input.cpl || 1),
       raw_mf_input: Number(input.mf || 1),
+      raw_gv: gvRaw,
       raw_gsv: gsvRaw,
       raw_nsv: nsvRaw,
       method: usesCombinedCorrectionFactor ? `${apiVersion}_ccf` : 'api_chapter_12_2_r2021',
@@ -8379,6 +8387,9 @@ async function createCompany() {
     return {
       ...rounded,
       iv: roundToDecimals(ivRaw, 2),
+      gv: roundToDecimals(rounded.gv ?? gvRaw, profile.gsvDecimals),
+      gross_volume: roundToDecimals(rounded.gv ?? gvRaw, profile.gsvDecimals),
+      gross_volume_bbl: roundToDecimals(rounded.gv ?? gvRaw, profile.gsvDecimals),
       gsv: roundToDecimals(rounded.gsv, profile.gsvDecimals),
       nsv: roundToDecimals(rounded.nsv, profile.nsvDecimals),
     }

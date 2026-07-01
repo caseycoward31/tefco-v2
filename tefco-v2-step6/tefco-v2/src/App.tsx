@@ -4837,9 +4837,6 @@ function handleProvingAreaSelect(areaId: string) {
       observed_pressure: averagePressure,
       ctl: ctlValue,
       cpl: cplValue,
-      gv: gvValue,
-      gross_volume: gvValue,
-      gross_volume_bbl: gvValue,
       ctpl: nextCalculationResults.ctpl,
       ccf: nextCalculationResults.ccf,
     }

@@ -5737,6 +5737,15 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       return Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—'
     }
 
+    const rawIvForPdf = Number(calc.iv ?? calc.gov ?? observed.iv ?? observed.gov ?? observed.total_batch_barrels ?? observed.indicated_volume ?? 0)
+    const rawCtlForPdf = Number(calc.ctl ?? observed.ctl ?? 1)
+    const rawCplForPdf = Number(calc.cpl ?? observed.cpl ?? 1)
+    const rawMfForPdf = Number(calc.mf ?? observed.mf ?? 1)
+    const rawGsvForPdf = Number(calc.gsv ?? observed.gsv ?? 0)
+    const pdfGvFallback = Number.isFinite(rawIvForPdf) && rawIvForPdf > 0 && Number.isFinite(rawCtlForPdf) && Number.isFinite(rawCplForPdf)
+      ? rawIvForPdf * rawCtlForPdf * rawCplForPdf
+      : (Number.isFinite(rawGsvForPdf) && rawGsvForPdf > 0 && Number.isFinite(rawMfForPdf) && rawMfForPdf !== 0 ? rawGsvForPdf / rawMfForPdf : null)
+
     return [
       ['Ticket Number', value(ticket.ticket_number || ticket.id)],
       ['Batch Number', value(observed.batch_number || calc.batch_number || ticket.batch_number)],
@@ -5763,6 +5772,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['Opening Reading', value(calc.opening_reading ?? observed.opening_reading ?? observed.opening_meter_reading)],
       ['Closing Reading', value(calc.closing_reading ?? observed.closing_reading ?? observed.closing_meter_reading)],
       ['IV', num(calc.iv ?? calc.gov ?? observed.iv ?? observed.gov ?? observed.total_batch_barrels, 2)],
+      ['GV', num(calc.gv ?? calc.gross_volume ?? calc.gross_volume_bbl ?? observed.gv ?? observed.gross_volume ?? observed.gross_volume_bbl ?? pdfGvFallback, 2)],
       ['Observed API', num(observed.observed_api_gravity ?? observed.api_observed ?? calc.observed_api_gravity, 2)],
       ['API @60', num(calc.api_gravity_60 ?? observed.api_gravity_60 ?? calc.api_gravity, 1)],
       ['Observed Temp', num(observed.observed_temperature ?? observed.temperature, 2)],
@@ -5880,10 +5890,11 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
 
     // Summary boxes
     let y = 82
-    const summaryW = (pageWidth - margin * 2) / 3
+    const summaryW = (pageWidth - margin * 2) / 4
     cell(margin, y, summaryW, 40, 'IV (bbls)', rowMap['IV'] || '—')
-    cell(margin + summaryW, y, summaryW, 40, 'GSV (bbls)', rowMap['GSV'] || '—')
-    cell(margin + summaryW * 2, y, summaryW, 40, 'NSV (bbls)', rowMap['NSV'] || '—')
+    cell(margin + summaryW, y, summaryW, 40, 'GV (bbls)', rowMap['GV'] || '—')
+    cell(margin + summaryW * 2, y, summaryW, 40, 'GSV (bbls)', rowMap['GSV'] || '—')
+    cell(margin + summaryW * 3, y, summaryW, 40, 'NSV (bbls)', rowMap['NSV'] || '—')
     y += 52
 
     // Main information in two compact columns
@@ -5923,6 +5934,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['CPL', rowMap['CPL']],
       ['CTPL', rowMap['CTPL']],
       ['MF / CMF', rowMap['MF / CMF']],
+      ['GV', rowMap['GV']],
       ['GSV', rowMap['GSV']],
       ['NSV', rowMap['NSV']],
       ['BS&W %', rowMap['BS&W %']],
@@ -5955,13 +5967,13 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     y += 16
 
     const volRows = [
-      ['Observed Volume (IV)', '—', rowMap['IV'], 'bbls'],
+      ['Indicated Volume (IV)', '—', rowMap['IV'], 'bbls'],
       ['Correction to 60°F (CTL)', '×', rowMap['CTL'], '—'],
       ['Pressure Correction (CPL)', '×', rowMap['CPL'], '—'],
-      ['Temperature & Pressure Corr. (CTPL)', '×', rowMap['CTPL'], '—'],
+      ['Gross Volume (GV = IV × CTL × CPL)', '=', rowMap['GV'], 'bbls'],
       ['Meter Factor (MF / CMF)', '×', rowMap['MF / CMF'], '—'],
-      ['Gross Standard Volume (GSV)', '=', rowMap['GSV'], 'bbls'],
-      ['Net Standard Volume (NSV)', '=', rowMap['NSV'], 'bbls'],
+      ['Gross Standard Volume (GSV = GV × MF)', '=', rowMap['GSV'], 'bbls'],
+      ['Net Standard Volume (NSV = GSV × CSW)', '=', rowMap['NSV'], 'bbls'],
     ]
 
     volRows.forEach((row, rowIndex) => {

@@ -4057,10 +4057,18 @@ function handleProvingAreaSelect(areaId: string) {
     const csw = Number(latestPot?.csw || 1)
     const bswPercent = getPotBswPercentValue(latestPot) ?? roundTo((1 - csw) * 100, 4)
     const isApi12 = isChapter122021Ticket || selectedContractStandard.includes('API 12') || selectedCalculationMethod === 'chapter12_2_2021' || selectedCalculationMethod === 'chapter12_2021'
+    // API Ch. 12.2 R2021 sequence:
+    // IV × CTL × CPL = GV; GV × MF = GSV; GSV × CSW = NSV
+    const gvRaw = tankTicketSnapshot
+      ? Number(tankTicketSnapshot.gsv || 0) / (mf || 1)
+      : isApi12 ? iv * ctl * cpl : iv * ccf
+    const gv = roundApiHalfEven(gvRaw, volumeRounding)
+
     const gsvRaw = tankTicketSnapshot
       ? tankTicketSnapshot.gsv
-      : isApi12 ? iv * mf * ctl * cpl : iv * ccf * mf
+      : gvRaw * mf
     const gsv = roundApiHalfEven(gsvRaw, volumeRounding)
+
     const nsv = tankTicketSnapshot
       ? roundApiHalfEven(tankTicketSnapshot.nsv, volumeRounding)
       : roundApiHalfEven(gsvRaw * csw, volumeRounding)
@@ -4110,6 +4118,9 @@ function handleProvingAreaSelect(areaId: string) {
       cpl,
       ctlp,
       ccf,
+      gv,
+      gross_volume: gv,
+      gross_volume_bbl: gv,
       observed_inputs: {
         iv,
         lease_id: selectedLease || null,
@@ -4172,6 +4183,9 @@ function handleProvingAreaSelect(areaId: string) {
         ctl,
         cpl,
         ctlp,
+        gv,
+        gross_volume: gv,
+        gross_volume_bbl: gv,
         mf,
         factor_type: selectedFactorType,
         observed_api_gravity: corrections.observed_api_gravity,
@@ -4192,7 +4206,7 @@ function handleProvingAreaSelect(areaId: string) {
         api_engine_note: corrections.api_engine_note,
         api_11_1_section: '11.1.6.1',
         rounding_profile_used: isChapter122021Ticket ? 'API Ch. 12.2 R2021: API@60 0.1, CTL/CPL 6, MF 4, Volumes 2' : 'Contract profile',
-        chapter_12_2_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : null,
+        chapter_12_2_formula: isApi12 ? 'GV = IV × CTL × CPL; GSV = GV × MF; NSV = GSV × CSW' : null,
         raw_observed_api_used: Number(
           ((latestPot as any)?.observed_api_gravity_raw) ??
             ((latestPot as any)?.observed_api_raw) ??
@@ -4211,7 +4225,7 @@ function handleProvingAreaSelect(areaId: string) {
         contract_profile_name: contractProfile?.name || null,
         calculation_method: isChapter122021Ticket ? 'API Chapter 12.2 R2021' : selectedCalculationMethod,
         product_group: selectedProductGroup,
-        calculation_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
+        calculation_formula: isApi12 ? 'GV = IV × CTL × CPL; GSV = GV × MF; NSV = GSV × CSW' : 'GV = IV × CTPL; GSV = GV × MF; NSV = GSV × CSW',
         refined_unit_type: refinedProductType || null,
         unit_of_measure_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
@@ -4243,6 +4257,9 @@ function handleProvingAreaSelect(areaId: string) {
         tank_closing_nsv: tankTicketSnapshot?.closingNsv ?? null,
         tank_ctsh: tankTicketSnapshot?.ctsh ?? null,
         tank_shell_temp: tankTicketSnapshot?.tankShellTemp ?? null,
+        gv: roundTo(gv, volumeRounding),
+        gross_volume: roundTo(gv, volumeRounding),
+        gross_volume_bbl: roundTo(gv, volumeRounding),
         gsv: roundTo(gsv, volumeRounding),
         nsv: roundTo(nsv, volumeRounding),
         api_gravity_60: corrections.api_gravity_60,
@@ -4252,7 +4269,7 @@ function handleProvingAreaSelect(areaId: string) {
         csw,
         product_sub_group: corrections.product_sub_group,
         api_engine: corrections.api_engine,
-        calculation_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
+        calculation_formula: isApi12 ? 'GV = IV × CTL × CPL; GSV = GV × MF; NSV = GSV × CSW' : 'GV = IV × CTPL; GSV = GV × MF; NSV = GSV × CSW',
         raw_api_gravity_60: corrections.raw_api_gravity_60 ?? null,
         raw_ctl: corrections.raw_ctl ?? null,
         raw_cpl: corrections.raw_cpl ?? null,
@@ -5699,6 +5716,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const lower = textValue.toLowerCase()
 
     if (lower.includes('12.1')) return textValue.includes('2021') ? 'API 12.1 - 2021' : `API 12.1${textValue ? ` - ${textValue}` : ''}`
+    if (lower.includes('12.2')) return 'API 12.2 - R2021'
     if (lower.includes('api 12') || lower.includes('chapter 12')) return textValue.includes('2021') ? 'API 12 - 2021' : 'API 12 - 2021'
     if (lower.includes('11.1')) {
       if (lower.includes('2019')) return 'API 11.1 - 2019'
@@ -5751,6 +5769,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['Opening Reading', value(calc.opening_reading ?? observed.opening_reading ?? observed.opening_meter_reading)],
       ['Closing Reading', value(calc.closing_reading ?? observed.closing_reading ?? observed.closing_meter_reading)],
       ['IV', num(calc.iv ?? calc.gov ?? observed.iv ?? observed.gov ?? observed.total_batch_barrels, 2)],
+      ['GV', num(calc.gv ?? calc.gross_volume ?? calc.gross_volume_bbl ?? observed.gv ?? observed.gross_volume ?? observed.gross_volume_bbl, 2)],
       ['Observed API', num(observed.observed_api_gravity ?? observed.api_observed ?? calc.observed_api_gravity, 2)],
       ['API @60', num(calc.api_gravity_60 ?? observed.api_gravity_60 ?? calc.api_gravity, 1)],
       ['Observed Temp', num(observed.observed_temperature ?? observed.temperature, 2)],
@@ -5758,7 +5777,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['Avg Pressure', num(observed.average_pressure ?? observed.avg_pressure ?? calc.average_pressure, 2)],
       ['CTL', num(calc.ctl ?? observed.ctl, 6)],
       ['CPL', num(calc.cpl ?? observed.cpl, 6)],
-      ['CTPL', num(calc.ctpl ?? observed.ctpl, 6)],
+      ['CTPL', num(calc.ctpl ?? observed.ctpl ?? calc.ctlp ?? observed.ctlp, 6)],
       ['MF / CMF', num(calc.mf ?? observed.mf, 4)],
       ['GSV', num(calc.gsv ?? observed.gsv, 2)],
       ['NSV', num(calc.nsv ?? observed.nsv ?? observed.net_volume_bbl, 2)],
@@ -8351,8 +8370,8 @@ async function createCompany() {
       raw_nsv: nsvRaw,
       method: usesCombinedCorrectionFactor ? `${apiVersion}_ccf` : 'api_chapter_12_2_r2021',
       formula: usesCombinedCorrectionFactor
-        ? 'GSV = IV × CTPL × MF; NSV = GSV × CSW'
-        : 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW',
+        ? 'GV = IV × CTPL; GSV = GV × MF; NSV = GSV × CSW'
+        : 'GV = IV × CTL × CPL; GSV = GV × MF; NSV = GSV × CSW',
       api_chapter: getApiVersionLabel(apiVersion),
       uses_combined_correction_factor: usesCombinedCorrectionFactor,
     }, apiVersion)

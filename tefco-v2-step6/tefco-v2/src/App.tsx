@@ -4496,7 +4496,6 @@ function handleProvingAreaSelect(areaId: string) {
         raw_ctlp: corrections.raw_ctlp ?? null,
         contract_profile_name: contractProfile?.name || null,
         calculation_method: isChapter122021Ticket ? 'API Chapter 12.2 R2021' : selectedCalculationMethod,
-        product_group: selectedProductGroup,
         calculation_formula: isButaneTicket ? 'CCF = CTL × CPL × MF; GSV/NET = Gross BBL × CCF' : isApi12 ? 'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
         refined_unit_type: refinedProductType || null,
         unit_of_measure_type: refinedProductType || null,

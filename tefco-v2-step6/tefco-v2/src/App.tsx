@@ -568,15 +568,22 @@ function calculateApi11Corrections(input: {
     productGroup
   )
 
+  const apiDecimals = Number(input.apiRounding ?? 1)
+  const factorDecimals = 6
+
+  // Plains / VMACS-style Chapter 12.2 tickets calculate the displayed
+  // API gravity @60 first, round it to the ticket precision, then use that
+  // rounded API @60 as the base density for CTL/CPL. Using the raw iterated
+  // density60 is mathematically valid, but it will not match VMACS factors.
+  const apiGravity60Rounded = roundApiHalfEven(base.apiGravity60, apiDecimals)
+  const density60ForFactors = apiToDensityKgM3(apiGravity60Rounded)
+
   const volumeCorrection = calculateType1FromDensity60(
-    base.density60,
+    density60ForFactors,
     averageTemperature,
     averagePressure,
     productGroup
   )
-
-  const apiDecimals = Number(input.apiRounding ?? 1)
-  const factorDecimals = 6
 
   return {
     observed_api_gravity: roundTo(observedApiGravity, 5),
@@ -584,8 +591,8 @@ function calculateApi11Corrections(input: {
     observed_pressure: roundTo(observedPressure, 2),
 
     // Display value: API gravity @60 is rounded to nearest tenth for tickets.
-    api_gravity_60: roundApiHalfEven(base.apiGravity60, apiDecimals),
-    density_60: roundTo(base.density60, 6),
+    api_gravity_60: apiGravity60Rounded,
+    density_60: roundTo(density60ForFactors, 6),
     average_temperature: roundTo(averageTemperature, 2),
     average_pressure: roundTo(averagePressure, 2),
 
@@ -598,6 +605,7 @@ function calculateApi11Corrections(input: {
     // Audit values: full precision is retained for validation and troubleshooting.
     raw_api_gravity_60: base.apiGravity60,
     raw_density_60: base.density60,
+    raw_density_60_for_factors: density60ForFactors,
     raw_ctl: volumeCorrection.ctl,
     raw_cpl: volumeCorrection.cpl,
     raw_ctlp: volumeCorrection.ctlp,

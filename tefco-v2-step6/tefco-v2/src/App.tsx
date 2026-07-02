@@ -4062,7 +4062,7 @@ function handleProvingAreaSelect(areaId: string) {
     // GSV × CSW = NSV
     // GV = IV × MF is displayed as informational only.
     const gvRaw = tankTicketSnapshot
-      ? Number(tankTicketSnapshot.iv || tankTicketSnapshot.gov || iv || 0) * mf
+      ? Number((tankTicketSnapshot as any).iv || tankTicketSnapshot.gov || iv || 0) * mf
       : iv * mf
     const gv = roundApiHalfEven(gvRaw, volumeRounding)
 

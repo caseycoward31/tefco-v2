@@ -401,6 +401,25 @@ function getApi11Coefficients(productGroup: string, density60: number) {
   }
 }
 
+
+function correctObservedApiForGlassHydrometer(observedApiGravity: number, observedTempF: number) {
+  // API MPMS 11.1 does not apply glass hydrometer correction internally.
+  // VMACS/Table 5A-style tickets treat the lab sample API as a hydrometer reading,
+  // so apply the Chapter 9 glass thermal correction before converting observed API
+  // to observed density for the 60°F density iteration.
+  const api = Number(observedApiGravity || 0)
+  const tempF = Number(observedTempF || 60)
+  if (!Number.isFinite(api) || api <= -131.5) return api
+
+  const observedRelativeDensity = 141.5 / (api + 131.5)
+  const deltaT = tempF - 60
+  const glassCorrection = 1 - 0.00001278 * deltaT - 0.0000000062 * deltaT * deltaT
+  const correctedRelativeDensity = observedRelativeDensity * glassCorrection
+  if (!Number.isFinite(correctedRelativeDensity) || correctedRelativeDensity <= 0) return api
+
+  return 141.5 / correctedRelativeDensity - 131.5
+}
+
 function calculateType1FromDensity60(
   density60: number,
   tempF: number,
@@ -465,12 +484,17 @@ function calculateDensity60FromObservedApi(
   observedPressurePsig: number,
   productGroup: string
 ) {
-  const observedDensity = apiToDensityKgM3(Number(observedApiGravity || 0))
+  const correctedObservedApiGravity = correctObservedApiForGlassHydrometer(
+    observedApiGravity,
+    observedTempF
+  )
+  const observedDensity = apiToDensityKgM3(Number(correctedObservedApiGravity || 0))
 
   if (!observedDensity) {
     return {
       density60: 0,
       apiGravity60: 0,
+      correctedObservedApiGravity,
       ctlObserved: 1,
       cplObserved: 1,
       ctlpObserved: 1,
@@ -496,6 +520,7 @@ function calculateDensity60FromObservedApi(
       return {
         density60,
         apiGravity60: densityKgM3ToApi(density60),
+        correctedObservedApiGravity,
         ctlObserved: calc.ctl,
         cplObserved: calc.cpl,
         ctlpObserved: calc.ctlp,
@@ -535,6 +560,7 @@ function calculateDensity60FromObservedApi(
   return {
     density60,
     apiGravity60: densityKgM3ToApi(density60),
+    correctedObservedApiGravity,
     ctlObserved: finalCalc.ctl,
     cplObserved: finalCalc.cpl,
     ctlpObserved: finalCalc.ctlp,
@@ -571,12 +597,11 @@ function calculateApi11Corrections(input: {
   const apiDecimals = Number(input.apiRounding ?? 1)
   const factorDecimals = 6
 
-  // Plains/VMACS-style ticket profile: API @60 is rounded to the ticket display
-  // precision first, then CTL/CPL are calculated from that rounded API @60 base
-  // density. This keeps CTL/CPL tied to the same corrected gravity printed on
-  // the custody-transfer ticket.
+  // VMACS-style ticket profile: API @60 is displayed to the ticket precision,
+  // but CTL/CPL are calculated from the full-precision 60°F density after the
+  // glass hydrometer correction has been applied to the observed sample API.
   const apiGravity60Rounded = roundApiHalfEven(base.apiGravity60, apiDecimals)
-  const density60ForFactors = apiToDensityKgM3(apiGravity60Rounded) || base.density60
+  const density60ForFactors = base.density60
 
   const volumeCorrection = calculateType1FromDensity60(
     density60ForFactors,
@@ -587,6 +612,7 @@ function calculateApi11Corrections(input: {
 
   return {
     observed_api_gravity: roundTo(observedApiGravity, 5),
+    hydrometer_corrected_observed_api: roundTo(base.correctedObservedApiGravity ?? observedApiGravity, 6),
     observed_temperature: roundTo(observedTemperature, 2),
     observed_pressure: roundTo(observedPressure, 2),
 

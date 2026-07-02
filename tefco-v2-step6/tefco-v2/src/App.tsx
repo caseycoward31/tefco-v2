@@ -4057,10 +4057,20 @@ function handleProvingAreaSelect(areaId: string) {
     const csw = Number(latestPot?.csw || 1)
     const bswPercent = getPotBswPercentValue(latestPot) ?? roundTo((1 - csw) * 100, 4)
     const isApi12 = isChapter122021Ticket || selectedContractStandard.includes('API 12') || selectedCalculationMethod === 'chapter12_2_2021' || selectedCalculationMethod === 'chapter12_2021'
+    // API MPMS Chapter 12.2 R2021 sequence, matching the API example:
+    // IV × MF × CTL × CPL = GSV
+    // GSV × CSW = NSV
+    // GV = IV × MF is displayed as informational only.
+    const gvRaw = tankTicketSnapshot
+      ? Number(tankTicketSnapshot.iv || tankTicketSnapshot.gov || iv || 0) * mf
+      : iv * mf
+    const gv = roundApiHalfEven(gvRaw, volumeRounding)
+
     const gsvRaw = tankTicketSnapshot
       ? tankTicketSnapshot.gsv
       : isApi12 ? iv * mf * ctl * cpl : iv * ccf * mf
     const gsv = roundApiHalfEven(gsvRaw, volumeRounding)
+
     const nsv = tankTicketSnapshot
       ? roundApiHalfEven(tankTicketSnapshot.nsv, volumeRounding)
       : roundApiHalfEven(gsvRaw * csw, volumeRounding)
@@ -4191,8 +4201,8 @@ function handleProvingAreaSelect(areaId: string) {
         api_engine: corrections.api_engine,
         api_engine_note: corrections.api_engine_note,
         api_11_1_section: '11.1.6.1',
-        rounding_profile_used: isChapter122021Ticket ? 'API Ch. 12.2 R2021: API@60 0.1, CTL/CPL 6, MF 4, Volumes 2' : 'Contract profile',
-        chapter_12_2_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : null,
+        rounding_profile_used: isChapter122021Ticket ? 'API Ch. 12.2 R2021: API@60 0.1, CTL/CPL/CTPL 6, MF 4, Volumes 2' : 'Contract profile',
+        chapter_12_2_formula: isApi12 ? 'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : null,
         raw_observed_api_used: Number(
           ((latestPot as any)?.observed_api_gravity_raw) ??
             ((latestPot as any)?.observed_api_raw) ??
@@ -4211,7 +4221,7 @@ function handleProvingAreaSelect(areaId: string) {
         contract_profile_name: contractProfile?.name || null,
         calculation_method: isChapter122021Ticket ? 'API Chapter 12.2 R2021' : selectedCalculationMethod,
         product_group: selectedProductGroup,
-        calculation_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
+        calculation_formula: isApi12 ? 'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
         refined_unit_type: refinedProductType || null,
         unit_of_measure_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
@@ -4252,7 +4262,7 @@ function handleProvingAreaSelect(areaId: string) {
         csw,
         product_sub_group: corrections.product_sub_group,
         api_engine: corrections.api_engine,
-        calculation_formula: isApi12 ? 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
+        calculation_formula: isApi12 ? 'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
         raw_api_gravity_60: corrections.raw_api_gravity_60 ?? null,
         raw_ctl: corrections.raw_ctl ?? null,
         raw_cpl: corrections.raw_cpl ?? null,
@@ -4625,11 +4635,11 @@ function handleProvingAreaSelect(areaId: string) {
     const csw = swPercent !== null
       ? roundTo(1 - swPercent / 100, 5)
       : Number(selectedTicket?.calculation_results?.csw ?? selectedTicket?.observed_inputs?.csw ?? 1)
-    const gv = iv !== null && Number.isFinite(ctl) && Number.isFinite(cpl)
-      ? roundTo(iv * ctl * cpl, 2)
+    const gv = iv !== null && Number.isFinite(mf)
+      ? roundTo(iv * mf, 2)
       : null
-    const baseGsv = gv !== null && Number.isFinite(mf)
-      ? roundTo(gv * mf, 2)
+    const baseGsv = iv !== null && Number.isFinite(ctl) && Number.isFinite(cpl) && Number.isFinite(mf)
+      ? roundTo(iv * mf * ctl * cpl, 2)
       : null
     const baseNsv = baseGsv !== null && Number.isFinite(csw)
       ? roundTo(baseGsv * csw, 2)
@@ -4693,8 +4703,8 @@ function handleProvingAreaSelect(areaId: string) {
     const ctlpValue = roundTo(corrections.ctlp, ctlpRounding)
     const mfValue = ticketEditNumber(values, 'mf') ?? Number(calc.mf ?? observed.mf ?? 1)
     const cswValue = swPercent !== null ? roundTo(1 - swPercent / 100, 5) : Number(calc.csw ?? observed.csw ?? 1)
-    const calculatedGv = totalBatchBarrels !== null ? roundTo(totalBatchBarrels * ctlValue * cplValue, 2) : null
-    const calculatedGsv = calculatedGv !== null ? roundTo(calculatedGv * mfValue, 2) : null
+    const calculatedGv = totalBatchBarrels !== null ? roundTo(totalBatchBarrels * mfValue, 2) : null
+    const calculatedGsv = totalBatchBarrels !== null ? roundTo(totalBatchBarrels * mfValue * ctlValue * cplValue, 2) : null
     const gvValue = calculatedGv
     const gsvValue = calculatedGsv
     const baseNsvValue = gsvValue !== null ? roundTo(gsvValue * cswValue, 2) : null
@@ -5743,9 +5753,9 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const rawCplForPdf = Number(calc.cpl ?? observed.cpl ?? 1)
     const rawMfForPdf = Number(calc.mf ?? observed.mf ?? 1)
     const rawGsvForPdf = Number(calc.gsv ?? observed.gsv ?? 0)
-    const pdfGvFallback = Number.isFinite(rawIvForPdf) && rawIvForPdf > 0 && Number.isFinite(rawCtlForPdf) && Number.isFinite(rawCplForPdf)
-      ? rawIvForPdf * rawCtlForPdf * rawCplForPdf
-      : (Number.isFinite(rawGsvForPdf) && rawGsvForPdf > 0 && Number.isFinite(rawMfForPdf) && rawMfForPdf !== 0 ? rawGsvForPdf / rawMfForPdf : null)
+    const pdfGvFallback = Number.isFinite(rawIvForPdf) && rawIvForPdf > 0 && Number.isFinite(rawMfForPdf)
+      ? rawIvForPdf * rawMfForPdf
+      : null
 
     return [
       ['Ticket Number', value(ticket.ticket_number || ticket.id)],
@@ -5971,9 +5981,9 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['Indicated Volume (IV)', '—', rowMap['IV'], 'bbls'],
       ['Correction to 60°F (CTL)', '×', rowMap['CTL'], '—'],
       ['Pressure Correction (CPL)', '×', rowMap['CPL'], '—'],
-      ['Gross Volume (GV = IV × CTL × CPL)', '=', rowMap['GV'], 'bbls'],
       ['Meter Factor (MF / CMF)', '×', rowMap['MF / CMF'], '—'],
-      ['Gross Standard Volume (GSV = GV × MF)', '=', rowMap['GSV'], 'bbls'],
+      ['Gross Volume (GV = IV × MF)', '=', rowMap['GV'], 'bbls'],
+      ['Gross Standard Volume (GSV = IV × MF × CTL × CPL)', '=', rowMap['GSV'], 'bbls'],
       ['Net Standard Volume (NSV = GSV × CSW)', '=', rowMap['NSV'], 'bbls'],
     ]
 
@@ -8377,7 +8387,7 @@ async function createCompany() {
       method: usesCombinedCorrectionFactor ? `${apiVersion}_ccf` : 'api_chapter_12_2_r2021',
       formula: usesCombinedCorrectionFactor
         ? 'GSV = IV × CTPL × MF; NSV = GSV × CSW'
-        : 'GSV = IV × MF × CTL × CPL; NSV = GSV × CSW',
+        : 'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW',
       api_chapter: getApiVersionLabel(apiVersion),
       uses_combined_correction_factor: usesCombinedCorrectionFactor,
     }, apiVersion)
@@ -15498,7 +15508,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <label><div className="ticket-muted">S&W %</div><input style={input} value={draftTicketEditValues.sw_percent || ''} onChange={(e) => updateDraftTicketEditField('sw_percent', e.target.value)} /></label>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CPL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">GV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).gv, 2)}</strong><div className="ticket-muted">IV × CTL × CPL</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">GV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).gv, 2)}</strong><div className="ticket-muted">IV × MF</div></div>
                       <label><div className="ticket-muted">MF / CMF</div><input style={input} value={draftTicketEditValues.mf || ''} onChange={(e) => updateDraftTicketEditField('mf', e.target.value)} /></label>
                       <label>
                         <div className="ticket-muted">Product</div>
@@ -15523,7 +15533,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <label><div className="ticket-muted">Your Name</div><input style={input} value={draftTicketEditValues.ticket_prepared_by || ''} onChange={(e) => updateDraftTicketEditField('ticket_prepared_by', e.target.value)} placeholder="Person preparing ticket" /></label>
                       <label><div className="ticket-muted">Company Representative Name</div><input style={input} value={draftTicketEditValues.company_representative_name || ''} onChange={(e) => updateDraftTicketEditField('company_representative_name', e.target.value)} placeholder="Company representative" /></label>
                       <label><div className="ticket-muted">Calculation Method</div><input style={input} value={draftTicketEditValues.calculation_method_used || getTicketCalculationMethodLabel(selectedTicket)} onChange={(e) => updateDraftTicketEditField('calculation_method_used', e.target.value)} placeholder="API 11.1 - 2007, API 12.1 - 2021, etc." /></label>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">GSV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).baseGsv, 2)}</strong><div className="ticket-muted">GV × MF</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">GSV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).baseGsv, 2)}</strong><div className="ticket-muted">IV × MF × CTL × CPL</div></div>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">Base NSV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).baseNsv, 2)}</strong><div className="ticket-muted">Before manual net adjustment</div></div>
                       <label><div className="ticket-muted">Net Volume Adjustment (+/- BBLS)</div><input style={input} value={draftTicketEditValues.net_volume_adjustment_bbl || ''} onChange={(e) => updateDraftTicketEditField('net_volume_adjustment_bbl', e.target.value)} /></label>
                       <div style={{ ...card, padding: 10, borderColor: Number(draftTicketEditValues.net_volume_adjustment_bbl || 0) !== 0 ? '#f59e0b' : undefined }}><div className="ticket-muted">Adjusted NSV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).adjustedNsv, 2)}</strong><div className="ticket-muted">Final net volume saved</div></div>

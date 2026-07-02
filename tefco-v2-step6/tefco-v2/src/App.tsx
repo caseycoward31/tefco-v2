@@ -569,6 +569,186 @@ function calculateDensity60FromObservedApi(
   }
 }
 
+
+function roundExcelHalfAway(value: number, decimals: number) {
+  if (!Number.isFinite(value)) return 0
+  const factor = Math.pow(10, decimals)
+  return Math.round((value + Number.EPSILON) * factor) / factor
+}
+
+function calculateButaneCtlFromRelativeDensity(relativeDensity60: number, tempF: number) {
+  const y60 = roundExcelHalfAway(Number(relativeDensity60 || 0), 4)
+  const tRankine = Number(tempF || 60) + 459.67
+  const tx = tRankine / 1.8
+
+  const iso = {
+    y60: 0.562827,
+    tc: 407.85,
+    zc: 0.28326,
+    pc: 3.86,
+    k1: 2.0474803441,
+    k2: -0.289734363425,
+    k3: -0.330345036434,
+    k4: 0.291757103132,
+  }
+  const normal = {
+    y60: 0.584127,
+    tc: 425.16,
+    zc: 0.27536,
+    pc: 3.92,
+    k1: 2.03734743118,
+    k2: -0.299059145695,
+    k3: -0.418883095671,
+    k4: 0.380367738748,
+  }
+
+  if (!Number.isFinite(y60) || y60 <= 0) {
+    return { ctl: 1, rawCtl: 1, compositionFraction: 0 }
+  }
+
+  const delta = (y60 - iso.y60) / (normal.y60 - iso.y60)
+  const tc = iso.tc + delta * (normal.tc - iso.tc)
+  const trx = tx / tc
+  const trx60 = 519.67 / (1.8 * tc)
+  const h2 = (iso.zc * iso.pc) / (normal.zc * normal.pc)
+
+  const psat = (fluid: typeof iso, tau: number) => {
+    const tau35 = Math.pow(tau, 0.35)
+    const tau2 = tau * tau
+    const tau3 = tau2 * tau
+    const tau65 = Math.pow(tau, 0.65)
+    const top = fluid.k1 * tau35 + fluid.k3 * tau2 + fluid.k4 * tau3
+    const bottom = 1 + fluid.k2 * tau65
+    return fluid.pc * (1 + top / bottom)
+  }
+
+  const tau60 = 1 - trx60
+  const psatIso60 = psat(iso, tau60)
+  const psatNormal60 = psat(normal, tau60)
+  const xDenominator = 1 + delta * ((psatIso60 / (h2 * psatNormal60)) - 1)
+  const x = psatIso60 / xDenominator
+
+  const tauObs = 1 - trx
+  const psatIsoObs = psat(iso, tauObs)
+  const psatNormalObs = psat(normal, tauObs)
+  const ctlDenominator = 1 + delta * ((psatIsoObs / (h2 * psatNormalObs)) - 1)
+  const ctlUnrounded = psatIsoObs / (x * ctlDenominator)
+
+  return {
+    ctl: roundExcelHalfAway(ctlUnrounded, 5),
+    rawCtl: ctlUnrounded,
+    compositionFraction: delta,
+  }
+}
+
+function calculateButaneCplFromRelativeDensity(
+  relativeDensity60: number,
+  averageTemperatureF: number,
+  averagePressurePsig: number,
+  equilibriumPressurePsig: number
+) {
+  const rd = roundExcelHalfAway(Number(relativeDensity60 || 0), 13)
+  const avgTemp = Number(averageTemperatureF || 60)
+  const avgPressure = Number(averagePressurePsig || 0)
+  const equilibriumPressure = Number(equilibriumPressurePsig || 0)
+  const differentialPressure = avgPressure - equilibriumPressure
+
+  if (!Number.isFinite(rd) || rd <= 0 || differentialPressure <= 0) {
+    return { cpl: 1, rawCpl: 1, fFactor: 0, differentialPressure: Math.max(0, differentialPressure) }
+  }
+
+  const g2 = rd * rd
+  const g4 = g2 * g2
+  const g6 = g2 * g4
+  const rankine = roundExcelHalfAway(avgTemp + 459.67, 1)
+  const rankine2 = rankine * rankine
+  const rankine3 = rankine2 * rankine
+
+  const hs = 0.00000000060357667
+  const ht = 0.0000022112678
+  const bTotal = -hs * rankine2 + ht * rankine * g2 + 0.00088384 * rd - 0.00204016 * g2
+  const bFactor = roundExcelHalfAway(bTotal * 100000, 3)
+
+  const aTotal =
+    -0.0000021465891 * rankine2 +
+    0.00001577439 * rankine2 * g2 -
+    0.000010502139 * rankine2 * g4 +
+    0.00000028324481 * rankine3 * g6 -
+    0.95495939 +
+    0.000000072900662 * rankine3 * g2 -
+    0.00000027769343 * rankine3 * g4 +
+    0.03645838 * rankine * g2 -
+    0.05110158 * rankine * rd +
+    0.00795529 * rankine +
+    9.1311491 * rd
+
+  const aFactorInt = Math.trunc(roundExcelHalfAway(aTotal * 100000, 4))
+  const fFactor = 1 / (aFactorInt + differentialPressure * bFactor)
+  const cpl = 1 / (1 - fFactor * differentialPressure)
+
+  return {
+    cpl,
+    rawCpl: cpl,
+    fFactor,
+    differentialPressure,
+    bFactor,
+    aFactorInt,
+  }
+}
+
+function calculateButaneCorrections(input: {
+  relativeDensity60?: number
+  apiGravity60?: number
+  observedApiGravity?: number
+  averageTemperature?: number
+  averagePressure?: number
+  equilibriumPressure?: number
+  meterFactor?: number
+}) {
+  const api60FromInput = Number(input.apiGravity60 || input.observedApiGravity || 0)
+  const relativeDensity60 = Number(input.relativeDensity60 || (api60FromInput ? 141.5 / (api60FromInput + 131.5) : 0))
+  const averageTemperature = Number(input.averageTemperature || 60)
+  const averagePressure = Number(input.averagePressure || 0)
+  const equilibriumPressure = Number(input.equilibriumPressure ?? 50)
+  const ctlCalc = calculateButaneCtlFromRelativeDensity(relativeDensity60, averageTemperature)
+  const cplCalc = calculateButaneCplFromRelativeDensity(relativeDensity60, averageTemperature, averagePressure, equilibriumPressure)
+  const ctl = roundApiFactor(ctlCalc.ctl, 6)
+  const cpl = roundApiFactor(cplCalc.cpl, 6)
+  const ctlp = roundApiFactor(ctl * cpl, 6)
+  const mf = roundApiHalfEven(Number(input.meterFactor || 1), 4)
+  const ccf = roundApiFactor(ctl * cpl * mf, 8)
+  const apiGravity60 = relativeDensity60 ? roundApiHalfEven(141.5 / relativeDensity60 - 131.5, 1) : 0
+
+  return {
+    observed_api_gravity: roundTo(api60FromInput, 5),
+    observed_temperature: roundTo(averageTemperature, 2),
+    observed_pressure: 0,
+    api_gravity_60: apiGravity60,
+    density_60: roundTo(relativeDensity60 * 999.016, 6),
+    relative_density_60: roundTo(relativeDensity60, 6),
+    average_temperature: roundTo(averageTemperature, 2),
+    average_pressure: roundTo(averagePressure, 2),
+    equilibrium_pressure: roundTo(equilibriumPressure, 2),
+    pressure_delta: roundTo(cplCalc.differentialPressure, 2),
+    ctl,
+    cpl,
+    ctlp,
+    ccf,
+    raw_api_gravity_60: relativeDensity60 ? 141.5 / relativeDensity60 - 131.5 : 0,
+    raw_density_60: relativeDensity60 * 999.016,
+    factor_density_60: relativeDensity60 * 999.016,
+    raw_ctl: ctlCalc.rawCtl,
+    raw_cpl: cplCalc.rawCpl,
+    raw_ctlp: ctlCalc.rawCtl * cplCalc.rawCpl,
+    raw_ccf: ctlCalc.rawCtl * cplCalc.rawCpl * mf,
+    raw_fp: cplCalc.fFactor,
+    raw_alpha60: null,
+    product_sub_group: 'butane_table_e',
+    api_engine: 'Butane API 2019 / GPA TP-25 Table E profile',
+    api_engine_note: 'Butane uses relative density @60, Table E CTL, CPL from average pressure minus equilibrium pressure, and CCF = CTL × CPL × MF.',
+  }
+}
+
 function calculateApi11Corrections(input: {
   productGroup?: string
   observedApiGravity?: number
@@ -577,8 +757,22 @@ function calculateApi11Corrections(input: {
   averageTemperature?: number
   averagePressure?: number
   apiRounding?: number
+  relativeDensity60?: number
+  equilibriumPressure?: number
+  meterFactor?: number
 }) {
   const productGroup = input.productGroup || 'crude'
+  if (String(productGroup || '').toLowerCase().includes('butane')) {
+    return calculateButaneCorrections({
+      relativeDensity60: input.relativeDensity60,
+      apiGravity60: input.observedApiGravity,
+      observedApiGravity: input.observedApiGravity,
+      averageTemperature: input.averageTemperature || input.observedTemperature,
+      averagePressure: input.averagePressure,
+      equilibriumPressure: input.equilibriumPressure,
+      meterFactor: input.meterFactor,
+    })
+  }
   const observedApiGravity = Number(input.observedApiGravity || 0)
   const observedTemperature = Number(input.observedTemperature || 60)
   const observedPressure = Number(input.observedPressure || 0)
@@ -4051,6 +4245,28 @@ function handleProvingAreaSelect(areaId: string) {
     const avgPressure = Number(latestReading?.average_pressure || 0)
 
     const productGroup = selectedProductGroup
+    const isButaneTicket = String(productGroup || '').toLowerCase().includes('butane')
+    const factorToUse = Number(latestApprovedProving?.accepted_meter_factor || latestReading?.meter_factor || 1)
+    const butaneRelativeDensity60 = Number(
+      ((latestPot as any)?.relative_density_60) ??
+        ((latestPot as any)?.relative_density) ??
+        ((latestPot as any)?.specific_gravity_60) ??
+        ((latestPot as any)?.sg_60) ??
+        ((latestPot as any)?.rd60) ??
+        ((latestPot as any)?.batch_relative_density_60) ??
+        0
+    )
+    const butaneEquilibriumPressure = Number(
+      ((latestPot as any)?.equilibrium_pressure_psig) ??
+        ((latestPot as any)?.equilibrium_pressure) ??
+        ((latestPot as any)?.eq_pressure_psig) ??
+        ((latestPot as any)?.vapor_pressure_psig) ??
+        ((latestReading as any)?.equilibrium_pressure_psig) ??
+        ((latestReading as any)?.equilibrium_pressure) ??
+        ((contractProfile as any)?.equilibrium_pressure_psig) ??
+        ((contractProfile as any)?.equilibrium_pressure) ??
+        50
+    )
 
     const corrections = calculateApi11Corrections({
       productGroup,
@@ -4074,6 +4290,9 @@ function handleProvingAreaSelect(areaId: string) {
       averageTemperature: avgTemp,
       averagePressure: usePressure ? avgPressure : 0,
       apiRounding,
+      relativeDensity60: butaneRelativeDensity60 || undefined,
+      equilibriumPressure: butaneEquilibriumPressure,
+      meterFactor: factorToUse,
     })
 
     const ctl = roundApiFactor(corrections.ctl, ctlRounding)
@@ -4086,7 +4305,6 @@ function handleProvingAreaSelect(areaId: string) {
     const finalCtlp = tankTicketSnapshot ? tankTicketSnapshot.ctlp : ctlp
     const finalCcf = tankTicketSnapshot ? tankTicketSnapshot.ccf : ccf
 
-    const factorToUse = Number(latestApprovedProving?.accepted_meter_factor || latestReading?.meter_factor || 1)
     const mf = roundApiHalfEven(factorToUse, 4)
     const csw = Number(latestPot?.csw || 1)
     const bswPercent = getPotBswPercentValue(latestPot) ?? roundTo((1 - csw) * 100, 4)
@@ -4102,7 +4320,7 @@ function handleProvingAreaSelect(areaId: string) {
 
     const gsvRaw = tankTicketSnapshot
       ? tankTicketSnapshot.gsv
-      : isApi12 ? iv * mf * ctl * cpl : iv * ccf * mf
+      : isButaneTicket ? iv * ccf : isApi12 ? iv * mf * ctl * cpl : iv * ccf * mf
     const gsv = roundApiHalfEven(gsvRaw, volumeRounding)
 
     const nsv = tankTicketSnapshot
@@ -4255,7 +4473,7 @@ function handleProvingAreaSelect(areaId: string) {
         contract_profile_name: contractProfile?.name || null,
         calculation_method: isChapter122021Ticket ? 'API Chapter 12.2 R2021' : selectedCalculationMethod,
         product_group: selectedProductGroup,
-        calculation_formula: isApi12 ? 'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
+        calculation_formula: isButaneTicket ? 'CCF = CTL × CPL × MF; GSV/NET = Gross BBL × CCF' : isApi12 ? 'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
         refined_unit_type: refinedProductType || null,
         unit_of_measure_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
@@ -4291,12 +4509,15 @@ function handleProvingAreaSelect(areaId: string) {
         nsv: roundTo(nsv, volumeRounding),
         api_gravity_60: corrections.api_gravity_60,
         density_60: corrections.density_60,
+        relative_density_60: (corrections as any).relative_density_60 ?? null,
+        equilibrium_pressure: (corrections as any).equilibrium_pressure ?? null,
+        pressure_delta: (corrections as any).pressure_delta ?? null,
         bsw_percent: bswPercent,
         sw_percent: bswPercent,
         csw,
         product_sub_group: corrections.product_sub_group,
         api_engine: corrections.api_engine,
-        calculation_formula: isApi12 ? 'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
+        calculation_formula: isButaneTicket ? 'CCF = CTL × CPL × MF; GSV/NET = Gross BBL × CCF' : isApi12 ? 'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
         raw_api_gravity_60: corrections.raw_api_gravity_60 ?? null,
         raw_ctl: corrections.raw_ctl ?? null,
         raw_cpl: corrections.raw_cpl ?? null,
@@ -4309,7 +4530,7 @@ function handleProvingAreaSelect(areaId: string) {
         refined_destination: refinedMovementDestination || null,
         movement_destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
-        formula_profile: isApi12 ? 'API 12 2021' : 'API 11.1',
+        formula_profile: isButaneTicket ? 'Butane API 2019 / Table E' : isApi12 ? 'API 12 2021' : 'API 11.1',
       },
     }
     let ticketInsertResult = await supabase.from('tickets').insert(ticketInsertPayload).select().maybeSingle()
@@ -8554,7 +8775,7 @@ async function createCompany() {
       ctlp_rounding: 6,
       volume_rounding: 2,
       use_pressure: true,
-      use_shrink: contractProductGroup === 'Butane',
+      use_shrink: String(contractProductGroup).toLowerCase() === 'butane',
       active: true,
       is_active: true,
       updated_at: new Date().toISOString(),

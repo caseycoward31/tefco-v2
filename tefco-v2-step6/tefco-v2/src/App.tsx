@@ -696,18 +696,63 @@ function calculateButaneCplFromRelativeDensity(
   }
 }
 
+
+function calculateButaneApi60FromObservedApi(observedApiGravity: number, observedTemperatureF: number) {
+  const observedApi = Number(observedApiGravity || 0)
+  const observedTemp = Number(observedTemperatureF || 60)
+  if (!Number.isFinite(observedApi) || observedApi === 0) {
+    return { apiGravity60: 0, relativeDensity60: 0, rawApiGravity60: 0, rawRelativeDensity60: 0, observedRelativeDensity: 0 }
+  }
+
+  // Convert the observed/sample API at sample temperature to observed relative density.
+  // Then solve for RD60 where: RD_observed = RD60 * CTL(RD60, observed sample temp).
+  const observedRelativeDensity = 141.5 / (observedApi + 131.5)
+  let relativeDensity60 = observedRelativeDensity
+  for (let i = 0; i < 25; i += 1) {
+    const ctlAtSampleTemp = calculateButaneCtlFromRelativeDensity(relativeDensity60, observedTemp).rawCtl || 1
+    const nextRelativeDensity60 = observedRelativeDensity / ctlAtSampleTemp
+    if (!Number.isFinite(nextRelativeDensity60) || nextRelativeDensity60 <= 0) break
+    if (Math.abs(nextRelativeDensity60 - relativeDensity60) < 1e-12) {
+      relativeDensity60 = nextRelativeDensity60
+      break
+    }
+    relativeDensity60 = nextRelativeDensity60
+  }
+
+  const rawApiGravity60 = 141.5 / relativeDensity60 - 131.5
+  return {
+    apiGravity60: roundApiHalfEven(rawApiGravity60, 1),
+    relativeDensity60,
+    rawApiGravity60,
+    rawRelativeDensity60: relativeDensity60,
+    observedRelativeDensity,
+  }
+}
+
 function calculateButaneCorrections(input: {
   relativeDensity60?: number
   apiGravity60?: number
   observedApiGravity?: number
+  observedTemperature?: number
   averageTemperature?: number
   averagePressure?: number
   equilibriumPressure?: number
   meterFactor?: number
 }) {
-  const api60FromInput = Number(input.apiGravity60 || input.observedApiGravity || 0)
-  const relativeDensity60 = Number(input.relativeDensity60 || (api60FromInput ? 141.5 / (api60FromInput + 131.5) : 0))
-  const averageTemperature = Number(input.averageTemperature || 60)
+  const observedApiFromInput = Number(input.observedApiGravity || input.apiGravity60 || 0)
+  const observedTemperature = Number(input.observedTemperature || 60)
+  const correctedButaneApi = input.relativeDensity60
+    ? {
+        apiGravity60: roundApiHalfEven(141.5 / Number(input.relativeDensity60) - 131.5, 1),
+        relativeDensity60: Number(input.relativeDensity60),
+        rawApiGravity60: 141.5 / Number(input.relativeDensity60) - 131.5,
+        rawRelativeDensity60: Number(input.relativeDensity60),
+        observedRelativeDensity: observedApiFromInput ? 141.5 / (observedApiFromInput + 131.5) : 0,
+      }
+    : calculateButaneApi60FromObservedApi(observedApiFromInput, observedTemperature)
+  const api60FromInput = correctedButaneApi.apiGravity60
+  const relativeDensity60 = Number(correctedButaneApi.relativeDensity60 || (api60FromInput ? 141.5 / (api60FromInput + 131.5) : 0))
+  const averageTemperature = Number(input.averageTemperature || observedTemperature || 60)
   const averagePressure = Number(input.averagePressure || 0)
   const equilibriumPressure = Number(input.equilibriumPressure ?? 50)
   const ctlCalc = calculateButaneCtlFromRelativeDensity(relativeDensity60, averageTemperature)
@@ -720,8 +765,8 @@ function calculateButaneCorrections(input: {
   const apiGravity60 = relativeDensity60 ? roundApiHalfEven(141.5 / relativeDensity60 - 131.5, 1) : 0
 
   return {
-    observed_api_gravity: roundTo(api60FromInput, 5),
-    observed_temperature: roundTo(averageTemperature, 2),
+    observed_api_gravity: roundTo(observedApiFromInput, 5),
+    observed_temperature: roundTo(observedTemperature, 2),
     observed_pressure: 0,
     api_gravity_60: apiGravity60,
     density_60: roundTo(relativeDensity60 * 999.016, 6),
@@ -734,9 +779,10 @@ function calculateButaneCorrections(input: {
     cpl,
     ctlp,
     ccf,
-    raw_api_gravity_60: relativeDensity60 ? 141.5 / relativeDensity60 - 131.5 : 0,
+    raw_api_gravity_60: correctedButaneApi.rawApiGravity60 || (relativeDensity60 ? 141.5 / relativeDensity60 - 131.5 : 0),
     raw_density_60: relativeDensity60 * 999.016,
     factor_density_60: relativeDensity60 * 999.016,
+    observed_relative_density: roundTo(correctedButaneApi.observedRelativeDensity || 0, 8),
     raw_ctl: ctlCalc.rawCtl,
     raw_cpl: cplCalc.rawCpl,
     raw_ctlp: ctlCalc.rawCtl * cplCalc.rawCpl,
@@ -767,6 +813,7 @@ function calculateApi11Corrections(input: {
       relativeDensity60: input.relativeDensity60,
       apiGravity60: input.observedApiGravity,
       observedApiGravity: input.observedApiGravity,
+      observedTemperature: input.observedTemperature,
       averageTemperature: input.averageTemperature || input.observedTemperature,
       averagePressure: input.averagePressure,
       equilibriumPressure: input.equilibriumPressure,

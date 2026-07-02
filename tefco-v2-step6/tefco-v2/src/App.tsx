@@ -5711,7 +5711,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const lower = textValue.toLowerCase()
 
     if (lower.includes('12.1')) return textValue.includes('2021') ? 'API 12.1 - 2021' : `API 12.1${textValue ? ` - ${textValue}` : ''}`
-    if (lower.includes('api 12') || lower.includes('chapter 12')) return textValue.includes('2021') ? 'API 12 - 2021' : 'API 12 - 2021'
+    if (lower.includes('12.2')) return 'API Chapter 12.2 R2021'
+    if (lower.includes('api 12') || lower.includes('chapter 12')) return textValue.includes('2021') ? 'API Chapter 12.2 R2021' : 'API Chapter 12.2 R2021'
     if (lower.includes('11.1')) {
       if (lower.includes('2019')) return 'API 11.1 - 2019'
       if (lower.includes('2007')) return 'API 11.1 - 2007'

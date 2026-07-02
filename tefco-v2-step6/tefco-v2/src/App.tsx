@@ -1132,6 +1132,8 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [selectedMeter, setSelectedMeter] = useState('')
   const [selectedTicketArea, setSelectedTicketArea] = useState('')
   const [ticketType, setTicketType] = useState('meter')
+  const [ticketProductGroup, setTicketProductGroup] = useState('crude')
+  const [ticketEquilibriumPressure, setTicketEquilibriumPressure] = useState('')
   const [refinedProductType, setRefinedProductType] = useState('')
   const [refinedProductCode, setRefinedProductCode] = useState('')
   const [refinedMovementDestination, setRefinedMovementDestination] = useState('')
@@ -4127,6 +4129,15 @@ function handleProvingAreaSelect(areaId: string) {
     return ['Crude Oil', 'Diesel', 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
   }
 
+  function getTicketProductOptions() {
+    return [
+      { value: 'crude', label: 'Crude Oil' },
+      { value: 'gasoline', label: 'Gasoline' },
+      { value: 'diesel', label: 'Diesel' },
+      { value: 'butane', label: 'Butane (LPG)' },
+    ]
+  }
+
   function getTicketBatchNumberValue(ticket: any) {
     const observed = ticket?.observed_inputs || {}
     const calc = ticket?.calculation_results || {}
@@ -4148,19 +4159,21 @@ function handleProvingAreaSelect(areaId: string) {
   function isRefinedTicketContext() {
     const contractProfile = getSelectedTicketContractProfile()
     const selectedMeterRow: any = asArray(meters).find((meter: any) => String(meter.id || '') === String(selectedMeter || ''))
+    const selectedTicketProductGroup = String(ticketProductGroup || '').toLowerCase()
     const selectedProductGroup = String(contractProfile?.product_group || '').toLowerCase()
     const selectedProductType = String(selectedMeterRow?.product_type || selectedMeterRow?.product || selectedMeterRow?.commodity || '').toLowerCase()
     const selectedStandard = String(contractProfile?.standard || contractProfile?.calculation_method || '').toLowerCase()
 
     return (
+      selectedTicketProductGroup.includes('refined') ||
+      selectedTicketProductGroup.includes('diesel') ||
+      selectedTicketProductGroup.includes('gasoline') ||
       selectedProductGroup.includes('refined') ||
       selectedProductGroup.includes('diesel') ||
       selectedProductGroup.includes('gasoline') ||
-      selectedProductGroup.includes('butane') ||
       selectedProductType.includes('refined') ||
       selectedProductType.includes('diesel') ||
       selectedProductType.includes('gasoline') ||
-      selectedProductType.includes('butane') ||
       selectedStandard.includes('refined') ||
       ticketType === 'truck'
     )
@@ -4168,6 +4181,11 @@ function handleProvingAreaSelect(areaId: string) {
 
   async function createTicket() {
     if (!companyId) return
+
+    if (ticketProductGroup === 'butane' && !ticketEquilibriumPressure) {
+      alert('Equilibrium Pressure (psig) is required for butane tickets.')
+      return
+    }
 
     const { data: generatedNumber, error } = await supabase.rpc('generate_ticket_number', {
       p_company_id: companyId,
@@ -4213,7 +4231,7 @@ function handleProvingAreaSelect(areaId: string) {
       contractProfile?.calculation_method || 'CTPL'
 
     const selectedProductGroup =
-      contractProfile?.product_group || 'crude'
+      ticketProductGroup || contractProfile?.product_group || 'crude'
 
     const selectedFactorType =
       contractProfile?.factor_type || latestApprovedProving?.factor_type || 'MF'
@@ -4257,7 +4275,8 @@ function handleProvingAreaSelect(areaId: string) {
         0
     )
     const butaneEquilibriumPressure = Number(
-      ((latestPot as any)?.equilibrium_pressure_psig) ??
+      (ticketEquilibriumPressure ? Number(ticketEquilibriumPressure) : undefined) ??
+        ((latestPot as any)?.equilibrium_pressure_psig) ??
         ((latestPot as any)?.equilibrium_pressure) ??
         ((latestPot as any)?.eq_pressure_psig) ??
         ((latestPot as any)?.vapor_pressure_psig) ??
@@ -4354,7 +4373,9 @@ function handleProvingAreaSelect(areaId: string) {
         selected_standard: selectedContractStandard,
         selected_calculation_method: selectedCalculationMethod,
         selected_product_group: selectedProductGroup,
+        ticket_product_group: ticketProductGroup || null,
         selected_factor_type: selectedFactorType,
+        equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressure : null,
         refined_unit_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
         product_code: refinedProductCode || null,
@@ -4374,6 +4395,9 @@ function handleProvingAreaSelect(areaId: string) {
       ccf,
       observed_inputs: {
         iv,
+        product_group: selectedProductGroup || null,
+        ticket_product_group: ticketProductGroup || null,
+        equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressure : null,
         lease_id: selectedLease || null,
         opening_reading: openingReading || null,
         closing_reading: closingReading || null,
@@ -4478,7 +4502,7 @@ function handleProvingAreaSelect(areaId: string) {
         unit_of_measure_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
         product_code: refinedProductCode || null,
-        product_type: refinedProductCode || selectedProductGroup || null,
+        product_type: refinedProductCode || ticketProductGroup || selectedProductGroup || null,
         refined_destination: refinedMovementDestination || null,
         movement_destination: refinedMovementDestination || null,
         destination: refinedMovementDestination || null,
@@ -4526,7 +4550,7 @@ function handleProvingAreaSelect(areaId: string) {
         unit_of_measure_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
         product_code: refinedProductCode || null,
-        product_type: refinedProductCode || selectedProductGroup || null,
+        product_type: refinedProductCode || ticketProductGroup || selectedProductGroup || null,
         refined_destination: refinedMovementDestination || null,
         movement_destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
@@ -11577,6 +11601,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
         selectedLease,
         selectedMeter,
         ticketType,
+        ticketProductGroup,
+        ticketEquilibriumPressure,
         savedAt: new Date().toISOString(),
       }
 
@@ -11585,7 +11611,9 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
         selectedProducer ||
         selectedLease ||
         selectedMeter ||
-        ticketType !== 'meter'
+        ticketType !== 'meter' ||
+        ticketProductGroup !== 'crude' ||
+        Boolean(ticketEquilibriumPressure)
 
       if (hasDraftWork) {
         localStorage.setItem(ticketDraftStorageKey, JSON.stringify(draftPayload))
@@ -11601,6 +11629,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
     selectedLease,
     selectedMeter,
     ticketType,
+    ticketProductGroup,
+    ticketEquilibriumPressure,
   ])
 
   function restoreLocalTicketDraft() {
@@ -11614,6 +11644,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
       setSelectedLease(draft.selectedLease || '')
       setSelectedMeter(draft.selectedMeter || '')
       setTicketType(draft.ticketType || 'meter')
+      setTicketProductGroup(draft.ticketProductGroup || 'crude')
+      setTicketEquilibriumPressure(draft.ticketEquilibriumPressure || '')
       setDraftRestoredMessage(`Restored draft saved ${draft.savedAt ? new Date(draft.savedAt).toLocaleString() : 'earlier'}.`)
       setPage('tickets')
     } catch (error) {
@@ -15935,7 +15967,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
               </div>
             )}
             <div style={box}>
-              <div className="ticket-section-title"><div><h2 style={{ margin: 0 }}>Create Draft Ticket</h2><div className="ticket-muted">Segment → Lease → Meter. Producer and measurement data auto-fill. Dates stay with the ticket.</div></div><button style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => { setSelectedLease(''); setSelectedMeter(''); setManualClosingReading('') }}>Clear Form</button></div>
+              <div className="ticket-section-title"><div><h2 style={{ margin: 0 }}>Create Draft Ticket</h2><div className="ticket-muted">Segment → Lease → Meter. Producer and measurement data auto-fill. Dates stay with the ticket.</div></div><button style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => { setSelectedLease(''); setSelectedMeter(''); setManualClosingReading(''); setTicketProductGroup('crude'); setTicketEquilibriumPressure('') }}>Clear Form</button></div>
               {!shouldHideAreaSelector() ? (
                 <select style={input} value={selectedTicketArea} onChange={(e) => handleTicketAreaSelect(e.target.value)}>
                   <option value="">Select Area</option>
@@ -16003,6 +16035,54 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 <option value="transfer">Transfer Ticket</option>
                 <option value="truck">Truck Ticket</option>
               </select>
+
+              <div style={card}>
+                <h3 style={{ marginTop: 0 }}>Product / Calculation Engine</h3>
+                <div style={{ color: '#a8b3bd', fontSize: 12, marginBottom: 10 }}>
+                  Pick the product first so the ticket loads the correct custody-transfer calculation before the draft is built.
+                </div>
+                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: ticketProductGroup === 'butane' ? '1fr 1fr' : '1fr', gap: 12 }}>
+                  <label>
+                    <div className="ticket-muted" style={{ marginBottom: 6 }}>Product</div>
+                    <select
+                      style={input}
+                      value={ticketProductGroup}
+                      onChange={(e) => {
+                        const nextProduct = e.target.value
+                        setTicketProductGroup(nextProduct)
+                        if (nextProduct === 'gasoline' || nextProduct === 'diesel') setRefinedProductCode(nextProduct === 'gasoline' ? 'GAS' : 'Diesel')
+                        if (nextProduct === 'crude') setRefinedProductCode('')
+                        if (nextProduct !== 'butane') setTicketEquilibriumPressure('')
+                      }}
+                    >
+                      {getTicketProductOptions().map((product) => (
+                        <option key={product.value} value={product.value}>{product.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {ticketProductGroup === 'butane' && (
+                    <label>
+                      <div className="ticket-muted" style={{ marginBottom: 6 }}>Equilibrium Pressure (psig)</div>
+                      <input
+                        style={input}
+                        type="number"
+                        step="0.01"
+                        placeholder="Required for butane CPL"
+                        value={ticketEquilibriumPressure}
+                        onChange={(e) => setTicketEquilibriumPressure(e.target.value)}
+                      />
+                    </label>
+                  )}
+                </div>
+                <div style={{ color: ticketProductGroup === 'butane' ? '#fef3c7' : '#86efac', fontSize: 12, marginTop: 10 }}>
+                  {ticketProductGroup === 'butane'
+                    ? 'Butane uses Table E / LPG profile: CCF = CTL × CPL × MF, with CPL pressure based on Avg Pressure − Equilibrium Pressure.'
+                    : ticketProductGroup === 'gasoline' || ticketProductGroup === 'diesel'
+                      ? 'Refined product uses the API 11.1 refined product profile.'
+                      : 'Crude Oil keeps the existing API MPMS 12.2 (2021) VMACS-compatible profile.'}
+                </div>
+              </div>
 
               {isRefinedTicketContext() && (
                 <div style={card}>

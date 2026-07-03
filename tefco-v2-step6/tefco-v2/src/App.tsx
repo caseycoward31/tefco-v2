@@ -6400,8 +6400,28 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       return null
     }
 
-    const fileBaseName = getTicketPdfFileName(ticket)
-    const pdfBlob = await generateTicketPdfBlob(ticket)
+    // Saved Supabase PDF only: refresh the ticket row first so revision_number/revision_reason
+    // stored in observed_inputs/calculation_results are present when the saved PDF is rendered.
+    // Do not change the customer PDF/preview generator.
+    let pdfSourceTicket: any = ticket
+    try {
+      const { data: latestTicket, error: latestTicketError } = await supabase
+        .from('tickets')
+        .select('*')
+        .eq('id', ticket.id)
+        .maybeSingle()
+
+      if (!latestTicketError && latestTicket) {
+        pdfSourceTicket = { ...ticket, ...latestTicket }
+      } else if (latestTicketError) {
+        console.warn('Could not refresh ticket before saving PDF:', latestTicketError)
+      }
+    } catch (latestTicketException) {
+      console.warn('Could not refresh ticket before saving PDF:', latestTicketException)
+    }
+
+    const fileBaseName = getTicketPdfFileName(pdfSourceTicket)
+    const pdfBlob = await generateTicketPdfBlob(pdfSourceTicket)
     const filePath = `${activeCompanyID}/${ticket.id}/${fileBaseName}.pdf`
 
     const { error: uploadError } = await supabase.storage
@@ -6433,12 +6453,12 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       return { ...ticket, ...patch }
     }
 
-    setTickets((prev: any[]) => asArray(prev).map((row: any) => String(row.id) === String(ticket.id) ? { ...row, ...patch } : row))
+    setTickets((prev: any[]) => asArray(prev).map((row: any) => String(row.id) === String(ticket.id) ? { ...row, ...pdfSourceTicket, ...patch } : row))
     if (selectedTicket && String(selectedTicket.id) === String(ticket.id)) {
-      setSelectedTicket({ ...selectedTicket, ...patch } as any)
+      setSelectedTicket({ ...selectedTicket, ...pdfSourceTicket, ...patch } as any)
     }
 
-    return { ...ticket, ...patch }
+    return { ...pdfSourceTicket, ...patch }
   }
 
   async function ensureSavedTicketPdf(ticket: any) {

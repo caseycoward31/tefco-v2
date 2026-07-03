@@ -5398,9 +5398,21 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const ticketNumber = ticket.ticket_number || ticket.id || 'Ticket'
     const createdAt = ticket.created_at ? new Date(ticket.created_at).toLocaleString() : new Date().toLocaleString()
     const approvedAt = ticket.approved_at ? new Date(ticket.approved_at).toLocaleString() : 'Pending Approval'
-    const pdfRevisionNumber = observed.revision_number || calc.revision_number || 0
-    const pdfRevisionReason = observed.revision_reason || ''
-    const pdfRevisionAt = observed.revised_at || calc.revised_at || ''
+    const pdfRevisionNumber = Number(observed.revision_number ?? calc.revision_number ?? ticket.revision_number ?? 0) || 0
+    const pdfRevisionReason = String(
+      observed.revision_reason ||
+      calc.revision_reason ||
+      ticket.revision_reason ||
+      observed.net_volume_adjustment_reason ||
+      calc.net_volume_adjustment_reason ||
+      ''
+    ).trim()
+    const pdfRevisionAt = observed.revised_at || calc.revised_at || ticket.revised_at || ''
+    const pdfTicketNotes = String(ticket.notes || observed.notes || calc.notes || '').trim()
+    const pdfFullNotes = [
+      pdfTicketNotes,
+      pdfRevisionReason ? `Revision ${pdfRevisionNumber || 1}: ${pdfRevisionReason}` : '',
+    ].filter(Boolean).join('\n')
 
     const transporter = ticket.transporter_name || observed.transporter_name || ticket.customer_name || (ticket.ticket_type === 'meter' ? 'Pipeline Meter' : '—')
     const refinedProductPdf = observed.refined_product_type || calc.refined_product_type || observed.product_code || calc.product_code || observed.product_type || calc.product_type || '—'
@@ -5628,7 +5640,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
 
     <div class="section"><div class="section-title">Audit / Notes</div>
       <div class="grid-3"><div class="cell"><div class="small-label">Prepared By</div><div class="value">${tankText(observed.gauged_by, observed.prepared_by, ticket.created_by_name, ticket.created_by)}</div></div><div class="cell"><div class="small-label">Approved By</div><div class="value">${tankText(observed.approved_by_name, ticket.approved_by_name, ticket.approved_by)}</div></div><div class="cell"><div class="small-label">Revision</div><div class="value">${revisionLabel}</div></div></div>
-      <div class="notes">${ticket.notes || observed.notes || ''}</div>
+      <div class="notes">${pdfFullNotes || '—'}</div>
     </div>
 
     <div class="signatures"><div class="sig-line">Gauged By / Date</div><div class="sig-line">Verified By / Date</div><div class="sig-line">Approved By / Date</div></div>
@@ -5938,7 +5950,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
 
     <div class="section">
       <div class="section-title">Notes</div>
-      <div class="notes">${ticket.notes || observed.notes || ''}</div>
+      <div class="notes">${pdfFullNotes || '—'}</div>
     </div>
 
     <div class="signatures">
@@ -6076,7 +6088,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const ticketNotes = String(ticket.notes || observed.notes || calc.notes || '').trim()
     const pdfNotes = [
       ticketNotes,
-      revisionReason ? `Revision ${revisionNumber}: ${revisionReason}` : '',
+      revisionReason ? `Revision ${revisionNumber || 1}: ${revisionReason}` : '',
     ].filter(Boolean).join('\n')
 
     return [
@@ -6430,8 +6442,11 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
   }
 
   async function ensureSavedTicketPdf(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const calc = ticket?.calculation_results || {}
+    const hasRevision = Number(observed.revision_number ?? calc.revision_number ?? ticket?.revision_number ?? 0) > 0
     const existingUrl = getTicketSavedPdfUrl(ticket)
-    if (existingUrl) return { ticket, url: existingUrl }
+    if (existingUrl && !hasRevision) return { ticket, url: existingUrl }
 
     const saved = await saveTicketPdfToSupabase(ticket)
     const url = getTicketSavedPdfUrl(saved)
@@ -15781,7 +15796,11 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     Generate Customer PDF
                   </button>
                   {getTicketSavedPdfUrl(selectedTicket) && (
-                    <button style={{ ...button, width: 'auto', background: '#0f766e' }} onClick={() => window.open(getTicketSavedPdfUrl(selectedTicket), '_blank')}>
+                    <button style={{ ...button, width: 'auto', background: '#0f766e' }} onClick={async () => {
+                      const refreshed = await saveTicketPdfToSupabase(selectedTicket)
+                      const url = getTicketSavedPdfUrl(refreshed || selectedTicket)
+                      if (url) window.open(url, '_blank')
+                    }}>
                       Open Saved PDF
                     </button>
                   )}

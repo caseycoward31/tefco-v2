@@ -401,25 +401,6 @@ function getApi11Coefficients(productGroup: string, density60: number) {
   }
 }
 
-
-function correctObservedApiForGlassHydrometer(observedApiGravity: number, observedTempF: number) {
-  // API MPMS 11.1 does not apply glass hydrometer correction internally.
-  // VMACS/Table 5A-style tickets treat the lab sample API as a hydrometer reading,
-  // so apply the Chapter 9 glass thermal correction before converting observed API
-  // to observed density for the 60°F density iteration.
-  const api = Number(observedApiGravity || 0)
-  const tempF = Number(observedTempF || 60)
-  if (!Number.isFinite(api) || api <= -131.5) return api
-
-  const observedRelativeDensity = 141.5 / (api + 131.5)
-  const deltaT = tempF - 60
-  const glassCorrection = 1 - 0.00001278 * deltaT - 0.0000000062 * deltaT * deltaT
-  const correctedRelativeDensity = observedRelativeDensity * glassCorrection
-  if (!Number.isFinite(correctedRelativeDensity) || correctedRelativeDensity <= 0) return api
-
-  return 141.5 / correctedRelativeDensity - 131.5
-}
-
 function calculateType1FromDensity60(
   density60: number,
   tempF: number,
@@ -484,17 +465,12 @@ function calculateDensity60FromObservedApi(
   observedPressurePsig: number,
   productGroup: string
 ) {
-  const correctedObservedApiGravity = correctObservedApiForGlassHydrometer(
-    observedApiGravity,
-    observedTempF
-  )
-  const observedDensity = apiToDensityKgM3(Number(correctedObservedApiGravity || 0))
+  const observedDensity = apiToDensityKgM3(Number(observedApiGravity || 0))
 
   if (!observedDensity) {
     return {
       density60: 0,
       apiGravity60: 0,
-      correctedObservedApiGravity,
       ctlObserved: 1,
       cplObserved: 1,
       ctlpObserved: 1,
@@ -520,7 +496,6 @@ function calculateDensity60FromObservedApi(
       return {
         density60,
         apiGravity60: densityKgM3ToApi(density60),
-        correctedObservedApiGravity,
         ctlObserved: calc.ctl,
         cplObserved: calc.cpl,
         ctlpObserved: calc.ctlp,
@@ -560,238 +535,11 @@ function calculateDensity60FromObservedApi(
   return {
     density60,
     apiGravity60: densityKgM3ToApi(density60),
-    correctedObservedApiGravity,
     ctlObserved: finalCalc.ctl,
     cplObserved: finalCalc.cpl,
     ctlpObserved: finalCalc.ctlp,
     iterations: 20,
     converged: false,
-  }
-}
-
-
-function roundExcelHalfAway(value: number, decimals: number) {
-  if (!Number.isFinite(value)) return 0
-  const factor = Math.pow(10, decimals)
-  return Math.round((value + Number.EPSILON) * factor) / factor
-}
-
-function calculateButaneCtlFromRelativeDensity(relativeDensity60: number, tempF: number) {
-  const y60 = roundExcelHalfAway(Number(relativeDensity60 || 0), 4)
-  const tRankine = Number(tempF || 60) + 459.67
-  const tx = tRankine / 1.8
-
-  const iso = {
-    y60: 0.562827,
-    tc: 407.85,
-    zc: 0.28326,
-    pc: 3.86,
-    k1: 2.0474803441,
-    k2: -0.289734363425,
-    k3: -0.330345036434,
-    k4: 0.291757103132,
-  }
-  const normal = {
-    y60: 0.584127,
-    tc: 425.16,
-    zc: 0.27536,
-    pc: 3.92,
-    k1: 2.03734743118,
-    k2: -0.299059145695,
-    k3: -0.418883095671,
-    k4: 0.380367738748,
-  }
-
-  if (!Number.isFinite(y60) || y60 <= 0) {
-    return { ctl: 1, rawCtl: 1, compositionFraction: 0 }
-  }
-
-  const delta = (y60 - iso.y60) / (normal.y60 - iso.y60)
-  const tc = iso.tc + delta * (normal.tc - iso.tc)
-  const trx = tx / tc
-  const trx60 = 519.67 / (1.8 * tc)
-  const h2 = (iso.zc * iso.pc) / (normal.zc * normal.pc)
-
-  const psat = (fluid: typeof iso, tau: number) => {
-    const tau35 = Math.pow(tau, 0.35)
-    const tau2 = tau * tau
-    const tau3 = tau2 * tau
-    const tau65 = Math.pow(tau, 0.65)
-    const top = fluid.k1 * tau35 + fluid.k3 * tau2 + fluid.k4 * tau3
-    const bottom = 1 + fluid.k2 * tau65
-    return fluid.pc * (1 + top / bottom)
-  }
-
-  const tau60 = 1 - trx60
-  const psatIso60 = psat(iso, tau60)
-  const psatNormal60 = psat(normal, tau60)
-  const xDenominator = 1 + delta * ((psatIso60 / (h2 * psatNormal60)) - 1)
-  const x = psatIso60 / xDenominator
-
-  const tauObs = 1 - trx
-  const psatIsoObs = psat(iso, tauObs)
-  const psatNormalObs = psat(normal, tauObs)
-  const ctlDenominator = 1 + delta * ((psatIsoObs / (h2 * psatNormalObs)) - 1)
-  const ctlUnrounded = psatIsoObs / (x * ctlDenominator)
-
-  return {
-    ctl: roundExcelHalfAway(ctlUnrounded, 5),
-    rawCtl: ctlUnrounded,
-    compositionFraction: delta,
-  }
-}
-
-function calculateButaneCplFromRelativeDensity(
-  relativeDensity60: number,
-  averageTemperatureF: number,
-  averagePressurePsig: number,
-  equilibriumPressurePsig: number
-) {
-  const rd = roundExcelHalfAway(Number(relativeDensity60 || 0), 13)
-  const avgTemp = Number(averageTemperatureF || 60)
-  const avgPressure = Number(averagePressurePsig || 0)
-  const equilibriumPressure = Number(equilibriumPressurePsig || 0)
-  const differentialPressure = avgPressure - equilibriumPressure
-
-  if (!Number.isFinite(rd) || rd <= 0 || differentialPressure <= 0) {
-    return { cpl: 1, rawCpl: 1, fFactor: 0, differentialPressure: Math.max(0, differentialPressure) }
-  }
-
-  const g2 = rd * rd
-  const g4 = g2 * g2
-  const g6 = g2 * g4
-  const rankine = roundExcelHalfAway(avgTemp + 459.67, 1)
-  const rankine2 = rankine * rankine
-  const rankine3 = rankine2 * rankine
-
-  const hs = 0.00000000060357667
-  const ht = 0.0000022112678
-  const bTotal = -hs * rankine2 + ht * rankine * g2 + 0.00088384 * rd - 0.00204016 * g2
-  const bFactor = roundExcelHalfAway(bTotal * 100000, 3)
-
-  const aTotal =
-    -0.0000021465891 * rankine2 +
-    0.00001577439 * rankine2 * g2 -
-    0.000010502139 * rankine2 * g4 +
-    0.00000028324481 * rankine3 * g6 -
-    0.95495939 +
-    0.000000072900662 * rankine3 * g2 -
-    0.00000027769343 * rankine3 * g4 +
-    0.03645838 * rankine * g2 -
-    0.05110158 * rankine * rd +
-    0.00795529 * rankine +
-    9.1311491 * rd
-
-  const aFactorInt = Math.trunc(roundExcelHalfAway(aTotal * 100000, 4))
-  const fFactor = 1 / (aFactorInt + differentialPressure * bFactor)
-  const cpl = 1 / (1 - fFactor * differentialPressure)
-
-  return {
-    cpl,
-    rawCpl: cpl,
-    fFactor,
-    differentialPressure,
-    bFactor,
-    aFactorInt,
-  }
-}
-
-
-function calculateButaneApi60FromObservedApi(observedApiGravity: number, observedTemperatureF: number) {
-  const observedApi = Number(observedApiGravity || 0)
-  const observedTemp = Number(observedTemperatureF || 60)
-  if (!Number.isFinite(observedApi) || observedApi === 0) {
-    return { apiGravity60: 0, relativeDensity60: 0, rawApiGravity60: 0, rawRelativeDensity60: 0, observedRelativeDensity: 0 }
-  }
-
-  // Convert the observed/sample API at sample temperature to observed relative density.
-  // Then solve for RD60 where: RD_observed = RD60 * CTL(RD60, observed sample temp).
-  const observedRelativeDensity = 141.5 / (observedApi + 131.5)
-  let relativeDensity60 = observedRelativeDensity
-  for (let i = 0; i < 25; i += 1) {
-    const ctlAtSampleTemp = calculateButaneCtlFromRelativeDensity(relativeDensity60, observedTemp).rawCtl || 1
-    const nextRelativeDensity60 = observedRelativeDensity / ctlAtSampleTemp
-    if (!Number.isFinite(nextRelativeDensity60) || nextRelativeDensity60 <= 0) break
-    if (Math.abs(nextRelativeDensity60 - relativeDensity60) < 1e-12) {
-      relativeDensity60 = nextRelativeDensity60
-      break
-    }
-    relativeDensity60 = nextRelativeDensity60
-  }
-
-  const rawApiGravity60 = 141.5 / relativeDensity60 - 131.5
-  return {
-    apiGravity60: roundApiHalfEven(rawApiGravity60, 1),
-    relativeDensity60,
-    rawApiGravity60,
-    rawRelativeDensity60: relativeDensity60,
-    observedRelativeDensity,
-  }
-}
-
-function calculateButaneCorrections(input: {
-  relativeDensity60?: number
-  apiGravity60?: number
-  observedApiGravity?: number
-  observedTemperature?: number
-  averageTemperature?: number
-  averagePressure?: number
-  equilibriumPressure?: number
-  meterFactor?: number
-}) {
-  const observedApiFromInput = Number(input.observedApiGravity || input.apiGravity60 || 0)
-  const observedTemperature = Number(input.observedTemperature || 60)
-  const correctedButaneApi = input.relativeDensity60
-    ? {
-        apiGravity60: roundApiHalfEven(141.5 / Number(input.relativeDensity60) - 131.5, 1),
-        relativeDensity60: Number(input.relativeDensity60),
-        rawApiGravity60: 141.5 / Number(input.relativeDensity60) - 131.5,
-        rawRelativeDensity60: Number(input.relativeDensity60),
-        observedRelativeDensity: observedApiFromInput ? 141.5 / (observedApiFromInput + 131.5) : 0,
-      }
-    : calculateButaneApi60FromObservedApi(observedApiFromInput, observedTemperature)
-  const api60FromInput = correctedButaneApi.apiGravity60
-  const relativeDensity60 = Number(correctedButaneApi.relativeDensity60 || (api60FromInput ? 141.5 / (api60FromInput + 131.5) : 0))
-  const averageTemperature = Number(input.averageTemperature || observedTemperature || 60)
-  const averagePressure = Number(input.averagePressure || 0)
-  const equilibriumPressure = Number(input.equilibriumPressure ?? 50)
-  const ctlCalc = calculateButaneCtlFromRelativeDensity(relativeDensity60, averageTemperature)
-  const cplCalc = calculateButaneCplFromRelativeDensity(relativeDensity60, averageTemperature, averagePressure, equilibriumPressure)
-  const ctl = roundApiFactor(ctlCalc.ctl, 6)
-  const cpl = roundApiFactor(cplCalc.cpl, 6)
-  const ctlp = roundApiFactor(ctl * cpl, 6)
-  const mf = roundApiHalfEven(Number(input.meterFactor || 1), 4)
-  const ccf = roundApiFactor(ctl * cpl * mf, 8)
-  const apiGravity60 = relativeDensity60 ? roundApiHalfEven(141.5 / relativeDensity60 - 131.5, 1) : 0
-
-  return {
-    observed_api_gravity: roundTo(observedApiFromInput, 5),
-    observed_temperature: roundTo(observedTemperature, 2),
-    observed_pressure: 0,
-    api_gravity_60: apiGravity60,
-    density_60: roundTo(relativeDensity60 * 999.016, 6),
-    relative_density_60: roundTo(relativeDensity60, 6),
-    average_temperature: roundTo(averageTemperature, 2),
-    average_pressure: roundTo(averagePressure, 2),
-    equilibrium_pressure: roundTo(equilibriumPressure, 2),
-    pressure_delta: roundTo(cplCalc.differentialPressure, 2),
-    ctl,
-    cpl,
-    ctlp,
-    ccf,
-    raw_api_gravity_60: correctedButaneApi.rawApiGravity60 || (relativeDensity60 ? 141.5 / relativeDensity60 - 131.5 : 0),
-    raw_density_60: relativeDensity60 * 999.016,
-    factor_density_60: relativeDensity60 * 999.016,
-    observed_relative_density: roundTo(correctedButaneApi.observedRelativeDensity || 0, 8),
-    raw_ctl: ctlCalc.rawCtl,
-    raw_cpl: cplCalc.rawCpl,
-    raw_ctlp: ctlCalc.rawCtl * cplCalc.rawCpl,
-    raw_ccf: ctlCalc.rawCtl * cplCalc.rawCpl * mf,
-    raw_fp: cplCalc.fFactor,
-    raw_alpha60: null,
-    product_sub_group: 'butane_table_e',
-    api_engine: 'Butane API 2019 / GPA TP-25 Table E profile',
-    api_engine_note: 'Butane uses relative density @60, Table E CTL, CPL from average pressure minus equilibrium pressure, and CCF = CTL × CPL × MF.',
   }
 }
 
@@ -803,23 +551,8 @@ function calculateApi11Corrections(input: {
   averageTemperature?: number
   averagePressure?: number
   apiRounding?: number
-  relativeDensity60?: number
-  equilibriumPressure?: number
-  meterFactor?: number
 }) {
   const productGroup = input.productGroup || 'crude'
-  if (String(productGroup || '').toLowerCase().includes('butane')) {
-    return calculateButaneCorrections({
-      relativeDensity60: input.relativeDensity60,
-      apiGravity60: input.observedApiGravity,
-      observedApiGravity: input.observedApiGravity,
-      observedTemperature: input.observedTemperature,
-      averageTemperature: input.averageTemperature || input.observedTemperature,
-      averagePressure: input.averagePressure,
-      equilibriumPressure: input.equilibriumPressure,
-      meterFactor: input.meterFactor,
-    })
-  }
   const observedApiGravity = Number(input.observedApiGravity || 0)
   const observedTemperature = Number(input.observedTemperature || 60)
   const observedPressure = Number(input.observedPressure || 0)
@@ -835,31 +568,24 @@ function calculateApi11Corrections(input: {
     productGroup
   )
 
-  const apiDecimals = Number(input.apiRounding ?? 1)
-  const factorDecimals = 6
-
-  // VMACS-style ticket profile: API @60 is displayed to the ticket precision,
-  // but CTL/CPL are calculated from the full-precision 60°F density after the
-  // glass hydrometer correction has been applied to the observed sample API.
-  const apiGravity60Rounded = roundApiHalfEven(base.apiGravity60, apiDecimals)
-  const density60ForFactors = base.density60
-
   const volumeCorrection = calculateType1FromDensity60(
-    density60ForFactors,
+    base.density60,
     averageTemperature,
     averagePressure,
     productGroup
   )
 
+  const apiDecimals = Number(input.apiRounding ?? 1)
+  const factorDecimals = 6
+
   return {
     observed_api_gravity: roundTo(observedApiGravity, 5),
-    hydrometer_corrected_observed_api: roundTo(base.correctedObservedApiGravity ?? observedApiGravity, 6),
     observed_temperature: roundTo(observedTemperature, 2),
     observed_pressure: roundTo(observedPressure, 2),
 
     // Display value: API gravity @60 is rounded to nearest tenth for tickets.
-    api_gravity_60: apiGravity60Rounded,
-    density_60: roundTo(density60ForFactors, 6),
+    api_gravity_60: roundApiHalfEven(base.apiGravity60, apiDecimals),
+    density_60: roundTo(base.density60, 6),
     average_temperature: roundTo(averageTemperature, 2),
     average_pressure: roundTo(averagePressure, 2),
 
@@ -872,7 +598,6 @@ function calculateApi11Corrections(input: {
     // Audit values: full precision is retained for validation and troubleshooting.
     raw_api_gravity_60: base.apiGravity60,
     raw_density_60: base.density60,
-    factor_density_60: density60ForFactors,
     raw_ctl: volumeCorrection.ctl,
     raw_cpl: volumeCorrection.cpl,
     raw_ctlp: volumeCorrection.ctlp,
@@ -1179,8 +904,6 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [selectedMeter, setSelectedMeter] = useState('')
   const [selectedTicketArea, setSelectedTicketArea] = useState('')
   const [ticketType, setTicketType] = useState('meter')
-  const [ticketProductGroup, setTicketProductGroup] = useState('crude')
-  const [ticketEquilibriumPressure, setTicketEquilibriumPressure] = useState('')
   const [refinedProductType, setRefinedProductType] = useState('')
   const [refinedProductCode, setRefinedProductCode] = useState('')
   const [refinedMovementDestination, setRefinedMovementDestination] = useState('')
@@ -3807,6 +3530,7 @@ function handleProvingAreaSelect(areaId: string) {
     return tickets
       .filter((ticket: any) =>
         ticket.status === 'approved' &&
+        String(ticket.id || '') !== String(selectedTicket?.id || '') &&
         (ticket.tank_id === tankId || ticket.observed_inputs?.tank_id === tankId)
       )
       .sort((a: any, b: any) =>
@@ -4176,15 +3900,6 @@ function handleProvingAreaSelect(areaId: string) {
     return ['Crude Oil', 'Diesel', 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
   }
 
-  function getTicketProductOptions() {
-    return [
-      { value: 'crude', label: 'Crude Oil' },
-      { value: 'gasoline', label: 'Gasoline' },
-      { value: 'diesel', label: 'Diesel' },
-      { value: 'butane', label: 'Butane (LPG)' },
-    ]
-  }
-
   function getTicketBatchNumberValue(ticket: any) {
     const observed = ticket?.observed_inputs || {}
     const calc = ticket?.calculation_results || {}
@@ -4206,21 +3921,19 @@ function handleProvingAreaSelect(areaId: string) {
   function isRefinedTicketContext() {
     const contractProfile = getSelectedTicketContractProfile()
     const selectedMeterRow: any = asArray(meters).find((meter: any) => String(meter.id || '') === String(selectedMeter || ''))
-    const selectedTicketProductGroup = String(ticketProductGroup || '').toLowerCase()
     const selectedProductGroup = String(contractProfile?.product_group || '').toLowerCase()
     const selectedProductType = String(selectedMeterRow?.product_type || selectedMeterRow?.product || selectedMeterRow?.commodity || '').toLowerCase()
     const selectedStandard = String(contractProfile?.standard || contractProfile?.calculation_method || '').toLowerCase()
 
     return (
-      selectedTicketProductGroup.includes('refined') ||
-      selectedTicketProductGroup.includes('diesel') ||
-      selectedTicketProductGroup.includes('gasoline') ||
       selectedProductGroup.includes('refined') ||
       selectedProductGroup.includes('diesel') ||
       selectedProductGroup.includes('gasoline') ||
+      selectedProductGroup.includes('butane') ||
       selectedProductType.includes('refined') ||
       selectedProductType.includes('diesel') ||
       selectedProductType.includes('gasoline') ||
+      selectedProductType.includes('butane') ||
       selectedStandard.includes('refined') ||
       ticketType === 'truck'
     )
@@ -4228,11 +3941,6 @@ function handleProvingAreaSelect(areaId: string) {
 
   async function createTicket() {
     if (!companyId) return
-
-    if (ticketProductGroup === 'butane' && !ticketEquilibriumPressure) {
-      alert('Equilibrium Pressure (psig) is required for butane tickets.')
-      return
-    }
 
     const { data: generatedNumber, error } = await supabase.rpc('generate_ticket_number', {
       p_company_id: companyId,
@@ -4278,7 +3986,7 @@ function handleProvingAreaSelect(areaId: string) {
       contractProfile?.calculation_method || 'CTPL'
 
     const selectedProductGroup =
-      ticketProductGroup || contractProfile?.product_group || 'crude'
+      contractProfile?.product_group || 'crude'
 
     const selectedFactorType =
       contractProfile?.factor_type || latestApprovedProving?.factor_type || 'MF'
@@ -4310,29 +4018,6 @@ function handleProvingAreaSelect(areaId: string) {
     const avgPressure = Number(latestReading?.average_pressure || 0)
 
     const productGroup = selectedProductGroup
-    const isButaneTicket = String(productGroup || '').toLowerCase().includes('butane')
-    const factorToUse = Number(latestApprovedProving?.accepted_meter_factor || latestReading?.meter_factor || 1)
-    const butaneRelativeDensity60 = Number(
-      ((latestPot as any)?.relative_density_60) ??
-        ((latestPot as any)?.relative_density) ??
-        ((latestPot as any)?.specific_gravity_60) ??
-        ((latestPot as any)?.sg_60) ??
-        ((latestPot as any)?.rd60) ??
-        ((latestPot as any)?.batch_relative_density_60) ??
-        0
-    )
-    const butaneEquilibriumPressure = Number(
-      (ticketEquilibriumPressure ? Number(ticketEquilibriumPressure) : undefined) ??
-        ((latestPot as any)?.equilibrium_pressure_psig) ??
-        ((latestPot as any)?.equilibrium_pressure) ??
-        ((latestPot as any)?.eq_pressure_psig) ??
-        ((latestPot as any)?.vapor_pressure_psig) ??
-        ((latestReading as any)?.equilibrium_pressure_psig) ??
-        ((latestReading as any)?.equilibrium_pressure) ??
-        ((contractProfile as any)?.equilibrium_pressure_psig) ??
-        ((contractProfile as any)?.equilibrium_pressure) ??
-        50
-    )
 
     const corrections = calculateApi11Corrections({
       productGroup,
@@ -4356,9 +4041,6 @@ function handleProvingAreaSelect(areaId: string) {
       averageTemperature: avgTemp,
       averagePressure: usePressure ? avgPressure : 0,
       apiRounding,
-      relativeDensity60: butaneRelativeDensity60 || undefined,
-      equilibriumPressure: butaneEquilibriumPressure,
-      meterFactor: factorToUse,
     })
 
     const ctl = roundApiFactor(corrections.ctl, ctlRounding)
@@ -4371,6 +4053,7 @@ function handleProvingAreaSelect(areaId: string) {
     const finalCtlp = tankTicketSnapshot ? tankTicketSnapshot.ctlp : ctlp
     const finalCcf = tankTicketSnapshot ? tankTicketSnapshot.ccf : ccf
 
+    const factorToUse = Number(latestApprovedProving?.accepted_meter_factor || latestReading?.meter_factor || 1)
     const mf = roundApiHalfEven(factorToUse, 4)
     const csw = Number(latestPot?.csw || 1)
     const bswPercent = getPotBswPercentValue(latestPot) ?? roundTo((1 - csw) * 100, 4)
@@ -4386,7 +4069,7 @@ function handleProvingAreaSelect(areaId: string) {
 
     const gsvRaw = tankTicketSnapshot
       ? tankTicketSnapshot.gsv
-      : isButaneTicket ? iv * ccf : isApi12 ? iv * mf * ctl * cpl : iv * ccf * mf
+      : isApi12 ? iv * mf * ctl * cpl : iv * ccf * mf
     const gsv = roundApiHalfEven(gsvRaw, volumeRounding)
 
     const nsv = tankTicketSnapshot
@@ -4420,9 +4103,7 @@ function handleProvingAreaSelect(areaId: string) {
         selected_standard: selectedContractStandard,
         selected_calculation_method: selectedCalculationMethod,
         selected_product_group: selectedProductGroup,
-        ticket_product_group: ticketProductGroup || null,
         selected_factor_type: selectedFactorType,
-        equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressure : null,
         refined_unit_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
         product_code: refinedProductCode || null,
@@ -4442,9 +4123,6 @@ function handleProvingAreaSelect(areaId: string) {
       ccf,
       observed_inputs: {
         iv,
-        product_group: selectedProductGroup || null,
-        ticket_product_group: ticketProductGroup || null,
-        equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressure : null,
         lease_id: selectedLease || null,
         opening_reading: openingReading || null,
         closing_reading: closingReading || null,
@@ -4543,12 +4221,13 @@ function handleProvingAreaSelect(areaId: string) {
         raw_ctlp: corrections.raw_ctlp ?? null,
         contract_profile_name: contractProfile?.name || null,
         calculation_method: isChapter122021Ticket ? 'API Chapter 12.2 R2021' : selectedCalculationMethod,
-        calculation_formula: isButaneTicket ? 'CCF = CTL × CPL × MF; GSV/NET = Gross BBL × CCF' : isApi12 ? 'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
+        product_group: selectedProductGroup,
+        calculation_formula: isApi12 ? 'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
         refined_unit_type: refinedProductType || null,
         unit_of_measure_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
         product_code: refinedProductCode || null,
-        product_type: refinedProductCode || ticketProductGroup || selectedProductGroup || null,
+        product_type: refinedProductCode || selectedProductGroup || null,
         refined_destination: refinedMovementDestination || null,
         movement_destination: refinedMovementDestination || null,
         destination: refinedMovementDestination || null,
@@ -4579,15 +4258,12 @@ function handleProvingAreaSelect(areaId: string) {
         nsv: roundTo(nsv, volumeRounding),
         api_gravity_60: corrections.api_gravity_60,
         density_60: corrections.density_60,
-        relative_density_60: (corrections as any).relative_density_60 ?? null,
-        equilibrium_pressure: (corrections as any).equilibrium_pressure ?? null,
-        pressure_delta: (corrections as any).pressure_delta ?? null,
         bsw_percent: bswPercent,
         sw_percent: bswPercent,
         csw,
         product_sub_group: corrections.product_sub_group,
         api_engine: corrections.api_engine,
-        calculation_formula: isButaneTicket ? 'CCF = CTL × CPL × MF; GSV/NET = Gross BBL × CCF' : isApi12 ? 'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
+        calculation_formula: isApi12 ? 'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' : 'GSV = IV × CTPL × MF; NSV = GSV × CSW',
         raw_api_gravity_60: corrections.raw_api_gravity_60 ?? null,
         raw_ctl: corrections.raw_ctl ?? null,
         raw_cpl: corrections.raw_cpl ?? null,
@@ -4596,11 +4272,11 @@ function handleProvingAreaSelect(areaId: string) {
         unit_of_measure_type: refinedProductType || null,
         refined_product_type: refinedProductCode || null,
         product_code: refinedProductCode || null,
-        product_type: refinedProductCode || ticketProductGroup || selectedProductGroup || null,
+        product_type: refinedProductCode || selectedProductGroup || null,
         refined_destination: refinedMovementDestination || null,
         movement_destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
-        formula_profile: isButaneTicket ? 'Butane API 2019 / Table E' : isApi12 ? 'API 12 2021' : 'API 11.1',
+        formula_profile: isApi12 ? 'API 12 2021' : 'API 11.1',
       },
     }
     let ticketInsertResult = await supabase.from('tickets').insert(ticketInsertPayload).select().maybeSingle()
@@ -4855,7 +4531,68 @@ function handleProvingAreaSelect(areaId: string) {
     return getTicketPdfLeaseName(ticket, meter, lease, observed) || observed.lease_name || observed.lease || ticket?.ticket_number || ticket?.id || 'Ticket'
   }
 
+  function isTankTicket(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const calc = ticket?.calculation_results || {}
+    return (
+      String(ticket?.ticket_type || observed.ticket_type || '').toLowerCase() === 'tank' ||
+      Boolean(ticket?.tank_id || observed.tank_id || calc.tank_gov || calc.tank_nsv || observed.tank_gov || observed.tank_nsv)
+    )
+  }
+
+  function startTankTicketEdit(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    setSelectedTicket(ticket)
+    setTicketType('tank')
+    setSelectedTank(String(ticket?.tank_id || observed.tank_id || ''))
+    setSelectedSegment(String(ticket?.segment_id || observed.segment_id || ''))
+    setSelectedTicketArea(String(observed.area_id || ticket?.area_id || selectedTicketArea || ''))
+    setTankMovementDirection(String(observed.tank_movement_direction || observed.movement_direction || 'delivery'))
+    setSelectedTankCalibrationVersionId(String(observed.tank_calibration_version_id || ''))
+
+    const closingDecimal = Number(observed.closing_gauge_decimal ?? observed.tank_closing_gauge_decimal ?? ticket?.closing_gauge ?? observed.closing_gauge ?? 0)
+    const closingParts = (observed.tank_closing_feet !== undefined && observed.tank_closing_feet !== null && observed.tank_closing_feet !== '')
+      ? { feet: observed.tank_closing_feet, inches: observed.tank_closing_inches || 0, eighths: observed.tank_closing_eighths || 0 }
+      : decimalGaugeToParts(closingDecimal)
+    setTankClosingFeet(ticketEditString(closingParts.feet))
+    setTankClosingInches(ticketEditString(closingParts.inches))
+    setTankClosingEighths(ticketEditString(closingParts.eighths))
+
+    const closingWaterDecimal = Number(observed.closing_water_gauge_decimal ?? observed.tank_closing_water_gauge_decimal ?? 0)
+    const closingWaterParts = (observed.tank_closing_water_feet !== undefined && observed.tank_closing_water_feet !== null && observed.tank_closing_water_feet !== '')
+      ? { feet: observed.tank_closing_water_feet, inches: observed.tank_closing_water_inches || 0, eighths: observed.tank_closing_water_eighths || 0 }
+      : decimalGaugeToParts(closingWaterDecimal)
+    setTankClosingWaterFeet(ticketEditString(closingWaterParts.feet))
+    setTankClosingWaterInches(ticketEditString(closingWaterParts.inches))
+    setTankClosingWaterEighths(ticketEditString(closingWaterParts.eighths))
+
+    setTankAmbientTemp(ticketEditString(observed.tank_ambient_temp ?? observed.ambient_temperature ?? observed.ambient_temp))
+    setTankAverageTemp(ticketEditString(observed.tank_average_temp ?? observed.average_temperature))
+    setTankObservedGravity(ticketEditString(observed.tank_observed_gravity ?? observed.observed_api_gravity ?? observed.api_observed))
+    setTankObservedTemp(ticketEditString(observed.tank_observed_temp ?? observed.observed_temperature ?? observed.temperature))
+    setTankSwPercent(ticketEditString(observed.tank_sw_percent ?? observed.bsw_percent ?? observed.sw_percent ?? observed.bsw))
+    setTankShellReferenceTemp(ticketEditString(observed.tank_shell_reference_temp ?? 60))
+    setTankShellCoefficient(ticketEditString(observed.tank_shell_coefficient ?? 0.0000062))
+    setTankAutoRoofCorrection(observed.tank_auto_roof_correction !== false)
+    setTankRoofCorrectionMode(String(observed.tank_roof_correction_mode || 'fra'))
+    setTicketOpenDate(ticketEditString(observed.open_date || '').slice(0, 10) || ticketOpenDate)
+    setTicketOpenTime(ticketEditString(observed.open_time || ticketOpenTime))
+    setTicketCloseDate(ticketEditString(observed.close_date || '').slice(0, 10) || ticketCloseDate)
+    setTicketCloseTime(ticketEditString(observed.close_time || ticketCloseTime))
+    setDraftTicketEditValues({
+      net_volume_adjustment_bbl: ticketEditString(ticket?.calculation_results?.net_volume_adjustment_bbl ?? observed.net_volume_adjustment_bbl ?? 0),
+      net_volume_adjustment_reason: ticketEditString(observed.net_volume_adjustment_reason ?? ''),
+      notes: ticketEditString(observed.notes ?? ticket?.notes ?? ''),
+    })
+    setIsDraftTicketEditOpen(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   function startDraftTicketEdit(ticket: any) {
+    if (isTankTicket(ticket)) {
+      startTankTicketEdit(ticket)
+      return
+    }
     const observed = ticket.observed_inputs || {}
     const calc = ticket.calculation_results || {}
     const draftReadings = getDraftTicketReadingValues(ticket)
@@ -4951,31 +4688,10 @@ function handleProvingAreaSelect(areaId: string) {
     return existing
   }
 
-  function getDraftTicketEditCorrections(values: Record<string, string>) {
-    const observedApi = ticketEditNumber(values, 'observed_api_gravity')
-    const observedTemp = ticketEditNumber(values, 'observed_temperature')
-    const avgTemp = ticketEditNumber(values, 'average_temperature')
-    const avgPressure = ticketEditNumber(values, 'average_pressure')
-    const productGroup = String(selectedTicket?.calculation_results?.product_group || selectedTicket?.observed_inputs?.product_group || 'crude')
-
-    if (observedApi === null || observedTemp === null) return null
-
-    return calculateApi11Corrections({
-      productGroup,
-      observedApiGravity: observedApi,
-      observedTemperature: observedTemp,
-      observedPressure: 0,
-      averageTemperature: avgTemp ?? observedTemp,
-      averagePressure: avgPressure ?? 0,
-      apiRounding: 1,
-    })
-  }
-
   function getDraftTicketEditCalculatedVolumes(values: Record<string, string>) {
     const iv = getDraftTicketEditIv(values)
-    const liveCorrections = getDraftTicketEditCorrections(values)
-    const ctl = liveCorrections?.ctl ?? ticketEditNumber(values, 'ctl') ?? Number(selectedTicket?.calculation_results?.ctl ?? selectedTicket?.observed_inputs?.ctl ?? 1)
-    const cpl = liveCorrections?.cpl ?? ticketEditNumber(values, 'cpl') ?? Number(selectedTicket?.calculation_results?.cpl ?? selectedTicket?.observed_inputs?.cpl ?? 1)
+    const ctl = ticketEditNumber(values, 'ctl') ?? Number(selectedTicket?.calculation_results?.ctl ?? selectedTicket?.observed_inputs?.ctl ?? 1)
+    const cpl = ticketEditNumber(values, 'cpl') ?? Number(selectedTicket?.calculation_results?.cpl ?? selectedTicket?.observed_inputs?.cpl ?? 1)
     const mf = ticketEditNumber(values, 'mf') ?? Number(selectedTicket?.calculation_results?.mf ?? selectedTicket?.observed_inputs?.mf ?? 1)
     const swPercent = ticketEditNumber(values, 'sw_percent')
     const csw = swPercent !== null
@@ -4996,8 +4712,252 @@ function handleProvingAreaSelect(areaId: string) {
     return { iv, gv, baseGsv, baseNsv, adjustment, adjustedNsv }
   }
 
+  async function saveTankTicketEdits() {
+    if (!selectedTicket) return
+    const tankId = selectedTank || selectedTicket.tank_id || selectedTicket.observed_inputs?.tank_id
+    if (!tankId) {
+      alert('Select a tank before saving the revision.')
+      return
+    }
+
+    const isApprovedRevision = String(selectedTicket.status || '').toLowerCase() === 'approved'
+    const revisionNote = isApprovedRevision
+      ? window.prompt('Reason for revising this approved tank ticket? This will be stored in the revision history.')
+      : ''
+
+    if (isApprovedRevision && !String(revisionNote || '').trim()) {
+      alert('Revision cancelled. A reason is required to revise an approved tank ticket.')
+      return
+    }
+
+    const observed = { ...((selectedTicket as any).observed_inputs || {}) }
+    const calc = { ...((selectedTicket as any).calculation_results || {}) }
+    const oldRevisionSnapshot = {
+      observed_inputs: observed,
+      calculation_results: calc,
+      status: selectedTicket.status,
+      approved_at: selectedTicket.approved_at || null,
+    }
+
+    const snapshot = calculateTankTicketSnapshot(tankId)
+    const volumeRounding = 2
+    const mfValue = Number(calc.mf ?? observed.mf ?? 1)
+    const cswValue = roundTo(1 - Number(snapshot.swPercent || 0) / 100, 5)
+    const netVolumeAdjustmentBbl = ticketEditNumber(draftTicketEditValues, 'net_volume_adjustment_bbl') ?? 0
+    const baseNsvValue = roundTo(snapshot.nsv, volumeRounding)
+    const nsvValue = roundTo(baseNsvValue + netVolumeAdjustmentBbl, volumeRounding)
+    const netVolumeAdjustmentReason = String(draftTicketEditValues.net_volume_adjustment_reason || '').trim()
+    const nowIso = new Date().toISOString()
+
+    const previousRevisionNumber = Number(observed.revision_number || calc.revision_number || 0)
+    const nextRevisionNumber = isApprovedRevision ? previousRevisionNumber + 1 : previousRevisionNumber
+    const revisionEntry = isApprovedRevision ? {
+      revision_number: nextRevisionNumber,
+      revised_at: nowIso,
+      reason: String(revisionNote || '').trim(),
+      old_inputs: oldRevisionSnapshot.observed_inputs,
+      old_calculation_results: oldRevisionSnapshot.calculation_results,
+    } : null
+
+    const nextObservedInputs: any = {
+      ...observed,
+      ticket_type: 'tank',
+      tank_id: tankId,
+      tank_calibration_version_id: snapshot.selectedCalibration?.id || selectedTankCalibrationVersionId || observed.tank_calibration_version_id || null,
+      tank_calibration_name: snapshot.selectedCalibration ? getTankCalibrationLabel(snapshot.selectedCalibration) : observed.tank_calibration_name || null,
+      tank_movement_direction: tankMovementDirection,
+      movement_direction: tankMovementDirection,
+      opening_gauge: snapshot.openingGaugeDecimal,
+      closing_gauge: snapshot.closingGaugeDecimal,
+      closing_gauge_decimal: snapshot.closingGaugeDecimal,
+      tank_closing_gauge_decimal: snapshot.closingGaugeDecimal,
+      tank_closing_feet: tankClosingFeet || null,
+      tank_closing_inches: tankClosingInches || null,
+      tank_closing_eighths: tankClosingEighths || null,
+      closing_water_gauge_decimal: snapshot.closingWaterGaugeDecimal,
+      tank_closing_water_gauge_decimal: snapshot.closingWaterGaugeDecimal,
+      tank_closing_water_feet: tankClosingWaterFeet || null,
+      tank_closing_water_inches: tankClosingWaterInches || null,
+      tank_closing_water_eighths: tankClosingWaterEighths || null,
+      tank_gov: roundTo(snapshot.gov, volumeRounding),
+      tank_gsv: roundTo(snapshot.gsv, volumeRounding),
+      tank_nsv: nsvValue,
+      tank_tov_movement_bbl: roundTo(snapshot.tovMovement, volumeRounding),
+      tank_free_water_movement_bbl: roundTo(snapshot.fwMovement, volumeRounding),
+      tank_opening_tov: roundTo(snapshot.openingPoint.tov, volumeRounding),
+      tank_closing_tov: roundTo(snapshot.closingPoint.tov, volumeRounding),
+      tank_opening_free_water_bbl: roundTo(snapshot.openingPoint.fw, volumeRounding),
+      tank_closing_free_water_bbl: roundTo(snapshot.closingPoint.fw, volumeRounding),
+      tank_opening_gov: roundTo(snapshot.openingPoint.gov, volumeRounding),
+      tank_closing_gov: roundTo(snapshot.closingPoint.gov, volumeRounding),
+      tank_opening_gsv: roundTo(snapshot.openingGsv, volumeRounding),
+      tank_closing_gsv: roundTo(snapshot.closingGsv, volumeRounding),
+      tank_opening_nsv: roundTo(snapshot.openingNsv, volumeRounding),
+      tank_closing_nsv: roundTo(snapshot.closingNsv, volumeRounding),
+      tank_opening_source: snapshot.openingSource,
+      tank_opening_source_ticket_number: snapshot.openingSourceTicketNumber,
+      tank_shell_temp: snapshot.tankShellTemp,
+      tank_shell_reference_temp: tankShellReferenceTemp || null,
+      tank_shell_coefficient: tankShellCoefficient || null,
+      tank_shell_correction_factor: snapshot.ctsh,
+      tank_opening_roof_adjustment_bbl: snapshot.openingPoint.roofAdjustmentBbl,
+      tank_closing_roof_adjustment_bbl: snapshot.closingPoint.roofAdjustmentBbl,
+      tank_auto_roof_correction: tankAutoRoofCorrection,
+      tank_roof_correction_mode: tankRoofCorrectionMode,
+      tank_average_temp: tankAverageTemp || null,
+      tank_ambient_temp: tankAmbientTemp || null,
+      tank_observed_gravity: tankObservedGravity || null,
+      tank_observed_temp: tankObservedTemp || null,
+      tank_sw_percent: tankSwPercent || null,
+      observed_api_gravity: snapshot.observedGravity,
+      observed_temperature: snapshot.observedTemp,
+      average_temperature: snapshot.averageTemp,
+      average_pressure: 0,
+      api_gravity_60: snapshot.corrections.api_gravity_60,
+      density_60: snapshot.corrections.density_60,
+      ctl: snapshot.ctl,
+      cpl: snapshot.cpl,
+      ctlp: snapshot.ctlp,
+      ccf: snapshot.ccf,
+      mf: mfValue,
+      csw: cswValue,
+      bsw_percent: snapshot.swPercent,
+      sw_percent: snapshot.swPercent,
+      gv: roundTo(snapshot.gov * mfValue, volumeRounding),
+      gsv: roundTo(snapshot.gsv, volumeRounding),
+      calculated_nsv_before_adjustment: baseNsvValue,
+      base_nsv: baseNsvValue,
+      nsv: nsvValue,
+      net_volume_bbl: nsvValue,
+      net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
+      manual_net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
+      net_volume_adjustment_reason: netVolumeAdjustmentReason || null,
+      open_date: ticketOpenDate || observed.open_date || null,
+      open_time: ticketOpenTime || observed.open_time || null,
+      close_date: ticketCloseDate || observed.close_date || null,
+      close_time: ticketCloseTime || observed.close_time || null,
+      notes: draftTicketEditValues.notes || observed.notes || null,
+      draft_edited_at: nowIso,
+      ...(isApprovedRevision ? {
+        revision_number: nextRevisionNumber,
+        revised_at: nowIso,
+        revision_reason: revisionEntry?.reason,
+        revision_history: [
+          ...(Array.isArray(observed.revision_history) ? observed.revision_history : []),
+          revisionEntry,
+        ],
+      } : {}),
+    }
+
+    const nextCalculationResults: any = {
+      ...calc,
+      iv: roundTo(snapshot.gov, volumeRounding),
+      indicated_volume: roundTo(snapshot.gov, volumeRounding),
+      gov: roundTo(snapshot.gov, volumeRounding),
+      tank_opening_bbl: roundTo(snapshot.openingPoint.gov, volumeRounding),
+      tank_closing_bbl: roundTo(snapshot.closingPoint.gov, volumeRounding),
+      tank_movement_bbl: roundTo(snapshot.gov, volumeRounding),
+      tank_tov_movement_bbl: roundTo(snapshot.tovMovement, volumeRounding),
+      tank_free_water_movement_bbl: roundTo(snapshot.fwMovement, volumeRounding),
+      tank_opening_gsv: roundTo(snapshot.openingGsv, volumeRounding),
+      tank_closing_gsv: roundTo(snapshot.closingGsv, volumeRounding),
+      tank_opening_nsv: roundTo(snapshot.openingNsv, volumeRounding),
+      tank_closing_nsv: roundTo(snapshot.closingNsv, volumeRounding),
+      tank_ctsh: snapshot.ctsh,
+      tank_shell_temp: snapshot.tankShellTemp,
+      ctl: snapshot.ctl,
+      cpl: snapshot.cpl,
+      ctlp: snapshot.ctlp,
+      ctpl: snapshot.ctlp,
+      ccf: snapshot.ccf,
+      mf: mfValue,
+      csw: cswValue,
+      gv: roundTo(snapshot.gov * mfValue, volumeRounding),
+      gross_volume: roundTo(snapshot.gov * mfValue, volumeRounding),
+      gross_volume_bbl: roundTo(snapshot.gov * mfValue, volumeRounding),
+      gsv: roundTo(snapshot.gsv, volumeRounding),
+      calculated_nsv_before_adjustment: baseNsvValue,
+      base_nsv: baseNsvValue,
+      nsv: nsvValue,
+      net_volume_bbl: nsvValue,
+      api_gravity_60: snapshot.corrections.api_gravity_60,
+      density_60: snapshot.corrections.density_60,
+      bsw_percent: snapshot.swPercent,
+      sw_percent: snapshot.swPercent,
+      net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
+      manual_net_volume_adjustment_bbl: netVolumeAdjustmentBbl,
+      net_volume_adjustment_reason: netVolumeAdjustmentReason || null,
+      revised_at: isApprovedRevision ? nowIso : calc.revised_at,
+      revision_number: isApprovedRevision ? nextRevisionNumber : calc.revision_number,
+    }
+
+    const updatePayload: any = {
+      tank_id: tankId,
+      observed_inputs: nextObservedInputs,
+      calculation_results: nextCalculationResults,
+      observed_api_gravity: snapshot.observedGravity,
+      api_gravity_60: snapshot.corrections.api_gravity_60,
+      observed_temperature: snapshot.observedTemp,
+      observed_pressure: 0,
+      ctl: snapshot.ctl,
+      cpl: snapshot.cpl,
+      ctpl: snapshot.ctlp,
+      ccf: snapshot.ccf,
+    }
+
+    const { data, error } = await supabase
+      .from('tickets')
+      .update(updatePayload)
+      .eq('id', selectedTicket.id)
+      .select()
+      .maybeSingle()
+
+    if (error) {
+      alert('Could not save tank ticket revision: ' + error.message)
+      return
+    }
+
+    const updatedTicket: any = data || { ...selectedTicket, ...updatePayload }
+
+    if (isApprovedRevision) {
+      const { error: auditError } = await supabase
+        .from('ticket_audit_log')
+        .insert({
+          company_id: companyId || (selectedTicket as any).company_id || null,
+          ticket_id: selectedTicket.id,
+          action: 'approved_tank_ticket_revision',
+          old_status: selectedTicket.status || 'approved',
+          new_status: 'approved',
+          notes: JSON.stringify({ revision_number: nextRevisionNumber, reason: revisionNote, old_snapshot: oldRevisionSnapshot, new_snapshot: { observed_inputs: nextObservedInputs, calculation_results: nextCalculationResults } }),
+        })
+
+      if (auditError) {
+        console.warn('Tank ticket revision saved, but audit log failed:', auditError)
+      }
+    }
+
+    setSelectedTicket(updatedTicket)
+    setIsDraftTicketEditOpen(false)
+
+    if (String(updatedTicket.status || selectedTicket.status || '').toLowerCase() === 'approved') {
+      try {
+        await saveTicketPdfToSupabase(updatedTicket)
+      } catch (pdfError: any) {
+        console.warn('Approved tank ticket PDF refresh failed:', pdfError)
+        alert('Tank ticket saved, but the approved PDF could not be refreshed: ' + (pdfError?.message || 'Unknown PDF error'))
+      }
+    }
+
+    await loadAll()
+    alert(isApprovedRevision ? 'Approved tank ticket revision saved.' : 'Tank draft updated.')
+  }
+
   async function saveDraftTicketEdits() {
     if (!selectedTicket) return
+    if (isTankTicket(selectedTicket)) {
+      await saveTankTicketEdits()
+      return
+    }
     const observed = { ...((selectedTicket as any).observed_inputs || {}) }
     const calc = { ...((selectedTicket as any).calculation_results || {}) }
     const values = draftTicketEditValues
@@ -5030,9 +4990,9 @@ function handleProvingAreaSelect(areaId: string) {
     const swPercent = ticketEditNumber(values, 'sw_percent')
     const productGroup = calc.product_group || observed.product_group || 'crude'
     const apiRounding = Number(calc.api_rounding ?? observed.api_rounding ?? 1)
-    const ctlRounding = Number(calc.ctl_rounding ?? observed.ctl_rounding ?? 6)
-    const cplRounding = Number(calc.cpl_rounding ?? observed.cpl_rounding ?? 6)
-    const ctlpRounding = Number(calc.ctlp_rounding ?? observed.ctlp_rounding ?? 6)
+    const ctlRounding = Number(calc.ctl_rounding ?? observed.ctl_rounding ?? 5)
+    const cplRounding = Number(calc.cpl_rounding ?? observed.cpl_rounding ?? 5)
+    const ctlpRounding = Number(calc.ctlp_rounding ?? observed.ctlp_rounding ?? 5)
     const corrections = calculateApi11Corrections({
       productGroup,
       observedApiGravity: Number(observedApi ?? calc.observed_api_gravity ?? observed.observed_api_gravity ?? 0),
@@ -8845,7 +8805,7 @@ async function createCompany() {
       ctlp_rounding: 6,
       volume_rounding: 2,
       use_pressure: true,
-      use_shrink: String(contractProductGroup).toLowerCase() === 'butane',
+      use_shrink: contractProductGroup === 'Butane',
       active: true,
       is_active: true,
       updated_at: new Date().toISOString(),
@@ -11647,8 +11607,6 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
         selectedLease,
         selectedMeter,
         ticketType,
-        ticketProductGroup,
-        ticketEquilibriumPressure,
         savedAt: new Date().toISOString(),
       }
 
@@ -11657,9 +11615,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
         selectedProducer ||
         selectedLease ||
         selectedMeter ||
-        ticketType !== 'meter' ||
-        ticketProductGroup !== 'crude' ||
-        Boolean(ticketEquilibriumPressure)
+        ticketType !== 'meter'
 
       if (hasDraftWork) {
         localStorage.setItem(ticketDraftStorageKey, JSON.stringify(draftPayload))
@@ -11675,8 +11631,6 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
     selectedLease,
     selectedMeter,
     ticketType,
-    ticketProductGroup,
-    ticketEquilibriumPressure,
   ])
 
   function restoreLocalTicketDraft() {
@@ -11690,8 +11644,6 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
       setSelectedLease(draft.selectedLease || '')
       setSelectedMeter(draft.selectedMeter || '')
       setTicketType(draft.ticketType || 'meter')
-      setTicketProductGroup(draft.ticketProductGroup || 'crude')
-      setTicketEquilibriumPressure(draft.ticketEquilibriumPressure || '')
       setDraftRestoredMessage(`Restored draft saved ${draft.savedAt ? new Date(draft.savedAt).toLocaleString() : 'earlier'}.`)
       setPage('tickets')
     } catch (error) {
@@ -15837,7 +15789,72 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   </div>
                 )}
 
-                {['draft', 'approved'].includes(String(selectedTicket!.status || 'draft').toLowerCase()) && isDraftTicketEditOpen && (
+                {['draft', 'approved'].includes(String(selectedTicket!.status || 'draft').toLowerCase()) && isDraftTicketEditOpen && isTankTicket(selectedTicket) && (
+                  <div style={{ ...card, marginTop: 14, borderColor: '#f59e0b' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div>
+                        <h3 style={{ marginTop: 0 }}>{String(selectedTicket!.status || '').toLowerCase() === 'approved' ? 'Revise Approved Tank Ticket' : 'Edit Tank Draft'}</h3>
+                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>Tank tickets revise with tank gauges, water, shell correction, roof correction, and an audited revision history.</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button style={{ ...button, width: 'auto', background: '#16a34a' }} onClick={() => runSafeAction('Saving tank ticket revision', saveTankTicketEdits)}>Save Changes</button>
+                        <button style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => setIsDraftTicketEditOpen(false)}>Cancel</button>
+                      </div>
+                    </div>
+
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginTop: 12 }}>
+                      <label><div className="ticket-muted">Tank</div><select style={input} value={selectedTank} onChange={(e) => setSelectedTank(e.target.value)}><option value="">Select Tank</option>{tanks.map((tank: any) => <option key={tank.id} value={tank.id}>{tank.tank_number || tank.tank_name || tank.id}</option>)}</select></label>
+                      <label><div className="ticket-muted">Movement</div><select style={input} value={tankMovementDirection} onChange={(e) => setTankMovementDirection(e.target.value)}><option value="delivery">Delivery / draw down</option><option value="receipt">Receipt / fill up</option></select></label>
+                      <label><div className="ticket-muted">Open Date</div><input style={input} type="date" value={ticketOpenDate} onChange={(e) => setTicketOpenDate(e.target.value)} /></label>
+                      <label><div className="ticket-muted">Open Time</div><input style={input} type="time" value={ticketOpenTime} onChange={(e) => setTicketOpenTime(e.target.value)} /></label>
+                      <label><div className="ticket-muted">Close Date</div><input style={input} type="date" value={ticketCloseDate} onChange={(e) => setTicketCloseDate(e.target.value)} /></label>
+                      <label><div className="ticket-muted">Close Time</div><input style={input} type="time" value={ticketCloseTime} onChange={(e) => setTicketCloseTime(e.target.value)} /></label>
+                    </div>
+
+                    <div style={{ marginTop: 12, color: '#a8b3bd', fontSize: 12 }}>Closing Oil Gauge</div>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12 }}>
+                      <input style={input} placeholder="Feet" value={tankClosingFeet} onChange={(e) => setTankClosingFeet(e.target.value)} />
+                      <input style={input} placeholder="Inches" value={tankClosingInches} onChange={(e) => setTankClosingInches(e.target.value)} />
+                      <input style={input} placeholder="8ths" value={tankClosingEighths} onChange={(e) => setTankClosingEighths(e.target.value)} />
+                    </div>
+
+                    <div style={{ marginTop: 12, color: '#a8b3bd', fontSize: 12 }}>Closing Water Gauge</div>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12 }}>
+                      <input style={input} placeholder="Water Feet" value={tankClosingWaterFeet} onChange={(e) => setTankClosingWaterFeet(e.target.value)} />
+                      <input style={input} placeholder="Water Inches" value={tankClosingWaterInches} onChange={(e) => setTankClosingWaterInches(e.target.value)} />
+                      <input style={input} placeholder="Water 8ths" value={tankClosingWaterEighths} onChange={(e) => setTankClosingWaterEighths(e.target.value)} />
+                    </div>
+
+                    <div style={{ marginTop: 12, color: '#a8b3bd', fontSize: 12 }}>Temperature / Quality</div>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                      <input style={input} placeholder="Ambient Temp" value={tankAmbientTemp} onChange={(e) => setTankAmbientTemp(e.target.value)} />
+                      <input style={input} placeholder="Average Temp" value={tankAverageTemp} onChange={(e) => setTankAverageTemp(e.target.value)} />
+                      <input style={input} placeholder="Observed Gravity" value={tankObservedGravity} onChange={(e) => setTankObservedGravity(e.target.value)} />
+                      <input style={input} placeholder="Observed Temp" value={tankObservedTemp} onChange={(e) => setTankObservedTemp(e.target.value)} />
+                      <input style={input} placeholder="S&W %" value={tankSwPercent} onChange={(e) => setTankSwPercent(e.target.value)} />
+                    </div>
+
+                    {selectedTank && (
+                      <div style={{ ...card, marginTop: 12 }}>
+                        <h4 style={{ marginTop: 0 }}>Tank Revision Preview</h4>
+                        <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+                          <div style={box}><div className="ticket-muted">GOV</div><strong>{calculateTankTicketSnapshot(selectedTank).gov.toFixed(2)}</strong></div>
+                          <div style={box}><div className="ticket-muted">GSV</div><strong>{calculateTankTicketSnapshot(selectedTank).gsv.toFixed(2)}</strong></div>
+                          <div style={box}><div className="ticket-muted">Base NSV</div><strong>{calculateTankTicketSnapshot(selectedTank).nsv.toFixed(2)}</strong></div>
+                          <div style={box}><div className="ticket-muted">CTL/CTPL</div><strong>{calculateTankTicketSnapshot(selectedTank).ctl.toFixed(5)}</strong></div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginTop: 12 }}>
+                      <label><div className="ticket-muted">Net Volume Adjustment (+/- BBLS)</div><input style={input} value={draftTicketEditValues.net_volume_adjustment_bbl || ''} onChange={(e) => updateDraftTicketEditField('net_volume_adjustment_bbl', e.target.value)} /></label>
+                      <label><div className="ticket-muted">Adjustment Reason</div><input style={input} value={draftTicketEditValues.net_volume_adjustment_reason || ''} onChange={(e) => updateDraftTicketEditField('net_volume_adjustment_reason', e.target.value)} /></label>
+                    </div>
+                    <label><div className="ticket-muted" style={{ marginTop: 12 }}>Notes</div><textarea style={{ ...input, minHeight: 90 }} value={draftTicketEditValues.notes || ''} onChange={(e) => updateDraftTicketEditField('notes', e.target.value)} /></label>
+                  </div>
+                )}
+
+                {['draft', 'approved'].includes(String(selectedTicket!.status || 'draft').toLowerCase()) && isDraftTicketEditOpen && !isTankTicket(selectedTicket) && (
                   <div style={{ ...card, marginTop: 14, borderColor: '#f59e0b' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                       <div>
@@ -15858,10 +15875,10 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <label><div className="ticket-muted">Average Pressure</div><input style={input} value={draftTicketEditValues.average_pressure || ''} onChange={(e) => updateDraftTicketEditField('average_pressure', e.target.value)} /></label>
                       <label><div className="ticket-muted">Observed Gravity/API</div><input style={input} value={draftTicketEditValues.observed_api_gravity || ''} onChange={(e) => updateDraftTicketEditField('observed_api_gravity', e.target.value)} /></label>
                       <label><div className="ticket-muted">Observed Temp</div><input style={input} value={draftTicketEditValues.observed_temperature || ''} onChange={(e) => updateDraftTicketEditField('observed_temperature', e.target.value)} /></label>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">API @ 60°F</div><strong>{(() => { const c = getDraftTicketEditCorrections(draftTicketEditValues); return c ? formatMeasurementNumber(c.api_gravity_60, 1) : '—' })()}</strong><div className="ticket-muted">Calculated by app</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">API @ 60°F</div><strong>{(() => { const api = ticketEditNumber(draftTicketEditValues, 'observed_api_gravity'); const temp = ticketEditNumber(draftTicketEditValues, 'observed_temperature'); if (api === null || temp === null) return '—'; return formatMeasurementNumber(calculateApi11Corrections({ productGroup: 'crude', observedApiGravity: api, observedTemperature: temp, averageTemperature: ticketEditNumber(draftTicketEditValues, 'average_temperature') ?? temp, averagePressure: ticketEditNumber(draftTicketEditValues, 'average_pressure') ?? 0, apiRounding: 1 }).api_gravity_60, 1) })()}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <label><div className="ticket-muted">S&W %</div><input style={input} value={draftTicketEditValues.sw_percent || ''} onChange={(e) => updateDraftTicketEditField('sw_percent', e.target.value)} /></label>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTL</div><strong>{formatFactorDetail(getDraftTicketEditCorrections(draftTicketEditValues)?.ctl ?? selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CPL</div><strong>{formatFactorDetail(getDraftTicketEditCorrections(draftTicketEditValues)?.cpl ?? selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CPL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">GV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).gv, 2)}</strong><div className="ticket-muted">IV × MF</div></div>
                       <label><div className="ticket-muted">MF / CMF</div><input style={input} value={draftTicketEditValues.mf || ''} onChange={(e) => updateDraftTicketEditField('mf', e.target.value)} /></label>
                       <label>
@@ -16013,7 +16030,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
               </div>
             )}
             <div style={box}>
-              <div className="ticket-section-title"><div><h2 style={{ margin: 0 }}>Create Draft Ticket</h2><div className="ticket-muted">Segment → Lease → Meter. Producer and measurement data auto-fill. Dates stay with the ticket.</div></div><button style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => { setSelectedLease(''); setSelectedMeter(''); setManualClosingReading(''); setTicketProductGroup('crude'); setTicketEquilibriumPressure('') }}>Clear Form</button></div>
+              <div className="ticket-section-title"><div><h2 style={{ margin: 0 }}>Create Draft Ticket</h2><div className="ticket-muted">Segment → Lease → Meter. Producer and measurement data auto-fill. Dates stay with the ticket.</div></div><button style={{ ...button, width: 'auto', background: '#374151' }} onClick={() => { setSelectedLease(''); setSelectedMeter(''); setManualClosingReading('') }}>Clear Form</button></div>
               {!shouldHideAreaSelector() ? (
                 <select style={input} value={selectedTicketArea} onChange={(e) => handleTicketAreaSelect(e.target.value)}>
                   <option value="">Select Area</option>
@@ -16081,54 +16098,6 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 <option value="transfer">Transfer Ticket</option>
                 <option value="truck">Truck Ticket</option>
               </select>
-
-              <div style={card}>
-                <h3 style={{ marginTop: 0 }}>Product / Calculation Engine</h3>
-                <div style={{ color: '#a8b3bd', fontSize: 12, marginBottom: 10 }}>
-                  Pick the product first so the ticket loads the correct custody-transfer calculation before the draft is built.
-                </div>
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: ticketProductGroup === 'butane' ? '1fr 1fr' : '1fr', gap: 12 }}>
-                  <label>
-                    <div className="ticket-muted" style={{ marginBottom: 6 }}>Product</div>
-                    <select
-                      style={input}
-                      value={ticketProductGroup}
-                      onChange={(e) => {
-                        const nextProduct = e.target.value
-                        setTicketProductGroup(nextProduct)
-                        if (nextProduct === 'gasoline' || nextProduct === 'diesel') setRefinedProductCode(nextProduct === 'gasoline' ? 'GAS' : 'Diesel')
-                        if (nextProduct === 'crude') setRefinedProductCode('')
-                        if (nextProduct !== 'butane') setTicketEquilibriumPressure('')
-                      }}
-                    >
-                      {getTicketProductOptions().map((product) => (
-                        <option key={product.value} value={product.value}>{product.label}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  {ticketProductGroup === 'butane' && (
-                    <label>
-                      <div className="ticket-muted" style={{ marginBottom: 6 }}>Equilibrium Pressure (psig)</div>
-                      <input
-                        style={input}
-                        type="number"
-                        step="0.01"
-                        placeholder="Required for butane CPL"
-                        value={ticketEquilibriumPressure}
-                        onChange={(e) => setTicketEquilibriumPressure(e.target.value)}
-                      />
-                    </label>
-                  )}
-                </div>
-                <div style={{ color: ticketProductGroup === 'butane' ? '#fef3c7' : '#86efac', fontSize: 12, marginTop: 10 }}>
-                  {ticketProductGroup === 'butane'
-                    ? 'Butane uses Table E / LPG profile: CCF = CTL × CPL × MF, with CPL pressure based on Avg Pressure − Equilibrium Pressure.'
-                    : ticketProductGroup === 'gasoline' || ticketProductGroup === 'diesel'
-                      ? 'Refined product uses the API 11.1 refined product profile.'
-                      : 'Crude Oil keeps the existing API MPMS 12.2 (2021) VMACS-compatible profile.'}
-                </div>
-              </div>
 
               {isRefinedTicketContext() && (
                 <div style={card}>

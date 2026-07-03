@@ -664,6 +664,7 @@ function App() {
   const [provingQueueSegmentFilter, setProvingQueueSegmentFilter] = useState('')
   const [provingQueueProducerFilter, setProvingQueueProducerFilter] = useState('')
   const [ticketArchiveProducerFilter, setTicketArchiveProducerFilter] = useState('')
+  const [ticketArchiveRevisionFilter, setTicketArchiveRevisionFilter] = useState<'all' | 'revised' | 'original'>('all')
   const [hierarchySegmentId, setHierarchySegmentId] = useState('')
   const [hierarchyAreaId, setHierarchyAreaId] = useState('')
   const [hierarchyLeaseId, setHierarchyLeaseId] = useState('')
@@ -6400,28 +6401,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       return null
     }
 
-    // Saved Supabase PDF only: refresh the ticket row first so revision_number/revision_reason
-    // stored in observed_inputs/calculation_results are present when the saved PDF is rendered.
-    // Do not change the customer PDF/preview generator.
-    let pdfSourceTicket: any = ticket
-    try {
-      const { data: latestTicket, error: latestTicketError } = await supabase
-        .from('tickets')
-        .select('*')
-        .eq('id', ticket.id)
-        .maybeSingle()
-
-      if (!latestTicketError && latestTicket) {
-        pdfSourceTicket = { ...ticket, ...latestTicket }
-      } else if (latestTicketError) {
-        console.warn('Could not refresh ticket before saving PDF:', latestTicketError)
-      }
-    } catch (latestTicketException) {
-      console.warn('Could not refresh ticket before saving PDF:', latestTicketException)
-    }
-
-    const fileBaseName = getTicketPdfFileName(pdfSourceTicket)
-    const pdfBlob = await generateTicketPdfBlob(pdfSourceTicket)
+    const fileBaseName = getTicketPdfFileName(ticket)
+    const pdfBlob = await generateTicketPdfBlob(ticket)
     const filePath = `${activeCompanyID}/${ticket.id}/${fileBaseName}.pdf`
 
     const { error: uploadError } = await supabase.storage
@@ -6453,12 +6434,12 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       return { ...ticket, ...patch }
     }
 
-    setTickets((prev: any[]) => asArray(prev).map((row: any) => String(row.id) === String(ticket.id) ? { ...row, ...pdfSourceTicket, ...patch } : row))
+    setTickets((prev: any[]) => asArray(prev).map((row: any) => String(row.id) === String(ticket.id) ? { ...row, ...patch } : row))
     if (selectedTicket && String(selectedTicket.id) === String(ticket.id)) {
-      setSelectedTicket({ ...selectedTicket, ...pdfSourceTicket, ...patch } as any)
+      setSelectedTicket({ ...selectedTicket, ...patch } as any)
     }
 
-    return { ...pdfSourceTicket, ...patch }
+    return { ...ticket, ...patch }
   }
 
   async function ensureSavedTicketPdf(ticket: any) {
@@ -11900,6 +11881,20 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
       .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
   }
 
+  function isRevisedTicket(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const calc = ticket?.calculation_results || {}
+    const revisionNumber = Number(
+      observed.revision_number ??
+      calc.revision_number ??
+      ticket?.revision_number ??
+      0
+    ) || 0
+    const revisionHistory = observed.revision_history || calc.revision_history || ticket?.revision_history
+    const hasRevisionHistory = Array.isArray(revisionHistory) && revisionHistory.length > 0
+    return revisionNumber > 0 || hasRevisionHistory
+  }
+
   function getApprovedTickets() {
     return tickets
       .filter((ticket: any) => String(ticket.status || '').toLowerCase() === 'approved')
@@ -16516,7 +16511,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 const filteredTickets = baseTickets.filter((ticket: any) =>
                   (!ticketArchiveMonthFilter || getTicketMonthKey(ticket) === ticketArchiveMonthFilter) &&
                   (!ticketArchiveSegmentFilter || getTicketSegmentId(ticket) === ticketArchiveSegmentFilter) &&
-                  (!ticketArchiveProducerFilter || getTicketProducerId(ticket) === ticketArchiveProducerFilter)
+                  (!ticketArchiveProducerFilter || getTicketProducerId(ticket) === ticketArchiveProducerFilter) &&
+                  (ticketArchiveRevisionFilter === 'all' || (ticketArchiveRevisionFilter === 'revised' ? isRevisedTicket(ticket) : !isRevisedTicket(ticket)))
                 )
                 const groupedArchive = groupTicketsByMonthSegmentKind(filteredTickets)
 
@@ -16529,7 +16525,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </div>
                     </div>
 
-                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
                       <select style={input} value={ticketArchiveMonthFilter} onChange={(e) => setTicketArchiveMonthFilter(e.target.value)}>
                         <option value="">All Months</option>
                         {monthOptions.map((month: any) => (
@@ -16547,6 +16543,11 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         {getProducersForSegment(ticketArchiveSegmentFilter).map((producer: any) => (
                           <option key={producer.id} value={producer.id}>{producer.name || (producer as any).producer_name}</option>
                         ))}
+                      </select>
+                      <select style={input} value={ticketArchiveRevisionFilter} onChange={(e) => setTicketArchiveRevisionFilter(e.target.value as 'all' | 'revised' | 'original')}>
+                        <option value="all">All Tickets</option>
+                        <option value="revised">Revised Only</option>
+                        <option value="original">Original Only</option>
                       </select>
                     </div>
 

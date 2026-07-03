@@ -6063,9 +6063,26 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const pdfGvFallback = Number.isFinite(rawIvForPdf) && rawIvForPdf > 0 && Number.isFinite(rawMfForPdf)
       ? rawIvForPdf * rawMfForPdf
       : null
+    const revisionNumberRaw = observed.revision_number ?? calc.revision_number ?? ticket.revision_number ?? 0
+    const revisionNumber = Number(revisionNumberRaw) || 0
+    const revisionReason = String(
+      observed.revision_reason ||
+      calc.revision_reason ||
+      ticket.revision_reason ||
+      observed.net_volume_adjustment_reason ||
+      calc.net_volume_adjustment_reason ||
+      ''
+    ).trim()
+    const ticketNotes = String(ticket.notes || observed.notes || calc.notes || '').trim()
+    const pdfNotes = [
+      ticketNotes,
+      revisionReason ? `Revision ${revisionNumber}: ${revisionReason}` : '',
+    ].filter(Boolean).join('\n')
 
     return [
       ['Ticket Number', value(ticket.ticket_number || ticket.id)],
+      ['Revision No.', revisionNumber > 0 ? String(revisionNumber) : 'Original'],
+      ['Revision Notes', value(revisionReason)],
       ['Batch Number', value(observed.batch_number || calc.batch_number || ticket.batch_number)],
       ['Status', value(ticket.status)],
       ['Calculation Method', value(getTicketCalculationMethodLabel(ticket))],
@@ -6104,7 +6121,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['NSV', num(calc.nsv ?? observed.nsv ?? observed.net_volume_bbl, 2)],
       ['BS&W %', num(calc.bsw_percent ?? observed.bsw_percent ?? observed.bsw, 4)],
       ['CSW', num(calc.csw ?? observed.csw, 6)],
-      ['Notes', value(ticket.notes || observed.notes)],
+      ['Notes', value(pdfNotes)],
     ]
   }
 
@@ -6201,8 +6218,10 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     doc.text(ticketNumber, pageWidth - margin, 34, { align: 'right' })
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(7.5)
-    doc.text(String(rowMap['Close Date / Time'] || ''), pageWidth - margin, 48, { align: 'right' })
-    doc.text('Page 1 of 1', pageWidth - margin, 60, { align: 'right' })
+    const headerRevision = rowMap['Revision No.'] && rowMap['Revision No.'] !== 'Original' ? `Revision ${rowMap['Revision No.']}` : 'Original'
+    doc.text(headerRevision, pageWidth - margin, 46, { align: 'right' })
+    doc.text(String(rowMap['Close Date / Time'] || ''), pageWidth - margin, 56, { align: 'right' })
+    doc.text('Page 1 of 1', pageWidth - margin, 66, { align: 'right' })
 
     line(margin, 72, pageWidth - margin, 72)
 
@@ -6227,6 +6246,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
 
     const leftRows = [
       ['Ticket Number', rowMap['Ticket Number']],
+      ['Revision No.', rowMap['Revision No.']],
+      ['Revision Notes', rowMap['Revision Notes']],
       ['Batch Number', rowMap['Batch Number']],
       ['Status', rowMap['Status']],
       ['Method', rowMap['Calculation Method']],

@@ -61,6 +61,7 @@ type Ticket = {
   meter_id?: string | null
   segment_id?: string | null
   lease_id?: string | null
+  tank_id?: string | null
   observed_inputs?: any
   calculation_results?: any
   calculation_profile_snapshot?: any

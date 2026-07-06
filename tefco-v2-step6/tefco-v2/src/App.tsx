@@ -551,7 +551,6 @@ function calculateApi11Corrections(input: {
   observedPressure?: number
   averageTemperature?: number
   averagePressure?: number
-  equilibriumPressure?: number
   apiRounding?: number
 }) {
   const productGroup = input.productGroup || 'crude'
@@ -562,9 +561,6 @@ function calculateApi11Corrections(input: {
     input.averageTemperature || observedTemperature || 60
   )
   const averagePressure = Number(input.averagePressure || 0)
-  const equilibriumPressure = Number(input.equilibriumPressure || 0)
-  const isButaneProduct = String(productGroup || '').toLowerCase().includes('butane')
-  const pressureForCpl = isButaneProduct ? Math.max(averagePressure - equilibriumPressure, 0) : averagePressure
 
   const base = calculateDensity60FromObservedApi(
     observedApiGravity,
@@ -576,7 +572,7 @@ function calculateApi11Corrections(input: {
   const volumeCorrection = calculateType1FromDensity60(
     base.density60,
     averageTemperature,
-    pressureForCpl,
+    averagePressure,
     productGroup
   )
 
@@ -593,8 +589,6 @@ function calculateApi11Corrections(input: {
     density_60: roundTo(base.density60, 6),
     average_temperature: roundTo(averageTemperature, 2),
     average_pressure: roundTo(averagePressure, 2),
-    equilibrium_pressure: roundTo(equilibriumPressure, 2),
-    pressure_for_cpl: roundTo(pressureForCpl, 2),
 
     // Display / ticket factors. Chapter 12.2 R2021 tickets use these rounded factors.
     ctl: roundApiFactor(volumeCorrection.ctl, factorDecimals),
@@ -607,7 +601,6 @@ function calculateApi11Corrections(input: {
     raw_density_60: base.density60,
     raw_ctl: volumeCorrection.ctl,
     raw_cpl: volumeCorrection.cpl,
-    raw_pressure_for_cpl: pressureForCpl,
     raw_ctlp: volumeCorrection.ctlp,
     raw_ccf: volumeCorrection.ccf,
     raw_fp: volumeCorrection.fp,
@@ -915,7 +908,6 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [ticketType, setTicketType] = useState('meter')
   const [refinedProductType, setRefinedProductType] = useState('')
   const [refinedProductCode, setRefinedProductCode] = useState('')
-  const [butaneEquilibriumPressure, setButaneEquilibriumPressure] = useState('')
   const [refinedMovementDestination, setRefinedMovementDestination] = useState('')
   const [ticketBatchNumber, setTicketBatchNumber] = useState('')
   const [selectedTank, setSelectedTank] = useState('')
@@ -3907,7 +3899,7 @@ function handleProvingAreaSelect(areaId: string) {
   }
 
   function getRefinedProductCodeOptions() {
-    return ['Crude Oil', 'Butane', 'Diesel', 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
+    return ['Crude Oil', 'Diesel', 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
   }
 
   function getTicketBatchNumberValue(ticket: any) {
@@ -3996,11 +3988,7 @@ function handleProvingAreaSelect(areaId: string) {
       contractProfile?.calculation_method || 'CTPL'
 
     const selectedProductGroup =
-      String(refinedProductCode || '').toLowerCase().includes('butane')
-        ? 'butane'
-        : ['diesel', 'gas', 'gasoline', 'jet', 'ul-84', 'azrbob', 'pcbob', 'nep', 'ul83s', 'pul'].some((p) => String(refinedProductCode || '').toLowerCase().includes(p))
-          ? 'refined'
-          : contractProfile?.product_group || 'crude'
+      contractProfile?.product_group || 'crude'
 
     const selectedFactorType =
       contractProfile?.factor_type || latestApprovedProving?.factor_type || 'MF'
@@ -4054,7 +4042,6 @@ function handleProvingAreaSelect(areaId: string) {
       observedPressure: 0,
       averageTemperature: avgTemp,
       averagePressure: usePressure ? avgPressure : 0,
-      equilibriumPressure: Number(butaneEquilibriumPressure || 0),
       apiRounding,
     })
 
@@ -4207,8 +4194,6 @@ function handleProvingAreaSelect(areaId: string) {
         density_60: corrections.density_60,
         average_temperature: corrections.average_temperature,
         average_pressure: corrections.average_pressure,
-        equilibrium_pressure: selectedProductGroup === 'butane' ? Number(butaneEquilibriumPressure || 0) : null,
-        pressure_for_cpl: corrections.pressure_for_cpl ?? null,
         csw,
         bsw_percent: bswPercent,
         sw_percent: bswPercent,
@@ -4275,8 +4260,6 @@ function handleProvingAreaSelect(areaId: string) {
         nsv: roundTo(nsv, volumeRounding),
         api_gravity_60: corrections.api_gravity_60,
         density_60: corrections.density_60,
-        equilibrium_pressure: selectedProductGroup === 'butane' ? Number(butaneEquilibriumPressure || 0) : null,
-        pressure_for_cpl: corrections.pressure_for_cpl ?? null,
         bsw_percent: bswPercent,
         sw_percent: bswPercent,
         csw,
@@ -4380,7 +4363,6 @@ function handleProvingAreaSelect(areaId: string) {
     setManualClosingReading('')
     setRefinedProductType('')
     setRefinedProductCode('')
-    setButaneEquilibriumPressure('')
     setRefinedMovementDestination('')
     setTicketBatchNumber('')
     setAutofillPreview(null)
@@ -4669,7 +4651,6 @@ function handleProvingAreaSelect(areaId: string) {
       total_batch_barrels: ticketEditString(draftReadings.iv),
       average_temperature: ticketEditString(calc.average_temperature ?? observed.average_temperature),
       average_pressure: ticketEditString(calc.average_pressure ?? observed.average_pressure),
-      equilibrium_pressure: ticketEditString(calc.equilibrium_pressure ?? observed.equilibrium_pressure),
       observed_api_gravity: ticketEditString(observed.observed_api_gravity ?? observed.api_observed ?? observed.api_gravity_observed),
       observed_temperature: ticketEditString(observed.observed_temperature ?? observed.temperature),
       sw_percent: ticketEditString(calc.bsw_percent ?? observed.bsw_percent ?? observed.sw_percent ?? observed.bsw),
@@ -5008,10 +4989,8 @@ function handleProvingAreaSelect(areaId: string) {
     const averagePressure = ticketEditNumber(values, 'average_pressure')
     const observedApi = ticketEditNumber(values, 'observed_api_gravity')
     const observedTemp = ticketEditNumber(values, 'observed_temperature')
-    const equilibriumPressure = ticketEditNumber(values, 'equilibrium_pressure') ?? Number(calc.equilibrium_pressure ?? observed.equilibrium_pressure ?? 0)
     const swPercent = ticketEditNumber(values, 'sw_percent')
-    const selectedEditProduct = String(values.refined_product_type || calc.refined_product_type || observed.refined_product_type || calc.product_code || observed.product_code || calc.product_type || observed.product_type || '').toLowerCase()
-    const productGroup = selectedEditProduct.includes('butane') ? 'butane' : (calc.product_group || observed.product_group || 'crude')
+    const productGroup = calc.product_group || observed.product_group || 'crude'
     const apiRounding = Number(calc.api_rounding ?? observed.api_rounding ?? 1)
     const ctlRounding = Number(calc.ctl_rounding ?? observed.ctl_rounding ?? 5)
     const cplRounding = Number(calc.cpl_rounding ?? observed.cpl_rounding ?? 5)
@@ -5023,7 +5002,6 @@ function handleProvingAreaSelect(areaId: string) {
       observedPressure: 0,
       averageTemperature: Number(averageTemperature ?? calc.average_temperature ?? observed.average_temperature ?? 60),
       averagePressure: Number(averagePressure ?? calc.average_pressure ?? observed.average_pressure ?? 0),
-      equilibriumPressure,
       apiRounding,
     })
     const apiGravity60Value = corrections.api_gravity_60
@@ -5052,8 +5030,6 @@ function handleProvingAreaSelect(areaId: string) {
       gross_observed_volume_bbl: totalBatchBarrels,
       average_temperature: averageTemperature,
       average_pressure: averagePressure,
-      equilibrium_pressure: productGroup === 'butane' ? equilibriumPressure : null,
-      pressure_for_cpl: corrections.pressure_for_cpl ?? null,
       observed_api_gravity: observedApi,
       api_observed: observedApi,
       api_gravity_60: apiGravity60Value,
@@ -5131,8 +5107,6 @@ function handleProvingAreaSelect(areaId: string) {
       closing_reading: closingReading,
       average_temperature: averageTemperature,
       average_pressure: averagePressure,
-      equilibrium_pressure: productGroup === 'butane' ? equilibriumPressure : null,
-      pressure_for_cpl: corrections.pressure_for_cpl ?? null,
       observed_api_gravity: observedApi,
       api_gravity_60: apiGravity60Value,
       corrected_api_gravity: apiGravity60Value,
@@ -11751,6 +11725,61 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
     return !['draft', 'pending', 'voided', 'rejected'].includes(status)
   }).length
 
+  const dashboardMeterTicketKpiRows = getScopedSegments()
+    .map((segment: any) => {
+      const segmentId = String(segment.id || '')
+      const segmentMeters = getScopedMeters()
+        .filter((meter: any) => meter.active !== false && String(getMeterSegmentId(meter) || '') === segmentId)
+        .sort((a: any, b: any) => String(a.meter_number || a.meter_name || '').localeCompare(String(b.meter_number || b.meter_name || '')))
+
+      const segmentMeterIds = new Set(segmentMeters.map((meter: any) => String(meter.id || '')).filter(Boolean))
+      const segmentMeterTickets = getScopedTickets().filter((ticket: any) => {
+        const status = String(ticket.status || '').toLowerCase()
+        if (['voided', 'rejected'].includes(status) || ticket.is_superseded) return false
+        if (getTicketArchiveKind(ticket) !== 'meter') return false
+        const observed = ticket.observed_inputs || {}
+        const ticketMeterId = String(ticket.meter_id || observed.meter_id || '')
+        const ticketSegmentId = String(ticket.segment_id || observed.segment_id || '')
+        return isTicketInOverShortRange(ticket) && (segmentMeterIds.has(ticketMeterId) || ticketSegmentId === segmentId)
+      })
+
+      const meterStatusRows = segmentMeters.map((meter: any) => {
+        const meterTickets = segmentMeterTickets.filter((ticket: any) => {
+          const observed = ticket.observed_inputs || {}
+          return String(ticket.meter_id || observed.meter_id || '') === String(meter.id || '')
+        })
+        const latestTicket = meterTickets
+          .slice()
+          .sort((a: any, b: any) => new Date(getTicketDateForBalance(b) || b.updated_at || b.created_at || 0).getTime() - new Date(getTicketDateForBalance(a) || a.updated_at || a.created_at || 0).getTime())[0]
+
+        return {
+          meter,
+          ticketCount: meterTickets.length,
+          latestTicket,
+          wrote: meterTickets.length > 0,
+        }
+      })
+
+      const writtenMeters = meterStatusRows.filter((row: any) => row.wrote).length
+      const missingMeters = Math.max(segmentMeters.length - writtenMeters, 0)
+
+      return {
+        segment,
+        segmentId,
+        activeMeters: segmentMeters.length,
+        ticketCount: segmentMeterTickets.length,
+        writtenMeters,
+        missingMeters,
+        meterStatusRows,
+      }
+    })
+    .filter((row: any) => row.activeMeters > 0 || row.ticketCount > 0)
+    .sort((a: any, b: any) => String(a.segment.segment_name || a.segment.name || '').localeCompare(String(b.segment.segment_name || b.segment.name || '')))
+
+  const dashboardActiveMeterCount = dashboardMeterTicketKpiRows.reduce((sum: number, row: any) => sum + row.activeMeters, 0)
+  const dashboardTicketedMeterCount = dashboardMeterTicketKpiRows.reduce((sum: number, row: any) => sum + row.writtenMeters, 0)
+  const dashboardMissedMeterCount = dashboardMeterTicketKpiRows.reduce((sum: number, row: any) => sum + row.missingMeters, 0)
+
   const mobileHomeModules = [
     { key: 'dashboard', label: 'Dashboard', description: 'Totals and quick status' },
     { key: 'tickets', label: 'Tickets', description: 'Create, open, approve tickets' },
@@ -12928,6 +12957,53 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     {row.butaneEnabled && <div style={{ color: '#fef3c7', fontSize: 12 }}>Butane Blend {row.butaneAdjustment.blendPercent.toFixed(4)}% • Shrink {row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2)}</div>}
                   </div>
                 ))}
+              </div>
+            </div>
+
+            <div style={box}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <h2 style={{ margin: 0 }}>Active Meter Ticket Watch</h2>
+                  <div style={{ color: '#a8b3bd', fontSize: 12 }}>Shows active meters by segment and whether each meter has a ticket in the current O/S period.</div>
+                  <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 4 }}>Period: {getCurrentOverShortRange().label}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <div style={{ ...card, padding: '8px 12px' }}>Active Meters <strong>{dashboardActiveMeterCount}</strong></div>
+                  <div style={{ ...card, padding: '8px 12px' }}>Ticket Written <strong style={{ color: '#86efac' }}>{dashboardTicketedMeterCount}</strong></div>
+                  <div style={{ ...card, padding: '8px 12px' }}>Missing <strong style={{ color: dashboardMissedMeterCount ? '#fca5a5' : '#86efac' }}>{dashboardMissedMeterCount}</strong></div>
+                </div>
+              </div>
+
+              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+                {dashboardMeterTicketKpiRows.map((row: any) => (
+                  <div key={row.segmentId || row.segment.name} style={{ ...card, borderLeft: `5px solid ${row.missingMeters > 0 ? '#f87171' : '#22c55e'}` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                      <strong style={{ fontSize: 18 }}>{row.segment.segment_name || row.segment.name || 'Unassigned Segment'}</strong>
+                      <span style={{ color: row.missingMeters > 0 ? '#fca5a5' : '#86efac', fontWeight: 900 }}>
+                        {row.writtenMeters}/{row.activeMeters} ticketed
+                      </span>
+                    </div>
+                    <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 8 }}>
+                      Active meters {row.activeMeters} • Tickets written {row.ticketCount} • Missing {row.missingMeters}
+                    </div>
+                    <div style={{ display: 'grid', gap: 6, marginTop: 10 }}>
+                      {row.meterStatusRows.slice(0, 8).map((meterRow: any) => (
+                        <div key={meterRow.meter.id || meterRow.meter.meter_number} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, borderTop: '1px solid rgba(148,163,184,.15)', paddingTop: 6 }}>
+                          <span>{meterRow.meter.meter_number || meterRow.meter.meter_name || 'Meter'}</span>
+                          <span style={{ color: meterRow.wrote ? '#86efac' : '#fca5a5', fontWeight: 800 }}>
+                            {meterRow.wrote ? `Wrote ${meterRow.ticketCount}` : 'Missing'}
+                          </span>
+                        </div>
+                      ))}
+                      {row.meterStatusRows.length > 8 && (
+                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>+{row.meterStatusRows.length - 8} more meters</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {dashboardMeterTicketKpiRows.length === 0 && (
+                  <div style={card}>No active meters or meter tickets found for this period.</div>
+                )}
               </div>
             </div>
 
@@ -15955,12 +16031,9 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">Total Batch Barrels / IV</div><strong>{formatTicketDetailNumber(getDraftTicketEditIv(draftTicketEditValues), 2)}</strong><div className="ticket-muted">Auto: Closing − Opening</div></div>
                       <label><div className="ticket-muted">Average Temp</div><input style={input} value={draftTicketEditValues.average_temperature || ''} onChange={(e) => updateDraftTicketEditField('average_temperature', e.target.value)} /></label>
                       <label><div className="ticket-muted">Average Pressure</div><input style={input} value={draftTicketEditValues.average_pressure || ''} onChange={(e) => updateDraftTicketEditField('average_pressure', e.target.value)} /></label>
-                      {String(draftTicketEditValues.refined_product_type || selectedTicket!.observed_inputs?.product_type || selectedTicket!.calculation_results?.product_type || '').toLowerCase().includes('butane') && (
-                        <label><div className="ticket-muted">Equilibrium Pressure (psig)</div><input style={input} value={draftTicketEditValues.equilibrium_pressure || ''} onChange={(e) => updateDraftTicketEditField('equilibrium_pressure', e.target.value)} /></label>
-                      )}
                       <label><div className="ticket-muted">Observed Gravity/API</div><input style={input} value={draftTicketEditValues.observed_api_gravity || ''} onChange={(e) => updateDraftTicketEditField('observed_api_gravity', e.target.value)} /></label>
                       <label><div className="ticket-muted">Observed Temp</div><input style={input} value={draftTicketEditValues.observed_temperature || ''} onChange={(e) => updateDraftTicketEditField('observed_temperature', e.target.value)} /></label>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">API @ 60°F</div><strong>{(() => { const api = ticketEditNumber(draftTicketEditValues, 'observed_api_gravity'); const temp = ticketEditNumber(draftTicketEditValues, 'observed_temperature'); if (api === null || temp === null) return '—'; return formatMeasurementNumber(calculateApi11Corrections({ productGroup: String(draftTicketEditValues.refined_product_type || '').toLowerCase().includes('butane') ? 'butane' : 'crude', observedApiGravity: api, observedTemperature: temp, averageTemperature: ticketEditNumber(draftTicketEditValues, 'average_temperature') ?? temp, averagePressure: ticketEditNumber(draftTicketEditValues, 'average_pressure') ?? 0, equilibriumPressure: ticketEditNumber(draftTicketEditValues, 'equilibrium_pressure') ?? 0, apiRounding: 1 }).api_gravity_60, 1) })()}</strong><div className="ticket-muted">Calculated by app</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">API @ 60°F</div><strong>{(() => { const api = ticketEditNumber(draftTicketEditValues, 'observed_api_gravity'); const temp = ticketEditNumber(draftTicketEditValues, 'observed_temperature'); if (api === null || temp === null) return '—'; return formatMeasurementNumber(calculateApi11Corrections({ productGroup: 'crude', observedApiGravity: api, observedTemperature: temp, averageTemperature: ticketEditNumber(draftTicketEditValues, 'average_temperature') ?? temp, averagePressure: ticketEditNumber(draftTicketEditValues, 'average_pressure') ?? 0, apiRounding: 1 }).api_gravity_60, 1) })()}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <label><div className="ticket-muted">S&W %</div><input style={input} value={draftTicketEditValues.sw_percent || ''} onChange={(e) => updateDraftTicketEditField('sw_percent', e.target.value)} /></label>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CPL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
@@ -16184,28 +16257,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 <option value="truck">Truck Ticket</option>
               </select>
 
-              <div style={card}>
-                <h3 style={{ marginTop: 0 }}>Product</h3>
-                <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                  <label>
-                    <div className="ticket-muted" style={{ marginBottom: 6 }}>Product Selection</div>
-                    <select style={input} value={refinedProductCode} onChange={(e) => setRefinedProductCode(e.target.value)}>
-                      <option value="">Crude Oil / Contract Default</option>
-                      {getRefinedProductCodeOptions().map((product) => (
-                        <option key={product} value={product}>{product}</option>
-                      ))}
-                    </select>
-                  </label>
-                  {String(refinedProductCode || '').toLowerCase().includes('butane') && (
-                    <label>
-                      <div className="ticket-muted" style={{ marginBottom: 6 }}>Equilibrium Pressure (psig)</div>
-                      <input style={input} type="number" step="0.01" placeholder="Required for butane CPL" value={butaneEquilibriumPressure} onChange={(e) => setButaneEquilibriumPressure(e.target.value)} />
-                    </label>
-                  )}
-                </div>
-              </div>
-
-              {(isRefinedTicketContext() || refinedProductCode) && (
+              {isRefinedTicketContext() && (
                 <div style={card}>
                   <h3>Refined Product Details</h3>
                   <p style={{ color: '#a8b3bd', marginTop: 0 }}>

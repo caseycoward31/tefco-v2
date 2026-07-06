@@ -11752,10 +11752,21 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
           .slice()
           .sort((a: any, b: any) => new Date(getTicketDateForBalance(b) || b.updated_at || b.created_at || 0).getTime() - new Date(getTicketDateForBalance(a) || a.updated_at || a.created_at || 0).getTime())[0]
 
+        const latestObserved = latestTicket?.observed_inputs || {}
+        const latestCalc = latestTicket?.calculation_results || {}
+        const revisionNumber = Number(
+          latestObserved.revision_number ??
+          latestCalc.revision_number ??
+          latestTicket?.revision_number ??
+          0
+        )
+
         return {
           meter,
           ticketCount: meterTickets.length,
           latestTicket,
+          revisionNumber,
+          revised: revisionNumber > 0,
           wrote: meterTickets.length > 0,
         }
       })
@@ -12986,18 +12997,36 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     <div style={{ color: '#a8b3bd', fontSize: 12, marginTop: 8 }}>
                       Active meters {row.activeMeters} • Tickets written {row.ticketCount} • Missing {row.missingMeters}
                     </div>
-                    <div style={{ display: 'grid', gap: 6, marginTop: 10 }}>
-                      {row.meterStatusRows.slice(0, 8).map((meterRow: any) => (
-                        <div key={meterRow.meter.id || meterRow.meter.meter_number} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, borderTop: '1px solid rgba(148,163,184,.15)', paddingTop: 6 }}>
-                          <span>{meterRow.meter.meter_number || meterRow.meter.meter_name || 'Meter'}</span>
-                          <span style={{ color: meterRow.wrote ? '#86efac' : '#fca5a5', fontWeight: 800 }}>
-                            {meterRow.wrote ? `Wrote ${meterRow.ticketCount}` : 'Missing'}
-                          </span>
-                        </div>
-                      ))}
-                      {row.meterStatusRows.length > 8 && (
-                        <div style={{ color: '#a8b3bd', fontSize: 12 }}>+{row.meterStatusRows.length - 8} more meters</div>
-                      )}
+                    <div style={{ display: 'grid', gap: 6, marginTop: 10, maxHeight: 285, overflowY: 'auto', paddingRight: 6 }}>
+                      {row.meterStatusRows.map((meterRow: any) => {
+                        const display = getMeterDisplayName(meterRow.meter)
+                        const statusColor = meterRow.revised ? '#facc15' : meterRow.wrote ? '#86efac' : '#fca5a5'
+                        const statusText = meterRow.revised ? `Revised ${meterRow.revisionNumber}` : meterRow.wrote ? `Wrote ${meterRow.ticketCount}` : 'Missing'
+                        return (
+                          <div
+                            key={meterRow.meter.id || meterRow.meter.meter_number}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              gap: 8,
+                              fontSize: 12,
+                              borderTop: '1px solid rgba(148,163,184,.15)',
+                              paddingTop: 6,
+                              background: meterRow.revised ? 'rgba(250,204,21,.08)' : meterRow.wrote ? 'rgba(34,197,94,.04)' : 'rgba(248,113,113,.06)',
+                              borderRadius: 8,
+                              padding: '7px 8px',
+                            }}
+                          >
+                            <span title={display.secondary || display.main}>
+                              {display.main}
+                              {display.secondary && <span style={{ color: '#64748b', marginLeft: 6 }}>({display.secondary})</span>}
+                            </span>
+                            <span style={{ color: statusColor, fontWeight: 800, whiteSpace: 'nowrap' }}>
+                              {statusText}
+                            </span>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 ))}

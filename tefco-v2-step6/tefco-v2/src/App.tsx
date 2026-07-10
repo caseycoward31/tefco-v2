@@ -3927,12 +3927,9 @@ function handleProvingAreaSelect(areaId: string) {
       snapshot.refined_destination ||
       snapshot.movement_destination ||
       snapshot.destination ||
-      ticket?.refined_destination ||
-      ticket?.movement_destination ||
-      ticket?.destination ||
       'NoDestination'
     const dateValue = observed.close_date || observed.ticket_date || (getTicketReportDate(ticket) ? new Date(getTicketReportDate(ticket)).toISOString().slice(0,10) : new Date().toISOString().slice(0,10))
-    return sanitizeFileName(`${leaseName}_${ticketNumberValue}_${batchValue}_${destinationValue}_${dateValue}`, 'ticket')
+    return sanitizeFileName(`${leaseName}_Batch-${batchValue}_To-${destinationValue}_${dateValue}_${ticketNumberValue}`, 'ticket')
   }
 
   function isRefinedTicketContext() {
@@ -11369,13 +11366,7 @@ async function saveUserRole() {
       const producerFolder = sanitizeFileName(producer?.name || 'Unknown Producer', 'producer')
 
       for (const ticket of rows as any[]) {
-        const ticketLabel = ticket.ticket_number || ticket.ticket_no || ticket.id || `ticket-${addedTicketCount + 1}`
-        const observed = ticket.observed_inputs || {}
-        const meter = meters.find((m: any) => String(m.id || '') === String(ticket.meter_id || observed.meter_id || ''))
-        const lease = leases.find((l: any) => String(l.id || '') === String(ticket.lease_id || observed.lease_id || meter?.lease_id || ''))
-        const leaseName = lease?.lease_name || lease?.name || observed.lease_name || 'Lease'
-        const closeDate = observed.close_date || (getTicketReportDate(ticket) ? new Date(getTicketReportDate(ticket)).toISOString().slice(0,10) : 'no-date')
-        const safeLabel = sanitizeFileName(`${leaseName}_${closeDate}_${ticketLabel}`, 'ticket')
+        const safeLabel = getTicketPdfFileName(ticket)
 
         // Producer bundle uses the real saved PDF from Supabase Storage.
         // If it is missing, create/save it once, then pull that saved PDF into the ZIP.

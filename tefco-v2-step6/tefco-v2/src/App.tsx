@@ -3911,13 +3911,28 @@ function handleProvingAreaSelect(areaId: string) {
   function getTicketPdfFileName(ticket: any) {
     const observed = ticket?.observed_inputs || {}
     const calc = ticket?.calculation_results || {}
+    const snapshot = ticket?.calculation_profile_snapshot || {}
     const meter = meters.find((m: any) => String(m.id || '') === String(ticket?.meter_id || observed.meter_id || ''))
     const lease = leases.find((l: any) => String(l.id || '') === String(ticket?.lease_id || observed.lease_id || meter?.lease_id || ''))
     const leaseName = getTicketPdfLeaseName(ticket, meter, lease, observed) || observed.lease_name || 'Lease'
     const ticketNumberValue = ticket?.ticket_number || ticket?.id || 'Ticket'
     const batchValue = getTicketBatchNumberValue(ticket) || 'NoBatch'
+    const destinationValue =
+      observed.refined_destination ||
+      observed.movement_destination ||
+      observed.destination ||
+      calc.refined_destination ||
+      calc.movement_destination ||
+      calc.destination ||
+      snapshot.refined_destination ||
+      snapshot.movement_destination ||
+      snapshot.destination ||
+      ticket?.refined_destination ||
+      ticket?.movement_destination ||
+      ticket?.destination ||
+      'NoDestination'
     const dateValue = observed.close_date || observed.ticket_date || (getTicketReportDate(ticket) ? new Date(getTicketReportDate(ticket)).toISOString().slice(0,10) : new Date().toISOString().slice(0,10))
-    return sanitizeFileName(`${leaseName}_${ticketNumberValue}_${batchValue}_${dateValue}`, 'ticket')
+    return sanitizeFileName(`${leaseName}_${ticketNumberValue}_${batchValue}_${destinationValue}_${dateValue}`, 'ticket')
   }
 
   function isRefinedTicketContext() {

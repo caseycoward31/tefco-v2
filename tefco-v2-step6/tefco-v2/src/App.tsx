@@ -4666,6 +4666,8 @@ function handleProvingAreaSelect(areaId: string) {
       observed_api_gravity: ticketEditString(observed.observed_api_gravity ?? observed.api_observed ?? observed.api_gravity_observed),
       observed_temperature: ticketEditString(observed.observed_temperature ?? observed.temperature),
       sw_percent: ticketEditString(calc.bsw_percent ?? observed.bsw_percent ?? observed.sw_percent ?? observed.bsw),
+      rvp: ticketEditString(observed.rvp ?? calc.rvp ?? parsePotExtra(observed.notes, 'rvp')),
+      sulfur: ticketEditString(observed.sulfur ?? observed.sulphur ?? calc.sulfur ?? calc.sulphur ?? parsePotExtra(observed.notes, 'sulfur') ?? parsePotExtra(observed.notes, 'sulphur')),
       ctl: ticketEditString(calc.ctl ?? observed.ctl),
       cpl: ticketEditString(calc.cpl ?? observed.cpl),
       mf: ticketEditString(calc.mf ?? observed.mf),
@@ -5050,6 +5052,9 @@ function handleProvingAreaSelect(areaId: string) {
       observed_temperature: observedTemp,
       bsw_percent: swPercent,
       sw_percent: swPercent,
+      rvp: values.rvp || null,
+      sulfur: values.sulfur || null,
+      sulphur: values.sulfur || null,
       ctl: ctlValue,
       cpl: cplValue,
       ctlp: ctlpValue,
@@ -5125,6 +5130,9 @@ function handleProvingAreaSelect(areaId: string) {
       density_60: density60Value,
       observed_temperature: observedTemp,
       bsw_percent: swPercent,
+      rvp: values.rvp || null,
+      sulfur: values.sulfur || null,
+      sulphur: values.sulfur || null,
       ctl: ctlValue,
       cpl: cplValue,
       ctlp: ctlpValue,
@@ -16070,6 +16078,8 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <label><div className="ticket-muted">Observed Temp</div><input style={input} value={draftTicketEditValues.observed_temperature || ''} onChange={(e) => updateDraftTicketEditField('observed_temperature', e.target.value)} /></label>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">API @ 60°F</div><strong>{(() => { const api = ticketEditNumber(draftTicketEditValues, 'observed_api_gravity'); const temp = ticketEditNumber(draftTicketEditValues, 'observed_temperature'); if (api === null || temp === null) return '—'; return formatMeasurementNumber(calculateApi11Corrections({ productGroup: 'crude', observedApiGravity: api, observedTemperature: temp, averageTemperature: ticketEditNumber(draftTicketEditValues, 'average_temperature') ?? temp, averagePressure: ticketEditNumber(draftTicketEditValues, 'average_pressure') ?? 0, apiRounding: 1 }).api_gravity_60, 1) })()}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <label><div className="ticket-muted">S&W %</div><input style={input} value={draftTicketEditValues.sw_percent || ''} onChange={(e) => updateDraftTicketEditField('sw_percent', e.target.value)} /></label>
+                      <label><div className="ticket-muted">RVP</div><input style={input} value={draftTicketEditValues.rvp || ''} onChange={(e) => updateDraftTicketEditField('rvp', e.target.value)} placeholder="Enter RVP if missing from POT" /></label>
+                      <label><div className="ticket-muted">Sulphur</div><input style={input} value={draftTicketEditValues.sulfur || ''} onChange={(e) => updateDraftTicketEditField('sulfur', e.target.value)} placeholder="Enter sulphur if missing from POT" /></label>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CPL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">GV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).gv, 2)}</strong><div className="ticket-muted">IV × MF</div></div>

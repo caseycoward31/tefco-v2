@@ -74,6 +74,8 @@ type Ticket = {
   observed_api_gravity?: number | null
   observed_temperature?: number | null
   observed_pressure?: number | null
+  calculation_method?: string | null
+  api_chapter?: string | null
   ticket_pdf_url?: string | null
   ticket_pdf_path?: string | null
   ticket_pdf_file_name?: string | null

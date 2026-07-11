@@ -571,15 +571,21 @@ function calculateApi11Corrections(input: {
     productGroup
   )
 
+  const apiDecimals = Number(input.apiRounding ?? 1)
+  const factorDecimals = 6
+
+  // VMACS ticket sequence: correct observed API to API @60, round API @60
+  // to the ticket precision first, then use that rounded API @60 to calculate
+  // the volume correction factors. This keeps CTL/CPL and ticket volumes aligned.
+  const roundedApiGravity60 = roundApiHalfEven(base.apiGravity60, apiDecimals)
+  const calculationDensity60 = apiToDensityKgM3(roundedApiGravity60)
+
   const volumeCorrection = calculateType1FromDensity60(
-    base.density60,
+    calculationDensity60,
     averageTemperature,
     averagePressure,
     productGroup
   )
-
-  const apiDecimals = Number(input.apiRounding ?? 1)
-  const factorDecimals = 6
 
   return {
     observed_api_gravity: roundTo(observedApiGravity, 5),
@@ -587,8 +593,8 @@ function calculateApi11Corrections(input: {
     observed_pressure: roundTo(observedPressure, 2),
 
     // Display value: API gravity @60 is rounded to nearest tenth for tickets.
-    api_gravity_60: roundApiHalfEven(base.apiGravity60, apiDecimals),
-    density_60: roundTo(base.density60, 6),
+    api_gravity_60: roundedApiGravity60,
+    density_60: roundTo(calculationDensity60, 6),
     average_temperature: roundTo(averageTemperature, 2),
     average_pressure: roundTo(averagePressure, 2),
 
@@ -601,6 +607,7 @@ function calculateApi11Corrections(input: {
     // Audit values: full precision is retained for validation and troubleshooting.
     raw_api_gravity_60: base.apiGravity60,
     raw_density_60: base.density60,
+    calculation_density_60: calculationDensity60,
     raw_ctl: volumeCorrection.ctl,
     raw_cpl: volumeCorrection.cpl,
     raw_ctlp: volumeCorrection.ctlp,
@@ -610,7 +617,7 @@ function calculateApi11Corrections(input: {
     product_sub_group: volumeCorrection.productSubGroup,
     api_engine: 'API MPMS 11.1 / 11.1.6.1',
     api_engine_note: base.converged
-      ? 'Calculated using API MPMS 11.1 implementation procedure with rounded display factors.'
+      ? 'Calculated using the VMACS ticket sequence: API @60 rounded to ticket precision before CTL/CPL.'
       : 'Calculated but density iteration did not fully converge.',
   }
 }

@@ -3814,9 +3814,11 @@ function handleProvingAreaSelect(areaId: string) {
       apiRounding: 1,
     })
 
-    const ctl = roundTo(corrections.ctl, 5)
-    const cpl = roundTo(corrections.cpl, 5)
-    const ctlp = roundTo(corrections.ctlp, 5)
+    // Custody-transfer factors must retain six decimal places.
+    // Do not round to five and then pad with a zero on the ticket/PDF.
+    const ctl = roundApiFactor(corrections.ctl, 6)
+    const cpl = roundApiFactor(corrections.cpl, 6)
+    const ctlp = roundApiFactor(corrections.ctlp, 6)
     const ccf = corrections.ccf
     const swDecimal = Number(tankSwPercent || 0) / 100
     const closingGsv = closingPoint.gov * ccf
@@ -5006,9 +5008,26 @@ function handleProvingAreaSelect(areaId: string) {
     const swPercent = ticketEditNumber(values, 'sw_percent')
     const productGroup = calc.product_group || observed.product_group || 'crude'
     const apiRounding = Number(calc.api_rounding ?? observed.api_rounding ?? 1)
-    const ctlRounding = Number(calc.ctl_rounding ?? observed.ctl_rounding ?? 5)
-    const cplRounding = Number(calc.cpl_rounding ?? observed.cpl_rounding ?? 5)
-    const ctlpRounding = Number(calc.ctlp_rounding ?? observed.ctlp_rounding ?? 5)
+    const revisionMethodText = String(
+      calc.formula_profile ||
+      calc.calculation_method_used ||
+      observed.calculation_method_used ||
+      observed.calculation_method ||
+      selectedTicket.calculation_method ||
+      selectedTicket.api_chapter ||
+      ''
+    ).toLowerCase()
+    const isChapter122021Revision =
+      revisionMethodText.includes('12.2') ||
+      revisionMethodText.includes('chapter 12') ||
+      revisionMethodText.includes('chapter12') ||
+      revisionMethodText.includes('api 12 2021')
+
+    // API Chapter 12.2 R2021 uses CTL/CPL/CTPL rounded directly to six decimals.
+    // Ignore legacy 5-decimal settings on older saved tickets during revisions.
+    const ctlRounding = isChapter122021Revision ? 6 : Number(calc.ctl_rounding ?? observed.ctl_rounding ?? 6)
+    const cplRounding = isChapter122021Revision ? 6 : Number(calc.cpl_rounding ?? observed.cpl_rounding ?? 6)
+    const ctlpRounding = isChapter122021Revision ? 6 : Number(calc.ctlp_rounding ?? observed.ctlp_rounding ?? 6)
     const corrections = calculateApi11Corrections({
       productGroup,
       observedApiGravity: Number(observedApi ?? calc.observed_api_gravity ?? observed.observed_api_gravity ?? 0),
@@ -6093,6 +6112,13 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const rawCplForPdf = Number(calc.cpl ?? observed.cpl ?? 1)
     const rawMfForPdf = Number(calc.mf ?? observed.mf ?? 1)
     const rawGsvForPdf = Number(calc.gsv ?? observed.gsv ?? 0)
+    const rawNsvForPdf = Number(calc.nsv ?? observed.nsv ?? observed.net_volume_bbl ?? 0)
+    // Match the printed ticket values: S&W volume is the displayed GSV minus displayed NSV.
+    const roundedGsvForPdf = Math.round(rawGsvForPdf * 100) / 100
+    const roundedNsvForPdf = Math.round(rawNsvForPdf * 100) / 100
+    const swVolumeForPdf = Number.isFinite(roundedGsvForPdf) && Number.isFinite(roundedNsvForPdf)
+      ? Math.round((roundedGsvForPdf - roundedNsvForPdf) * 100) / 100
+      : null
     const pdfGvFallback = Number.isFinite(rawIvForPdf) && rawIvForPdf > 0 && Number.isFinite(rawMfForPdf)
       ? rawIvForPdf * rawMfForPdf
       : null
@@ -6152,6 +6178,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['MF / CMF', num(calc.mf ?? observed.mf, 4)],
       ['GSV', num(calc.gsv ?? observed.gsv, 2)],
       ['NSV', num(calc.nsv ?? observed.nsv ?? observed.net_volume_bbl, 2)],
+      ['S&W Volume', num(swVolumeForPdf, 2)],
       ['BS&W %', num(calc.bsw_percent ?? observed.bsw_percent ?? observed.bsw, 4)],
       ['CSW', num(calc.csw ?? observed.csw, 6)],
       ['Notes', value(pdfNotes)],
@@ -6346,6 +6373,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['Gross Volume (GV = IV × MF)', '=', rowMap['GV'], 'bbls'],
       ['Gross Standard Volume (GSV = IV × MF × CTL × CPL)', '=', rowMap['GSV'], 'bbls'],
       ['Net Standard Volume (NSV = GSV × CSW)', '=', rowMap['NSV'], 'bbls'],
+      ['S&W Volume (GSV − NSV)', '=', rowMap['S&W Volume'], 'bbls'],
     ]
 
     volRows.forEach((row, rowIndex) => {
@@ -12309,7 +12337,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
         <div>Status: {p.status}</div>
         <div>Type: {p.factor_type || 'MF'}</div>
         <div>Accepted {p.factor_type || 'MF'}: {Number(p.accepted_meter_factor || 0).toFixed(4)}</div>
-        {p.factor_type === 'CMF' && <div>MF: {Number(p.mf || 0).toFixed(4)} × CPL: {Number(p.cpl || 1).toFixed(5)}</div>}
+        {p.factor_type === 'CMF' && <div>MF: {Number(p.mf || 0).toFixed(4)} × CPL: {Number(p.cpl || 1).toFixed(6)}</div>}
         <div>Witness: {p.witness || ''}</div>
         <div>PDF: {p.pdf_file_name || 'None'}</div>
         {p.approved_at && <div>Approved: {new Date(p.approved_at).toLocaleString()}</div>}
@@ -15567,7 +15595,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 })()}
                 {provingFactorType === 'CMF' && (
                   <div style={{ marginTop: 8, color: '#9ca3af' }}>
-                    CMF = MF × CPL. MF {Number(acceptedMF || (Number(proverVolume || 0) > 0 && Number(provingIndicatedVolume || 0) > 0 ? Number(proverVolume) / Number(provingIndicatedVolume) : 0) || 0).toFixed(4)} × CPL {Number(provingCpl || 1).toFixed(5)}
+                    CMF = MF × CPL. MF {Number(acceptedMF || (Number(proverVolume || 0) > 0 && Number(provingIndicatedVolume || 0) > 0 ? Number(proverVolume) / Number(provingIndicatedVolume) : 0) || 0).toFixed(4)} × CPL {Number(provingCpl || 1).toFixed(6)}
                   </div>
                 )}
               </div>
@@ -16042,7 +16070,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                           <div style={box}><div className="ticket-muted">GOV</div><strong>{calculateTankTicketSnapshot(selectedTank).gov.toFixed(2)}</strong></div>
                           <div style={box}><div className="ticket-muted">GSV</div><strong>{calculateTankTicketSnapshot(selectedTank).gsv.toFixed(2)}</strong></div>
                           <div style={box}><div className="ticket-muted">Base NSV</div><strong>{calculateTankTicketSnapshot(selectedTank).nsv.toFixed(2)}</strong></div>
-                          <div style={box}><div className="ticket-muted">CTL/CTPL</div><strong>{calculateTankTicketSnapshot(selectedTank).ctl.toFixed(5)}</strong></div>
+                          <div style={box}><div className="ticket-muted">CTL/CTPL</div><strong>{calculateTankTicketSnapshot(selectedTank).ctl.toFixed(6)}</strong></div>
                         </div>
                       </div>
                     )}
@@ -16471,7 +16499,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         Ref SG: {Number(calculateTankTicketSnapshot(selectedTank).roofConfig.referenceSg || 0).toFixed(5)} •
                         Actual SG: {apiToSpecificGravity(getTankCorrectedApi60()).toFixed(5)} •
                         API @60: {calculateTankTicketSnapshot(selectedTank).corrections.api_gravity_60.toFixed(1)} •
-                        CTL/CTPL: {calculateTankTicketSnapshot(selectedTank).ctl.toFixed(5)} •
+                        CTL/CTPL: {calculateTankTicketSnapshot(selectedTank).ctl.toFixed(6)} •
                         CSW: {(1 - calculateTankTicketSnapshot(selectedTank).swDecimal).toFixed(5)}
                       </div>
                     </div>

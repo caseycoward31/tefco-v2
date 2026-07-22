@@ -301,6 +301,12 @@ function roundApiFactor(value: number, decimals = 6) {
   return roundApiHalfEven(value, decimals)
 }
 
+function truncateFactor(value: number, decimals = 6) {
+  if (!Number.isFinite(value)) return 0
+  const p = Math.pow(10, decimals)
+  return Math.trunc(value * p) / p
+}
+
 function apiToDensityKgM3(apiGravity: number) {
   if (!Number.isFinite(apiGravity)) return 0
   return (999.016 * 141.5) / (apiGravity + 131.5)
@@ -728,8 +734,10 @@ function calculateApi11Corrections(input: {
     averageTemperature,
     productGroup
   )
+  const vmacsCtlTicket = truncateFactor(vmacsCtlRaw, factorDecimals)
   const vmacsCplRaw = volumeCorrection.cpl
-  const vmacsCtlpRaw = vmacsCtlRaw * vmacsCplRaw
+  const vmacsCplTicket = roundApiFactor(vmacsCplRaw, factorDecimals)
+  const vmacsCtlpRaw = vmacsCtlTicket * vmacsCplTicket
 
   return {
     observed_api_gravity: roundTo(observedApiGravity, 5),
@@ -743,8 +751,8 @@ function calculateApi11Corrections(input: {
     average_pressure: roundTo(averagePressure, 2),
 
     // Display / ticket factors. Chapter 12.2 R2021 tickets use these rounded factors.
-    ctl: roundApiFactor(vmacsCtlRaw, factorDecimals),
-    cpl: roundApiFactor(vmacsCplRaw, factorDecimals),
+    ctl: vmacsCtlTicket,
+    cpl: vmacsCplTicket,
     ctlp: roundApiFactor(vmacsCtlpRaw, factorDecimals),
     ccf: roundApiFactor(vmacsCtlpRaw, factorDecimals),
 
@@ -756,6 +764,7 @@ function calculateApi11Corrections(input: {
     raw_density_60: base.density60,
     calculation_density_60: calculationDensity60,
     raw_ctl: vmacsCtlRaw,
+    ctl_rounding_method: 'truncate_to_6_decimals',
     raw_cpl: vmacsCplRaw,
     raw_ctlp: vmacsCtlpRaw,
     raw_ccf: vmacsCtlpRaw,

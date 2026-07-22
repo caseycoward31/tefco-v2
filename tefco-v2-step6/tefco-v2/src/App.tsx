@@ -666,10 +666,14 @@ function calculateVmacsStyleCtlFromApi60(
   if (!Number.isFinite(density60) || density60 <= 0) return 1
 
   const coeff = getApi11Coefficients(productGroup, density60)
-  const alpha60 =
+  // VMACS rounds the thermal expansion coefficient to 7 decimals
+  // before calculating the final ticket CTL.
+  const alpha60 = roundTo(
     coeff.k0 / (density60 * density60) +
-    coeff.k1 / density60 +
-    coeff.k2
+      coeff.k1 / density60 +
+      coeff.k2,
+    7
+  )
   const deltaT = Number(averageTemperatureF || 60) - 60
 
   return Math.exp(
@@ -734,7 +738,7 @@ function calculateApi11Corrections(input: {
     averageTemperature,
     productGroup
   )
-  const vmacsCtlTicket = truncateFactor(vmacsCtlRaw, factorDecimals)
+  const vmacsCtlTicket = roundApiFactor(vmacsCtlRaw, factorDecimals)
   const vmacsCplRaw = volumeCorrection.cpl
   const vmacsCplTicket = roundApiFactor(vmacsCplRaw, factorDecimals)
   const vmacsCtlpRaw = vmacsCtlTicket * vmacsCplTicket
@@ -764,7 +768,7 @@ function calculateApi11Corrections(input: {
     raw_density_60: base.density60,
     calculation_density_60: calculationDensity60,
     raw_ctl: vmacsCtlRaw,
-    ctl_rounding_method: 'truncate_to_6_decimals',
+    ctl_rounding_method: 'alpha_7_decimals_then_ctl_6_decimals',
     raw_cpl: vmacsCplRaw,
     raw_ctlp: vmacsCtlpRaw,
     raw_ccf: vmacsCtlpRaw,
@@ -4873,8 +4877,32 @@ function handleProvingAreaSelect(areaId: string) {
 
   function getDraftTicketEditCalculatedVolumes(values: Record<string, string>) {
     const iv = getDraftTicketEditIv(values)
-    const ctl = ticketEditNumber(values, 'ctl') ?? Number(selectedTicket?.calculation_results?.ctl ?? selectedTicket?.observed_inputs?.ctl ?? 1)
-    const cpl = ticketEditNumber(values, 'cpl') ?? Number(selectedTicket?.calculation_results?.cpl ?? selectedTicket?.observed_inputs?.cpl ?? 1)
+    const observedApi = ticketEditNumber(values, 'observed_api_gravity')
+    const observedTemp = ticketEditNumber(values, 'observed_temperature')
+    const averageTemp = ticketEditNumber(values, 'average_temperature')
+    const averagePressure = ticketEditNumber(values, 'average_pressure')
+    const productGroup = String(
+      selectedTicket?.calculation_results?.product_group ||
+      selectedTicket?.observed_inputs?.product_group ||
+      'crude'
+    )
+
+    const liveCorrections = observedApi !== null && observedTemp !== null
+      ? calculateApi11Corrections({
+          productGroup,
+          observedApiGravity: observedApi,
+          observedTemperature: observedTemp,
+          observedPressure: 0,
+          averageTemperature: averageTemp ?? observedTemp,
+          averagePressure: averagePressure ?? 0,
+          apiRounding: 1,
+        })
+      : null
+
+    const apiGravity60 = liveCorrections?.api_gravity_60 ?? null
+    const ctl = liveCorrections?.ctl ?? Number(selectedTicket?.calculation_results?.ctl ?? selectedTicket?.observed_inputs?.ctl ?? 1)
+    const cpl = liveCorrections?.cpl ?? Number(selectedTicket?.calculation_results?.cpl ?? selectedTicket?.observed_inputs?.cpl ?? 1)
+    const ctlp = liveCorrections?.ctlp ?? roundApiFactor(ctl * cpl, 6)
     const mf = ticketEditNumber(values, 'mf') ?? Number(selectedTicket?.calculation_results?.mf ?? selectedTicket?.observed_inputs?.mf ?? 1)
     const swPercent = ticketEditNumber(values, 'sw_percent')
     const csw = swPercent !== null
@@ -4892,7 +4920,7 @@ function handleProvingAreaSelect(areaId: string) {
     const adjustment = ticketEditNumber(values, 'net_volume_adjustment_bbl') ?? 0
     const adjustedNsv = baseNsv !== null ? roundTo(baseNsv + adjustment, 2) : null
 
-    return { iv, gv, baseGsv, baseNsv, adjustment, adjustedNsv }
+    return { apiGravity60, ctl, cpl, ctlp, iv, gv, baseGsv, baseNsv, adjustment, adjustedNsv }
   }
 
   async function saveTankTicketEdits() {
@@ -5204,9 +5232,9 @@ function handleProvingAreaSelect(areaId: string) {
     })
     const apiGravity60Value = corrections.api_gravity_60
     const density60Value = corrections.density_60
-    const ctlValue = roundTo(corrections.ctl, ctlRounding)
-    const cplValue = roundTo(corrections.cpl, cplRounding)
-    const ctlpValue = roundTo(corrections.ctlp, ctlpRounding)
+    const ctlValue = ctlRounding === 6 ? corrections.ctl : roundTo(corrections.ctl, ctlRounding)
+    const cplValue = cplRounding === 6 ? corrections.cpl : roundTo(corrections.cpl, cplRounding)
+    const ctlpValue = ctlpRounding === 6 ? corrections.ctlp : roundTo(corrections.ctlp, ctlpRounding)
     const mfValue = ticketEditNumber(values, 'mf') ?? Number(calc.mf ?? observed.mf ?? 1)
     const cswValue = swPercent !== null ? roundTo(1 - swPercent / 100, 5) : Number(calc.csw ?? observed.csw ?? 1)
     const calculatedGv = totalBatchBarrels !== null ? roundTo(totalBatchBarrels * mfValue, 2) : null
@@ -16269,12 +16297,13 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <label><div className="ticket-muted">Average Pressure</div><input style={input} value={draftTicketEditValues.average_pressure || ''} onChange={(e) => updateDraftTicketEditField('average_pressure', e.target.value)} /></label>
                       <label><div className="ticket-muted">Observed Gravity/API</div><input style={input} value={draftTicketEditValues.observed_api_gravity || ''} onChange={(e) => updateDraftTicketEditField('observed_api_gravity', e.target.value)} /></label>
                       <label><div className="ticket-muted">Observed Temp</div><input style={input} value={draftTicketEditValues.observed_temperature || ''} onChange={(e) => updateDraftTicketEditField('observed_temperature', e.target.value)} /></label>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">API @ 60°F</div><strong>{(() => { const api = ticketEditNumber(draftTicketEditValues, 'observed_api_gravity'); const temp = ticketEditNumber(draftTicketEditValues, 'observed_temperature'); if (api === null || temp === null) return '—'; return formatMeasurementNumber(calculateApi11Corrections({ productGroup: 'crude', observedApiGravity: api, observedTemperature: temp, averageTemperature: ticketEditNumber(draftTicketEditValues, 'average_temperature') ?? temp, averagePressure: ticketEditNumber(draftTicketEditValues, 'average_pressure') ?? 0, apiRounding: 1 }).api_gravity_60, 1) })()}</strong><div className="ticket-muted">Calculated by app</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">API @ 60°F</div><strong>{formatMeasurementNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).apiGravity60, 1)}</strong><div className="ticket-muted">Live calculation</div></div>
                       <label><div className="ticket-muted">S&W %</div><input style={input} value={draftTicketEditValues.sw_percent || ''} onChange={(e) => updateDraftTicketEditField('sw_percent', e.target.value)} /></label>
                       <label><div className="ticket-muted">RVP</div><input style={input} value={draftTicketEditValues.rvp || ''} onChange={(e) => updateDraftTicketEditField('rvp', e.target.value)} placeholder="Enter RVP if missing from POT" /></label>
                       <label><div className="ticket-muted">Sulphur</div><input style={input} value={draftTicketEditValues.sulfur || ''} onChange={(e) => updateDraftTicketEditField('sulfur', e.target.value)} placeholder="Enter sulphur if missing from POT" /></label>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CPL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTL</div><strong>{formatFactorDetail(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).ctl, 6)}</strong><div className="ticket-muted">Live calculation</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CPL</div><strong>{formatFactorDetail(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).cpl, 6)}</strong><div className="ticket-muted">Live calculation</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTPL</div><strong>{formatFactorDetail(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).ctlp, 6)}</strong><div className="ticket-muted">CTL × CPL</div></div>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">GV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).gv, 2)}</strong><div className="ticket-muted">IV × MF</div></div>
                       <label><div className="ticket-muted">MF / CMF</div><input style={input} value={draftTicketEditValues.mf || ''} onChange={(e) => updateDraftTicketEditField('mf', e.target.value)} /></label>
                       <label>

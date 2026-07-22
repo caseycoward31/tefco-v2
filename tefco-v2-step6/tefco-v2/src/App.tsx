@@ -820,7 +820,13 @@ function calculateTicketCalculationEngine(input: TicketCalculationEngineInput) {
     : Number(input.csw ?? 1)
   const gvRaw = iv === null ? null : iv * mf
   const gsvRaw = iv === null ? null : iv * mf * ctl * cpl
-  const nsvRaw = gsvRaw === null ? null : gsvRaw * resolvedCsw
+
+  // API ticket rounding sequence: GSV is established at the configured
+  // volume precision before CSW is applied to calculate NSV. This keeps the
+  // saved result consistent with the displayed ticket calculation.
+  const gvRounded = gvRaw === null ? null : roundApiHalfEven(gvRaw, volumeDecimals)
+  const gsvRounded = gsvRaw === null ? null : roundApiHalfEven(gsvRaw, volumeDecimals)
+  const nsvRaw = gsvRounded === null ? null : gsvRounded * resolvedCsw
   const adjustment = Number(input.netVolumeAdjustmentBbl || 0)
 
   return {
@@ -835,12 +841,12 @@ function calculateTicketCalculationEngine(input: TicketCalculationEngineInput) {
     gvRaw,
     gsvRaw,
     nsvRaw,
-    gv: gvRaw === null ? null : roundApiHalfEven(gvRaw, volumeDecimals),
-    gsv: gsvRaw === null ? null : roundApiHalfEven(gsvRaw, volumeDecimals),
+    gv: gvRounded,
+    gsv: gsvRounded,
     baseNsv: nsvRaw === null ? null : roundApiHalfEven(nsvRaw, volumeDecimals),
     netVolumeAdjustmentBbl: adjustment,
     nsv: nsvRaw === null ? null : roundApiHalfEven(nsvRaw + adjustment, volumeDecimals),
-    calculation_engine: 'single_shared_ticket_engine_v1',
+    calculation_engine: 'single_shared_ticket_engine_v2_gsv_before_nsv_rounding',
   }
 }
 

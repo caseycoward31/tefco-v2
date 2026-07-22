@@ -753,7 +753,7 @@ function calculateApi11Corrections(input: {
     ctl: ctlTicket,
     cpl: cplTicket,
     ctlp: roundApiFactor(ctlpRaw, factorDecimals),
-    ccf: roundApiFactor(vmacsCtlpRaw, factorDecimals),
+    ccf: roundApiFactor(ctlpRaw, factorDecimals),
 
     // Audit values: preserve the raw stored gravity while showing which one-decimal
     // observed API was actually used to find API @60.
@@ -762,15 +762,15 @@ function calculateApi11Corrections(input: {
     raw_api_gravity_60: base.apiGravity60,
     raw_density_60: base.density60,
     calculation_density_60: calculationDensity60,
-    raw_ctl: vmacsCtlRaw,
-    ctl_rounding_method: 'alpha_7_decimals_then_ctl_6_decimals',
-    raw_cpl: vmacsCplRaw,
-    raw_ctlp: vmacsCtlpRaw,
-    raw_ccf: vmacsCtlpRaw,
+    raw_ctl: ctlRaw,
+    ctl_rounding_method: 'full_density_then_factor_rounding',
+    raw_cpl: cplRaw,
+    raw_ctlp: ctlpRaw,
+    raw_ccf: ctlpRaw,
     raw_fp: volumeCorrection.fp,
     raw_alpha60: volumeCorrection.alpha60,
     product_sub_group: volumeCorrection.productSubGroup,
-    api_engine: 'VMACS-style CTL test / API MPMS 11.1 density',
+    api_engine: 'API MPMS 11.1 full-density factor calculation',
     api_engine_note: base.converged
       ? 'API @60 is displayed at ticket precision while full corrected density @60 is retained for factor calculations.'
       : 'Calculated but density iteration did not fully converge.',

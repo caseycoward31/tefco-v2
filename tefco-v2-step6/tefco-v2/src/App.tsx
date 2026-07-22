@@ -714,9 +714,8 @@ function calculateApi11Corrections(input: {
   const apiDecimals = Number(input.apiRounding ?? 1)
   const factorDecimals = 6
 
-  // VMACS ticket sequence: correct observed API to API @60, round API @60
-  // to the ticket precision first, then use that rounded API @60 to calculate
-  // the volume correction factors. This keeps CTL/CPL and ticket volumes aligned.
+  // Correct observed API to API @60. The rounded API @60 is the ticket display
+  // value only; downstream correction factors use the full corrected density.
   const roundedApiGravity60 = roundApiHalfEven(base.apiGravity60, apiDecimals)
   // Keep the rounded API @60 only as the ticket display value.
   // Use the full corrected density at 60°F from the API correction path
@@ -730,18 +729,14 @@ function calculateApi11Corrections(input: {
     productGroup
   )
 
-  // VMACS-style final CTL test: use rounded ticket API @60 and the
-  // straightforward 60°F exponential correction shown in the Plains sheet.
-  // CPL remains on the existing pressure-correction path.
-  const vmacsCtlRaw = calculateVmacsStyleCtlFromApi60(
-    roundedApiGravity60,
-    averageTemperature,
-    productGroup
-  )
-  const vmacsCtlTicket = roundApiFactor(vmacsCtlRaw, factorDecimals)
-  const vmacsCplRaw = volumeCorrection.cpl
-  const vmacsCplTicket = roundApiFactor(vmacsCplRaw, factorDecimals)
-  const vmacsCtlpRaw = vmacsCtlTicket * vmacsCplTicket
+  // Calculate CTL and CPL from the full corrected density at 60°F.
+  // API @60 remains rounded to one decimal for ticket display only; it is not
+  // converted back into density for the factor calculation.
+  const ctlRaw = volumeCorrection.ctl
+  const ctlTicket = roundApiFactor(ctlRaw, factorDecimals)
+  const cplRaw = volumeCorrection.cpl
+  const cplTicket = roundApiFactor(cplRaw, factorDecimals)
+  const ctlpRaw = ctlTicket * cplTicket
 
   return {
     observed_api_gravity: roundTo(observedApiGravity, 5),
@@ -755,9 +750,9 @@ function calculateApi11Corrections(input: {
     average_pressure: roundTo(averagePressure, 2),
 
     // Display / ticket factors. Chapter 12.2 R2021 tickets use these rounded factors.
-    ctl: vmacsCtlTicket,
-    cpl: vmacsCplTicket,
-    ctlp: roundApiFactor(vmacsCtlpRaw, factorDecimals),
+    ctl: ctlTicket,
+    cpl: cplTicket,
+    ctlp: roundApiFactor(ctlpRaw, factorDecimals),
     ccf: roundApiFactor(vmacsCtlpRaw, factorDecimals),
 
     // Audit values: preserve the raw stored gravity while showing which one-decimal

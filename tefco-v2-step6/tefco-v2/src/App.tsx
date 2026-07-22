@@ -651,6 +651,27 @@ function calculateDensity60FromObservedApi(
   }
 }
 
+function calculateVmacsStyleCtlFromApi60(
+  apiGravity60: number,
+  averageTemperatureF: number,
+  productGroup: string
+) {
+  const density60 = apiToDensityKgM3(apiGravity60)
+  if (!Number.isFinite(density60) || density60 <= 0) return 1
+
+  const coeff = getApi11Coefficients(productGroup, density60)
+  const alpha60 =
+    coeff.k0 / (density60 * density60) +
+    coeff.k1 / density60 +
+    coeff.k2
+  const deltaT = Number(averageTemperatureF || 60) - 60
+
+  return Math.exp(
+    -alpha60 * deltaT -
+      0.8 * alpha60 * alpha60 * deltaT * deltaT
+  )
+}
+
 function calculateApi11Corrections(input: {
   productGroup?: string
   observedApiGravity?: number
@@ -699,6 +720,17 @@ function calculateApi11Corrections(input: {
     productGroup
   )
 
+  // VMACS-style final CTL test: use rounded ticket API @60 and the
+  // straightforward 60°F exponential correction shown in the Plains sheet.
+  // CPL remains on the existing pressure-correction path.
+  const vmacsCtlRaw = calculateVmacsStyleCtlFromApi60(
+    roundedApiGravity60,
+    averageTemperature,
+    productGroup
+  )
+  const vmacsCplRaw = volumeCorrection.cpl
+  const vmacsCtlpRaw = vmacsCtlRaw * vmacsCplRaw
+
   return {
     observed_api_gravity: roundTo(observedApiGravity, 5),
     observed_temperature: roundTo(observedTemperature, 2),
@@ -711,10 +743,10 @@ function calculateApi11Corrections(input: {
     average_pressure: roundTo(averagePressure, 2),
 
     // Display / ticket factors. Chapter 12.2 R2021 tickets use these rounded factors.
-    ctl: roundApiFactor(volumeCorrection.ctl, factorDecimals),
-    cpl: roundApiFactor(volumeCorrection.cpl, factorDecimals),
-    ctlp: roundApiFactor(volumeCorrection.ctlp, factorDecimals),
-    ccf: roundApiFactor(volumeCorrection.ccf, factorDecimals),
+    ctl: roundApiFactor(vmacsCtlRaw, factorDecimals),
+    cpl: roundApiFactor(vmacsCplRaw, factorDecimals),
+    ctlp: roundApiFactor(vmacsCtlpRaw, factorDecimals),
+    ccf: roundApiFactor(vmacsCtlpRaw, factorDecimals),
 
     // Audit values: preserve the raw stored gravity while showing which one-decimal
     // observed API was actually used to find API @60.
@@ -723,14 +755,14 @@ function calculateApi11Corrections(input: {
     raw_api_gravity_60: base.apiGravity60,
     raw_density_60: base.density60,
     calculation_density_60: calculationDensity60,
-    raw_ctl: volumeCorrection.ctl,
-    raw_cpl: volumeCorrection.cpl,
-    raw_ctlp: volumeCorrection.ctlp,
-    raw_ccf: volumeCorrection.ccf,
+    raw_ctl: vmacsCtlRaw,
+    raw_cpl: vmacsCplRaw,
+    raw_ctlp: vmacsCtlpRaw,
+    raw_ccf: vmacsCtlpRaw,
     raw_fp: volumeCorrection.fp,
     raw_alpha60: volumeCorrection.alpha60,
     product_sub_group: volumeCorrection.productSubGroup,
-    api_engine: 'API MPMS 11.1 / 11.1.6.1',
+    api_engine: 'VMACS-style CTL test / API MPMS 11.1 density',
     api_engine_note: base.converged
       ? 'API @60 is displayed at ticket precision while full corrected density @60 is retained for factor calculations.'
       : 'Calculated but density iteration did not fully converge.',

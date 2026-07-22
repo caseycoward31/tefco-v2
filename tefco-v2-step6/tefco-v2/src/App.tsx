@@ -661,7 +661,11 @@ function calculateApi11Corrections(input: {
   apiRounding?: number
 }) {
   const productGroup = input.productGroup || 'crude'
-  const observedApiGravity = Number(input.observedApiGravity || 0)
+  const rawObservedApiGravity = Number(input.observedApiGravity || 0)
+
+  // VMACS uses the ticketed observed gravity at one decimal when finding API @60.
+  // Example: a stored/raw value of 40.72 is treated as the ticket value 40.7.
+  const observedApiGravity = roundApiHalfEven(rawObservedApiGravity, 1)
   const observedTemperature = Number(input.observedTemperature || 60)
   const observedPressure = Number(input.observedPressure || 0)
   const averageTemperature = Number(
@@ -709,7 +713,10 @@ function calculateApi11Corrections(input: {
     ctlp: roundApiFactor(volumeCorrection.ctlp, factorDecimals),
     ccf: roundApiFactor(volumeCorrection.ccf, factorDecimals),
 
-    // Audit values: full precision is retained for validation and troubleshooting.
+    // Audit values: preserve the raw stored gravity while showing which one-decimal
+    // observed API was actually used to find API @60.
+    raw_observed_api_gravity: rawObservedApiGravity,
+    observed_api_gravity_used: observedApiGravity,
     raw_api_gravity_60: base.apiGravity60,
     raw_density_60: base.density60,
     calculation_density_60: calculationDensity60,
@@ -6487,7 +6494,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['Gross Volume (GV = IV × MF)', '=', rowMap['GV'], 'bbls'],
       ['Gross Standard Volume (GSV = IV × MF × CTL × CPL)', '=', rowMap['GSV'], 'bbls'],
       ['Net Standard Volume (NSV = GSV × CSW)', '=', rowMap['NSV'], 'bbls'],
-      ['S&W Volume (GSV − NSV)', '=', rowMap['S&W Volume'], 'bbls'],
+      ['S and W Volume (GSV - NSV)', '=', rowMap['S&W Volume'], 'bbls'],
     ]
 
     volRows.forEach((row, rowIndex) => {

@@ -468,9 +468,11 @@ function calculateDensity60FromObservedApi(
   observedPressurePsig: number,
   productGroup: string
 ) {
-  const observedDensity = apiToDensityKgM3(Number(observedApiGravity || 0))
+  const safeObservedApi = Number(observedApiGravity || 0)
+  const safeObservedTemp = Number(observedTempF || 60)
+  const group = String(productGroup || 'crude').toLowerCase()
 
-  if (!observedDensity) {
+  if (!Number.isFinite(safeObservedApi) || safeObservedApi <= -131.5) {
     return {
       density60: 0,
       apiGravity60: 0,
@@ -482,12 +484,115 @@ function calculateDensity60FromObservedApi(
     }
   }
 
+  // Plains / VMACS crude API @60 sequence from the supplied calculation sheet.
+  // This section is intentionally limited to finding API gravity at 60°F.
+  // CTL, CPL, and ticket volume calculations remain in their existing functions.
+  if (!group.includes('refined') && !group.includes('product') &&
+      !group.includes('gasoline') && !group.includes('diesel') &&
+      !group.includes('jet') && !group.includes('fuel') &&
+      !group.includes('lube')) {
+    const apiDensityConstant = 141360.198
+    const k0 = 341.0957
+    const deltaT = safeObservedTemp - 60
+
+    // Excel BG: observed API -> observed density, rounded to 0.01 kg/m³.
+    const observedDensity = roundTo(
+      apiDensityConstant / (131.5 + safeObservedApi),
+      2
+    )
+
+    // Excel BH/BK: temperature-scale adjustment, rounded exactly as the sheet.
+    const temperatureScaleFactor = roundTo(
+      1 -
+        0.00001278 * deltaT -
+        0.0000000062 * deltaT * deltaT,
+      9
+    )
+    const adjustedObservedDensity = roundTo(
+      observedDensity * temperatureScaleFactor,
+      2
+    )
+
+    // First density-at-60 pass.
+    const alphaPass1 = roundTo(
+      k0 / (adjustedObservedDensity * adjustedObservedDensity),
+      7
+    )
+    const correctionPass1 = roundTo(
+      Math.exp(
+        -alphaPass1 * deltaT -
+          0.8 * alphaPass1 * alphaPass1 * deltaT * deltaT
+      ),
+      6
+    )
+    const density60Pass1 = roundTo(
+      adjustedObservedDensity / correctionPass1,
+      3
+    )
+    const density60Pass1Rounded = roundTo(density60Pass1, 2)
+
+    // Second density-at-60 pass.
+    const alphaPass2 = roundTo(
+      k0 / (density60Pass1Rounded * density60Pass1Rounded),
+      7
+    )
+    const correctionPass2 = roundTo(
+      Math.exp(
+        -alphaPass2 * deltaT -
+          0.8 * alphaPass2 * alphaPass2 * deltaT * deltaT
+      ),
+      6
+    )
+    const density60 = roundTo(
+      adjustedObservedDensity / correctionPass2,
+      3
+    )
+
+    // Excel BS: final density at 60°F -> API @60, rounded to one decimal.
+    const apiGravity60 = roundTo(
+      apiDensityConstant / density60 - 131.5,
+      1
+    )
+
+    const observedPoint = calculateType1FromDensity60(
+      density60,
+      safeObservedTemp,
+      Number(observedPressurePsig || 0),
+      productGroup
+    )
+
+    return {
+      density60,
+      apiGravity60,
+      ctlObserved: observedPoint.ctl,
+      cplObserved: observedPoint.cpl,
+      ctlpObserved: observedPoint.ctlp,
+      iterations: 2,
+      converged: true,
+      api60Audit: {
+        observedDensity,
+        temperatureScaleFactor,
+        adjustedObservedDensity,
+        alphaPass1,
+        correctionPass1,
+        density60Pass1,
+        density60Pass1Rounded,
+        alphaPass2,
+        correctionPass2,
+        density60,
+        apiGravity60,
+      },
+    }
+  }
+
+  // Preserve the existing iterative API MPMS path for non-crude product groups.
+  const observedDensity = apiToDensityKgM3(safeObservedApi)
   let density60 = observedDensity
 
   for (let i = 0; i < 20; i += 1) {
     const calc = calculateType1FromDensity60(
       density60,
-      observedTempF,
+      safeObservedTemp,
       observedPressurePsig,
       productGroup
     )
@@ -510,7 +615,7 @@ function calculateDensity60FromObservedApi(
     const bump = Math.max(0.001, Math.abs(density60) * 0.000001)
     const calcBump = calculateType1FromDensity60(
       density60 + bump,
-      observedTempF,
+      safeObservedTemp,
       observedPressurePsig,
       productGroup
     )
@@ -530,7 +635,7 @@ function calculateDensity60FromObservedApi(
 
   const finalCalc = calculateType1FromDensity60(
     density60,
-    observedTempF,
+    safeObservedTemp,
     observedPressurePsig,
     productGroup
   )

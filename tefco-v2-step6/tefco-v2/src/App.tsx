@@ -687,7 +687,10 @@ function calculateApi11Corrections(input: {
   // to the ticket precision first, then use that rounded API @60 to calculate
   // the volume correction factors. This keeps CTL/CPL and ticket volumes aligned.
   const roundedApiGravity60 = roundApiHalfEven(base.apiGravity60, apiDecimals)
-  const calculationDensity60 = apiToDensityKgM3(roundedApiGravity60)
+  // Keep the rounded API @60 only as the ticket display value.
+  // Use the full corrected density at 60°F from the API correction path
+  // for downstream factors instead of converting rounded API @60 back to density.
+  const calculationDensity60 = base.density60
 
   const volumeCorrection = calculateType1FromDensity60(
     calculationDensity60,
@@ -729,7 +732,7 @@ function calculateApi11Corrections(input: {
     product_sub_group: volumeCorrection.productSubGroup,
     api_engine: 'API MPMS 11.1 / 11.1.6.1',
     api_engine_note: base.converged
-      ? 'Calculated using the VMACS ticket sequence: API @60 rounded to ticket precision before CTL/CPL.'
+      ? 'API @60 is displayed at ticket precision while full corrected density @60 is retained for factor calculations.'
       : 'Calculated but density iteration did not fully converge.',
   }
 }

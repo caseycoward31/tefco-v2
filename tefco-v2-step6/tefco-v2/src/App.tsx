@@ -783,6 +783,73 @@ function calculateApi11Corrections(input: {
 }
 
 
+type TicketCalculationEngineInput = {
+  productGroup?: string
+  observedApiGravity?: number
+  observedTemperature?: number
+  observedPressure?: number
+  averageTemperature?: number
+  averagePressure?: number
+  apiRounding?: number
+  factorRounding?: number
+  volumeRounding?: number
+  indicatedVolume?: number | null
+  meterFactor?: number | null
+  bswPercent?: number | null
+  csw?: number | null
+  netVolumeAdjustmentBbl?: number | null
+}
+
+function calculateTicketCalculationEngine(input: TicketCalculationEngineInput) {
+  const factorDecimals = Number(input.factorRounding ?? 6)
+  const volumeDecimals = Number(input.volumeRounding ?? 2)
+  const corrections = calculateApi11Corrections({
+    productGroup: input.productGroup || 'crude',
+    observedApiGravity: Number(input.observedApiGravity || 0),
+    observedTemperature: Number(input.observedTemperature || 60),
+    observedPressure: Number(input.observedPressure || 0),
+    averageTemperature: Number(input.averageTemperature ?? input.observedTemperature ?? 60),
+    averagePressure: Number(input.averagePressure || 0),
+    apiRounding: Number(input.apiRounding ?? 1),
+  })
+
+  const ctl = roundApiFactor(corrections.ctl, factorDecimals)
+  const cpl = roundApiFactor(corrections.cpl, factorDecimals)
+  const ctlp = roundApiFactor(ctl * cpl, factorDecimals)
+  const iv = input.indicatedVolume === null || input.indicatedVolume === undefined
+    ? null
+    : Number(input.indicatedVolume)
+  const mf = roundApiHalfEven(Number(input.meterFactor ?? 1), 4)
+  const resolvedCsw = input.bswPercent !== null && input.bswPercent !== undefined
+    ? roundApiFactor(1 - Number(input.bswPercent) / 100, 6)
+    : Number(input.csw ?? 1)
+  const gvRaw = iv === null ? null : iv * mf
+  const gsvRaw = iv === null ? null : iv * mf * ctl * cpl
+  const nsvRaw = gsvRaw === null ? null : gsvRaw * resolvedCsw
+  const adjustment = Number(input.netVolumeAdjustmentBbl || 0)
+
+  return {
+    ...corrections,
+    ctl,
+    cpl,
+    ctlp,
+    ccf: ctlp,
+    iv,
+    mf,
+    csw: resolvedCsw,
+    gvRaw,
+    gsvRaw,
+    nsvRaw,
+    gv: gvRaw === null ? null : roundApiHalfEven(gvRaw, volumeDecimals),
+    gsv: gsvRaw === null ? null : roundApiHalfEven(gsvRaw, volumeDecimals),
+    baseNsv: nsvRaw === null ? null : roundApiHalfEven(nsvRaw, volumeDecimals),
+    netVolumeAdjustmentBbl: adjustment,
+    nsv: nsvRaw === null ? null : roundApiHalfEven(nsvRaw + adjustment, volumeDecimals),
+    calculation_engine: 'single_shared_ticket_engine_v1',
+  }
+}
+
+
 function isThisMonth(dateValue?: string) {
   if (!dateValue) return false
   const d = new Date(dateValue)
@@ -4204,44 +4271,50 @@ function handleProvingAreaSelect(areaId: string) {
 
     const productGroup = selectedProductGroup
 
-    const corrections = calculateApi11Corrections({
+    const rawObservedApiForTicket = Number(
+      ((latestPot as any)?.observed_api_gravity_raw) ??
+        ((latestPot as any)?.observed_api_raw) ??
+        ((latestPot as any)?.sample_gravity_raw) ??
+        ((latestPot as any)?.observed_api_exact) ??
+        ((latestPot as any)?.api_gravity_exact) ??
+        latestPot?.observed_api_gravity ??
+        latestPot?.api_gravity ??
+        latestPot?.api_gravity_60 ??
+        0
+    )
+    const observedTempForTicket = Number(
+      latestPot?.observed_temperature || latestPot?.sample_temperature || 60
+    )
+    const factorToUse = Number(latestApprovedProving?.accepted_meter_factor || latestReading?.meter_factor || 1)
+    const mf = roundApiHalfEven(factorToUse, 4)
+    const csw = Number(latestPot?.csw || 1)
+    const bswPercent = getPotBswPercentValue(latestPot) ?? roundTo((1 - csw) * 100, 4)
+    const engineResult = calculateTicketCalculationEngine({
       productGroup,
-      observedApiGravity: Number(
-        ((latestPot as any)?.observed_api_gravity_raw) ??
-          ((latestPot as any)?.observed_api_raw) ??
-          ((latestPot as any)?.sample_gravity_raw) ??
-          ((latestPot as any)?.observed_api_exact) ??
-          ((latestPot as any)?.api_gravity_exact) ??
-          latestPot?.observed_api_gravity ??
-          latestPot?.api_gravity ??
-          latestPot?.api_gravity_60 ??
-          0
-      ),
-      observedTemperature: Number(
-        latestPot?.observed_temperature ||
-          latestPot?.sample_temperature ||
-          60
-      ),
+      observedApiGravity: rawObservedApiForTicket,
+      observedTemperature: observedTempForTicket,
       observedPressure: 0,
       averageTemperature: avgTemp,
       averagePressure: usePressure ? avgPressure : 0,
       apiRounding,
+      factorRounding: 6,
+      volumeRounding,
+      indicatedVolume: iv,
+      meterFactor: mf,
+      bswPercent,
+      csw,
     })
-
-    const ctl = roundApiFactor(corrections.ctl, ctlRounding)
-    const cpl = roundApiFactor(corrections.cpl, cplRounding)
-    const ctlp = roundApiFactor(corrections.ctlp, ctlpRounding)
-    const ccf = corrections.ccf
+    const corrections = engineResult
+    const ctl = roundApiFactor(engineResult.ctl, ctlRounding)
+    const cpl = roundApiFactor(engineResult.cpl, cplRounding)
+    const ctlp = roundApiFactor(engineResult.ctlp, ctlpRounding)
+    const ccf = engineResult.ccf
 
     const finalCtl = tankTicketSnapshot ? tankTicketSnapshot.ctl : ctl
     const finalCpl = tankTicketSnapshot ? tankTicketSnapshot.cpl : cpl
     const finalCtlp = tankTicketSnapshot ? tankTicketSnapshot.ctlp : ctlp
     const finalCcf = tankTicketSnapshot ? tankTicketSnapshot.ccf : ccf
 
-    const factorToUse = Number(latestApprovedProving?.accepted_meter_factor || latestReading?.meter_factor || 1)
-    const mf = roundApiHalfEven(factorToUse, 4)
-    const csw = Number(latestPot?.csw || 1)
-    const bswPercent = getPotBswPercentValue(latestPot) ?? roundTo((1 - csw) * 100, 4)
     const isApi12 = isChapter122021Ticket || selectedContractStandard.includes('API 12') || selectedCalculationMethod === 'chapter12_2_2021' || selectedCalculationMethod === 'chapter12_2021'
     // API MPMS Chapter 12.2 R2021 sequence, matching the API example:
     // IV × MF × CTL × CPL = GSV
@@ -4249,17 +4322,21 @@ function handleProvingAreaSelect(areaId: string) {
     // GV = IV × MF is displayed as informational only.
     const gvRaw = tankTicketSnapshot
       ? Number((tankTicketSnapshot as any).iv || tankTicketSnapshot.gov || iv || 0) * mf
-      : iv * mf
-    const gv = roundApiHalfEven(gvRaw, volumeRounding)
+      : Number(engineResult.gvRaw || 0)
+    const gv = tankTicketSnapshot
+      ? roundApiHalfEven(gvRaw, volumeRounding)
+      : Number(engineResult.gv || 0)
 
     const gsvRaw = tankTicketSnapshot
       ? tankTicketSnapshot.gsv
-      : isApi12 ? iv * mf * ctl * cpl : iv * ccf * mf
-    const gsv = roundApiHalfEven(gsvRaw, volumeRounding)
+      : Number(engineResult.gsvRaw || 0)
+    const gsv = tankTicketSnapshot
+      ? roundApiHalfEven(gsvRaw, volumeRounding)
+      : Number(engineResult.gsv || 0)
 
     const nsv = tankTicketSnapshot
       ? roundApiHalfEven(tankTicketSnapshot.nsv, volumeRounding)
-      : roundApiHalfEven(gsvRaw * csw, volumeRounding)
+      : Number(engineResult.nsv || 0)
 
     const ticketInsertPayload: any = {
       company_id: companyId,
@@ -4881,46 +4958,59 @@ function handleProvingAreaSelect(areaId: string) {
     const observedTemp = ticketEditNumber(values, 'observed_temperature')
     const averageTemp = ticketEditNumber(values, 'average_temperature')
     const averagePressure = ticketEditNumber(values, 'average_pressure')
+    const mf = ticketEditNumber(values, 'mf') ?? Number(selectedTicket?.calculation_results?.mf ?? selectedTicket?.observed_inputs?.mf ?? 1)
+    const swPercent = ticketEditNumber(values, 'sw_percent')
+    const adjustment = ticketEditNumber(values, 'net_volume_adjustment_bbl') ?? 0
     const productGroup = String(
       selectedTicket?.calculation_results?.product_group ||
       selectedTicket?.observed_inputs?.product_group ||
       'crude'
     )
 
-    const liveCorrections = observedApi !== null && observedTemp !== null
-      ? calculateApi11Corrections({
-          productGroup,
-          observedApiGravity: observedApi,
-          observedTemperature: observedTemp,
-          observedPressure: 0,
-          averageTemperature: averageTemp ?? observedTemp,
-          averagePressure: averagePressure ?? 0,
-          apiRounding: 1,
-        })
-      : null
+    if (observedApi === null || observedTemp === null) {
+      return {
+        apiGravity60: null,
+        ctl: Number(selectedTicket?.calculation_results?.ctl ?? selectedTicket?.observed_inputs?.ctl ?? 1),
+        cpl: Number(selectedTicket?.calculation_results?.cpl ?? selectedTicket?.observed_inputs?.cpl ?? 1),
+        ctlp: Number(selectedTicket?.calculation_results?.ctlp ?? selectedTicket?.observed_inputs?.ctlp ?? 1),
+        iv,
+        gv: null,
+        baseGsv: null,
+        baseNsv: null,
+        adjustment,
+        adjustedNsv: null,
+      }
+    }
 
-    const apiGravity60 = liveCorrections?.api_gravity_60 ?? null
-    const ctl = liveCorrections?.ctl ?? Number(selectedTicket?.calculation_results?.ctl ?? selectedTicket?.observed_inputs?.ctl ?? 1)
-    const cpl = liveCorrections?.cpl ?? Number(selectedTicket?.calculation_results?.cpl ?? selectedTicket?.observed_inputs?.cpl ?? 1)
-    const ctlp = liveCorrections?.ctlp ?? roundApiFactor(ctl * cpl, 6)
-    const mf = ticketEditNumber(values, 'mf') ?? Number(selectedTicket?.calculation_results?.mf ?? selectedTicket?.observed_inputs?.mf ?? 1)
-    const swPercent = ticketEditNumber(values, 'sw_percent')
-    const csw = swPercent !== null
-      ? roundTo(1 - swPercent / 100, 5)
-      : Number(selectedTicket?.calculation_results?.csw ?? selectedTicket?.observed_inputs?.csw ?? 1)
-    const gv = iv !== null && Number.isFinite(mf)
-      ? roundTo(iv * mf, 2)
-      : null
-    const baseGsv = iv !== null && Number.isFinite(ctl) && Number.isFinite(cpl) && Number.isFinite(mf)
-      ? roundTo(iv * mf * ctl * cpl, 2)
-      : null
-    const baseNsv = baseGsv !== null && Number.isFinite(csw)
-      ? roundTo(baseGsv * csw, 2)
-      : null
-    const adjustment = ticketEditNumber(values, 'net_volume_adjustment_bbl') ?? 0
-    const adjustedNsv = baseNsv !== null ? roundTo(baseNsv + adjustment, 2) : null
+    const result = calculateTicketCalculationEngine({
+      productGroup,
+      observedApiGravity: observedApi,
+      observedTemperature: observedTemp,
+      observedPressure: 0,
+      averageTemperature: averageTemp ?? observedTemp,
+      averagePressure: averagePressure ?? 0,
+      apiRounding: 1,
+      factorRounding: 6,
+      volumeRounding: 2,
+      indicatedVolume: iv,
+      meterFactor: mf,
+      bswPercent: swPercent,
+      csw: Number(selectedTicket?.calculation_results?.csw ?? selectedTicket?.observed_inputs?.csw ?? 1),
+      netVolumeAdjustmentBbl: adjustment,
+    })
 
-    return { apiGravity60, ctl, cpl, ctlp, iv, gv, baseGsv, baseNsv, adjustment, adjustedNsv }
+    return {
+      apiGravity60: result.api_gravity_60,
+      ctl: result.ctl,
+      cpl: result.cpl,
+      ctlp: result.ctlp,
+      iv: result.iv,
+      gv: result.gv,
+      baseGsv: result.gsv,
+      baseNsv: result.baseNsv,
+      adjustment,
+      adjustedNsv: result.nsv,
+    }
   }
 
   async function saveTankTicketEdits() {
@@ -5221,7 +5311,9 @@ function handleProvingAreaSelect(areaId: string) {
     const ctlRounding = isChapter122021Revision ? 6 : Number(calc.ctl_rounding ?? observed.ctl_rounding ?? 6)
     const cplRounding = isChapter122021Revision ? 6 : Number(calc.cpl_rounding ?? observed.cpl_rounding ?? 6)
     const ctlpRounding = isChapter122021Revision ? 6 : Number(calc.ctlp_rounding ?? observed.ctlp_rounding ?? 6)
-    const corrections = calculateApi11Corrections({
+    const mfValue = ticketEditNumber(values, 'mf') ?? Number(calc.mf ?? observed.mf ?? 1)
+    const netVolumeAdjustmentBbl = ticketEditNumber(values, 'net_volume_adjustment_bbl') ?? 0
+    const engineResult = calculateTicketCalculationEngine({
       productGroup,
       observedApiGravity: Number(observedApi ?? calc.observed_api_gravity ?? observed.observed_api_gravity ?? 0),
       observedTemperature: Number(observedTemp ?? calc.observed_temperature ?? observed.observed_temperature ?? 60),
@@ -5229,21 +5321,25 @@ function handleProvingAreaSelect(areaId: string) {
       averageTemperature: Number(averageTemperature ?? calc.average_temperature ?? observed.average_temperature ?? 60),
       averagePressure: Number(averagePressure ?? calc.average_pressure ?? observed.average_pressure ?? 0),
       apiRounding,
+      factorRounding: 6,
+      volumeRounding: 2,
+      indicatedVolume: totalBatchBarrels,
+      meterFactor: mfValue,
+      bswPercent: swPercent,
+      csw: Number(calc.csw ?? observed.csw ?? 1),
+      netVolumeAdjustmentBbl,
     })
-    const apiGravity60Value = corrections.api_gravity_60
-    const density60Value = corrections.density_60
-    const ctlValue = ctlRounding === 6 ? corrections.ctl : roundTo(corrections.ctl, ctlRounding)
-    const cplValue = cplRounding === 6 ? corrections.cpl : roundTo(corrections.cpl, cplRounding)
-    const ctlpValue = ctlpRounding === 6 ? corrections.ctlp : roundTo(corrections.ctlp, ctlpRounding)
-    const mfValue = ticketEditNumber(values, 'mf') ?? Number(calc.mf ?? observed.mf ?? 1)
-    const cswValue = swPercent !== null ? roundTo(1 - swPercent / 100, 5) : Number(calc.csw ?? observed.csw ?? 1)
-    const calculatedGv = totalBatchBarrels !== null ? roundTo(totalBatchBarrels * mfValue, 2) : null
-    const calculatedGsv = totalBatchBarrels !== null ? roundTo(totalBatchBarrels * mfValue * ctlValue * cplValue, 2) : null
-    const gvValue = calculatedGv
-    const gsvValue = calculatedGsv
-    const baseNsvValue = gsvValue !== null ? roundTo(gsvValue * cswValue, 2) : null
-    const netVolumeAdjustmentBbl = ticketEditNumber(values, 'net_volume_adjustment_bbl') ?? 0
-    const nsvValue = baseNsvValue !== null ? roundTo(baseNsvValue + netVolumeAdjustmentBbl, 2) : null
+    const corrections = engineResult
+    const apiGravity60Value = engineResult.api_gravity_60
+    const density60Value = engineResult.density_60
+    const ctlValue = ctlRounding === 6 ? engineResult.ctl : roundTo(engineResult.ctl, ctlRounding)
+    const cplValue = cplRounding === 6 ? engineResult.cpl : roundTo(engineResult.cpl, cplRounding)
+    const ctlpValue = ctlpRounding === 6 ? engineResult.ctlp : roundTo(engineResult.ctlp, ctlpRounding)
+    const cswValue = engineResult.csw
+    const gvValue = engineResult.gv
+    const gsvValue = engineResult.gsv
+    const baseNsvValue = engineResult.baseNsv
+    const nsvValue = engineResult.nsv
     const netVolumeAdjustmentReason = String(values.net_volume_adjustment_reason || '').trim()
 
     const nextObservedInputs: any = {

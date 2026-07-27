@@ -443,7 +443,7 @@ function calculateType1FromDensity60(
   const ctl = Math.exp(
     -alpha60 *
       deltaT *
-      (1 + 0.8 * alpha60 * (deltaT + delta60))
+      (1 + 0.8 * alpha60 * deltaT)
   )
 
   const fp = Math.exp(

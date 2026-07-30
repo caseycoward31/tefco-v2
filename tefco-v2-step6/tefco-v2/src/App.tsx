@@ -1150,6 +1150,17 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [butaneEquilibriumPressure, setButaneEquilibriumPressure] = useState('')
   const [butaneSpecificGravity, setButaneSpecificGravity] = useState('')
   const [butaneShrinkFactorOverride, setButaneShrinkFactorOverride] = useState('')
+
+  useEffect(() => {
+    const selectedProduct = String(refinedProductCode || '').trim().toLowerCase()
+    const butaneSelected = selectedProduct === 'butane' || selectedProduct === 'lpg'
+
+    if (!butaneSelected) {
+      setButaneEquilibriumPressure('')
+      setButaneSpecificGravity('')
+      setButaneShrinkFactorOverride('')
+    }
+  }, [refinedProductCode])
   const [ticketBatchNumber, setTicketBatchNumber] = useState('')
   const [selectedTank, setSelectedTank] = useState('')
   const [selectedTankCalibrationVersionId, setSelectedTankCalibrationVersionId] = useState('')
@@ -4146,20 +4157,14 @@ function handleProvingAreaSelect(areaId: string) {
   }
 
   function isButaneTicketContext() {
-    const contractProfile = getSelectedTicketContractProfile()
-    const selectedMeterRow: any = asArray(meters).find((meter: any) => String(meter.id || '') === String(selectedMeter || ''))
-    const values = [
-      contractProfile?.product_group,
-      contractProfile?.standard,
-      contractProfile?.calculation_method,
-      selectedMeterRow?.product_type,
-      selectedMeterRow?.product,
-      selectedMeterRow?.commodity,
-      refinedProductCode,
-    ]
-      .map((value) => String(value || '').trim().toLowerCase())
+    // Butane-only controls and calculations are enabled only after the user
+    // explicitly selects Butane from the Product dropdown. Meter/contract
+    // metadata must not make the Butane section appear on a crude ticket.
+    const selectedProduct = String(refinedProductCode || '')
+      .trim()
+      .toLowerCase()
 
-    return values.some((value) => value.includes('butane') || value.includes('lpg'))
+    return selectedProduct === 'butane' || selectedProduct === 'lpg'
   }
 
   function getTicketBatchNumberValue(ticket: any) {
@@ -16710,7 +16715,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 <div style={{ ...card, border: '1px solid rgba(250, 204, 21, 0.45)', background: 'linear-gradient(135deg, rgba(120,53,15,0.24), rgba(2,6,23,0.42))' }}>
                   <h3 style={{ marginTop: 0 }}>Butane / LPG Ticket Settings</h3>
                   <p style={{ color: '#fde68a', marginTop: 0, fontSize: 12 }}>
-                    These inputs are used only when the selected contract, meter, or product is Butane/LPG. They do not change crude-oil tickets or the crude calculation profile.
+                    These inputs appear only after Product is set to Butane. They do not change crude-oil tickets or the crude calculation profile.
                   </p>
                   <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                     <label>

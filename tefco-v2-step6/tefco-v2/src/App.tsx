@@ -1146,6 +1146,10 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [refinedProductType, setRefinedProductType] = useState('')
   const [refinedProductCode, setRefinedProductCode] = useState('')
   const [refinedMovementDestination, setRefinedMovementDestination] = useState('')
+  // Butane-only ticket inputs. These are intentionally isolated from crude tickets.
+  const [butaneEquilibriumPressure, setButaneEquilibriumPressure] = useState('')
+  const [butaneSpecificGravity, setButaneSpecificGravity] = useState('')
+  const [butaneShrinkFactorOverride, setButaneShrinkFactorOverride] = useState('')
   const [ticketBatchNumber, setTicketBatchNumber] = useState('')
   const [selectedTank, setSelectedTank] = useState('')
   const [selectedTankCalibrationVersionId, setSelectedTankCalibrationVersionId] = useState('')
@@ -4138,7 +4142,24 @@ function handleProvingAreaSelect(areaId: string) {
   }
 
   function getRefinedProductCodeOptions() {
-    return ['Crude Oil', 'Diesel', 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
+    return ['Crude Oil', 'Butane', 'Diesel', 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
+  }
+
+  function isButaneTicketContext() {
+    const contractProfile = getSelectedTicketContractProfile()
+    const selectedMeterRow: any = asArray(meters).find((meter: any) => String(meter.id || '') === String(selectedMeter || ''))
+    const values = [
+      contractProfile?.product_group,
+      contractProfile?.standard,
+      contractProfile?.calculation_method,
+      selectedMeterRow?.product_type,
+      selectedMeterRow?.product,
+      selectedMeterRow?.commodity,
+      refinedProductCode,
+    ]
+      .map((value) => String(value || '').trim().toLowerCase())
+
+    return values.some((value) => value.includes('butane') || value.includes('lpg'))
   }
 
   function getTicketBatchNumberValue(ticket: any) {
@@ -4263,14 +4284,21 @@ function handleProvingAreaSelect(areaId: string) {
     const ctlpRounding = isChapter122021Ticket ? 6 : Number(contractProfile?.ctlp_rounding ?? 6)
     const volumeRounding = isChapter122021Ticket ? 2 : Number(contractProfile?.volume_rounding ?? 2)
     const usePressure = contractProfile?.use_pressure !== false
-    const shrinkFactor = contractProfile?.use_shrink
+    const profileShrinkFactor = contractProfile?.use_shrink
       ? Number(contractProfile?.shrink_factor || 1)
       : 1
+    const shrinkFactor = isButaneTicketContext() && butaneShrinkFactorOverride !== ''
+      ? Number(butaneShrinkFactorOverride || profileShrinkFactor)
+      : profileShrinkFactor
 
     const avgTemp = Number(latestReading?.average_temperature || latestReading?.temperature || 60)
     const avgPressure = Number(latestReading?.average_pressure || 0)
 
     const productGroup = selectedProductGroup
+    const isButaneTicket = isButaneTicketContext()
+    const butaneEquilibriumPressureValue = isButaneTicket
+      ? Number(butaneEquilibriumPressure || avgPressure || 0)
+      : 0
 
     const rawObservedApiForTicket = Number(
       ((latestPot as any)?.observed_api_gravity_raw) ??
@@ -4294,9 +4322,13 @@ function handleProvingAreaSelect(areaId: string) {
       productGroup,
       observedApiGravity: rawObservedApiForTicket,
       observedTemperature: observedTempForTicket,
-      observedPressure: 0,
+      // Equilibrium pressure applies to butane only. Crude continues using the
+      // existing operator-reading pressure path with no changes.
+      observedPressure: isButaneTicket ? butaneEquilibriumPressureValue : 0,
       averageTemperature: avgTemp,
-      averagePressure: usePressure ? avgPressure : 0,
+      averagePressure: usePressure
+        ? (isButaneTicket ? butaneEquilibriumPressureValue : avgPressure)
+        : 0,
       apiRounding,
       factorRounding: 6,
       volumeRounding,
@@ -4372,6 +4404,9 @@ function handleProvingAreaSelect(areaId: string) {
         product_code: refinedProductCode || null,
         refined_destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
+        butane_equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
+        butane_specific_gravity: isButaneTicket && butaneSpecificGravity !== '' ? Number(butaneSpecificGravity) : null,
+        butane_shrink_factor: isButaneTicket ? shrinkFactor : null,
       },
       api_chapter: profile?.standard || null,
       calculation_method: corrections.api_engine,
@@ -4497,6 +4532,11 @@ function handleProvingAreaSelect(areaId: string) {
         batch_number: ticketBatchNumber || null,
         batch_no: ticketBatchNumber || null,
         shrink_factor: shrinkFactor,
+        equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
+        butane_equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
+        butane_specific_gravity: isButaneTicket && butaneSpecificGravity !== '' ? Number(butaneSpecificGravity) : null,
+        butane_shrink_factor_override: isButaneTicket && butaneShrinkFactorOverride !== '' ? Number(butaneShrinkFactorOverride) : null,
+        butane_calculation_enabled: isButaneTicket,
         product_sub_group: corrections.product_sub_group,
       },
       calculation_results: {
@@ -4539,7 +4579,11 @@ function handleProvingAreaSelect(areaId: string) {
         refined_destination: refinedMovementDestination || null,
         movement_destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
-        formula_profile: isApi12 ? 'API 12 2021' : 'API 11.1',
+        equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
+        butane_specific_gravity: isButaneTicket && butaneSpecificGravity !== '' ? Number(butaneSpecificGravity) : null,
+        shrink_factor: isButaneTicket ? shrinkFactor : null,
+        butane_calculation_enabled: isButaneTicket,
+        formula_profile: isButaneTicket ? 'Butane / LPG' : (isApi12 ? 'API 12 2021' : 'API 11.1'),
       },
     }
     let ticketInsertResult = await supabase.from('tickets').insert(ticketInsertPayload).select().maybeSingle()
@@ -4625,6 +4669,9 @@ function handleProvingAreaSelect(areaId: string) {
     setRefinedProductType('')
     setRefinedProductCode('')
     setRefinedMovementDestination('')
+    setButaneEquilibriumPressure('')
+    setButaneSpecificGravity('')
+    setButaneShrinkFactorOverride('')
     setTicketBatchNumber('')
     setAutofillPreview(null)
     loadAll()
@@ -16655,6 +16702,53 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         onChange={(e) => setRefinedMovementDestination(e.target.value)}
                       />
                     </label>
+                  </div>
+                </div>
+              )}
+
+              {isButaneTicketContext() && (
+                <div style={{ ...card, border: '1px solid rgba(250, 204, 21, 0.45)', background: 'linear-gradient(135deg, rgba(120,53,15,0.24), rgba(2,6,23,0.42))' }}>
+                  <h3 style={{ marginTop: 0 }}>Butane / LPG Ticket Settings</h3>
+                  <p style={{ color: '#fde68a', marginTop: 0, fontSize: 12 }}>
+                    These inputs are used only when the selected contract, meter, or product is Butane/LPG. They do not change crude-oil tickets or the crude calculation profile.
+                  </p>
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                    <label>
+                      <div className="ticket-muted" style={{ marginBottom: 6 }}>Equilibrium Pressure (psig)</div>
+                      <input
+                        style={input}
+                        type="number"
+                        step="0.01"
+                        placeholder="Enter equilibrium pressure"
+                        value={butaneEquilibriumPressure}
+                        onChange={(e) => setButaneEquilibriumPressure(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      <div className="ticket-muted" style={{ marginBottom: 6 }}>Specific Gravity</div>
+                      <input
+                        style={input}
+                        type="number"
+                        step="0.0001"
+                        placeholder="Optional SG from batch report"
+                        value={butaneSpecificGravity}
+                        onChange={(e) => setButaneSpecificGravity(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      <div className="ticket-muted" style={{ marginBottom: 6 }}>Shrink Factor Override</div>
+                      <input
+                        style={input}
+                        type="number"
+                        step="0.000001"
+                        placeholder="Blank = contract profile"
+                        value={butaneShrinkFactorOverride}
+                        onChange={(e) => setButaneShrinkFactorOverride(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <div style={{ color: '#a8b3bd', fontSize: 11, marginTop: 10 }}>
+                    Equilibrium pressure is passed into the pressure correction only for Butane/LPG tickets. Crude continues using its existing operator-reading pressure and Plains-matching CTL calculation.
                   </div>
                 </div>
               )}

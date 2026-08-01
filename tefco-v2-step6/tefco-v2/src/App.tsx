@@ -1162,6 +1162,36 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
     }
   }, [refinedProductCode])
   const [ticketBatchNumber, setTicketBatchNumber] = useState('')
+
+  // Batch numbers are sequenced independently for each meter. When a meter is
+  // selected for a new ticket, use the highest saved numeric batch for that
+  // meter and suggest the next number. The field remains editable.
+  useEffect(() => {
+    if (!selectedMeter) {
+      setTicketBatchNumber('')
+      return
+    }
+
+    if (ticketWorkflowTab !== 'create' || isDraftTicketEditOpen) return
+
+    const highestSavedBatch = asArray(tickets)
+      .filter((ticket: any) => {
+        const observed = ticket?.observed_inputs || {}
+        return String(ticket?.meter_id || observed.meter_id || '') === String(selectedMeter)
+      })
+      .map((ticket: any) => String(getTicketBatchNumberValue(ticket) || '').trim())
+      .filter((value: string) => /^\d+$/.test(value))
+      .map((value: string) => Number(value))
+      .filter((value: number) => Number.isSafeInteger(value))
+      .reduce((highest: number | null, value: number) =>
+        highest === null || value > highest ? value : highest,
+      null)
+
+    setTicketBatchNumber(
+      highestSavedBatch === null ? '' : String(highestSavedBatch + 1)
+    )
+  }, [selectedMeter, ticketWorkflowTab, isDraftTicketEditOpen])
+
   const [selectedTank, setSelectedTank] = useState('')
   const [selectedTankCalibrationVersionId, setSelectedTankCalibrationVersionId] = useState('')
   const [selectedLineFill, setSelectedLineFill] = useState('')
@@ -4170,7 +4200,15 @@ function handleProvingAreaSelect(areaId: string) {
   function getTicketBatchNumberValue(ticket: any) {
     const observed = ticket?.observed_inputs || {}
     const calc = ticket?.calculation_results || {}
-    return observed.batch_number || calc.batch_number || ticket?.batch_number || observed.batch_no || ''
+    const snapshot = ticket?.calculation_profile_snapshot || {}
+    return (
+      observed.batch_number ||
+      observed.batch_no ||
+      calc.batch_number ||
+      snapshot.batch_number ||
+      ticket?.batch_number ||
+      ''
+    )
   }
 
   function getTicketPdfFileName(ticket: any) {

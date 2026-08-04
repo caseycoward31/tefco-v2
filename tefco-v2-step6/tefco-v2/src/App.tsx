@@ -301,12 +301,6 @@ function roundApiFactor(value: number, decimals = 6) {
   return roundApiHalfEven(value, decimals)
 }
 
-function truncateFactor(value: number, decimals = 6) {
-  if (!Number.isFinite(value)) return 0
-  const p = Math.pow(10, decimals)
-  return Math.trunc(value * p) / p
-}
-
 function apiToDensityKgM3(apiGravity: number) {
   if (!Number.isFinite(apiGravity)) return 0
   return (999.016 * 141.5) / (apiGravity + 131.5)
@@ -443,7 +437,7 @@ function calculateType1FromDensity60(
   const ctl = Math.exp(
     -alpha60 *
       deltaT *
-      (1 + 0.8 * alpha60 * deltaT)
+      (1 + 0.8 * alpha60 * (deltaT + delta60))
   )
 
   const fp = Math.exp(
@@ -474,11 +468,9 @@ function calculateDensity60FromObservedApi(
   observedPressurePsig: number,
   productGroup: string
 ) {
-  const safeObservedApi = Number(observedApiGravity || 0)
-  const safeObservedTemp = Number(observedTempF || 60)
-  const group = String(productGroup || 'crude').toLowerCase()
+  const observedDensity = apiToDensityKgM3(Number(observedApiGravity || 0))
 
-  if (!Number.isFinite(safeObservedApi) || safeObservedApi <= -131.5) {
+  if (!observedDensity) {
     return {
       density60: 0,
       apiGravity60: 0,
@@ -490,115 +482,12 @@ function calculateDensity60FromObservedApi(
     }
   }
 
-  // Plains / VMACS crude API @60 sequence from the supplied calculation sheet.
-  // This section is intentionally limited to finding API gravity at 60°F.
-  // CTL, CPL, and ticket volume calculations remain in their existing functions.
-  if (!group.includes('refined') && !group.includes('product') &&
-      !group.includes('gasoline') && !group.includes('diesel') &&
-      !group.includes('jet') && !group.includes('fuel') &&
-      !group.includes('lube')) {
-    const apiDensityConstant = 141360.198
-    const k0 = 341.0957
-    const deltaT = safeObservedTemp - 60
-
-    // Excel BG: observed API -> observed density, rounded to 0.01 kg/m³.
-    const observedDensity = roundTo(
-      apiDensityConstant / (131.5 + safeObservedApi),
-      2
-    )
-
-    // Excel BH/BK: temperature-scale adjustment, rounded exactly as the sheet.
-    const temperatureScaleFactor = roundTo(
-      1 -
-        0.00001278 * deltaT -
-        0.0000000062 * deltaT * deltaT,
-      9
-    )
-    const adjustedObservedDensity = roundTo(
-      observedDensity * temperatureScaleFactor,
-      2
-    )
-
-    // First density-at-60 pass.
-    const alphaPass1 = roundTo(
-      k0 / (adjustedObservedDensity * adjustedObservedDensity),
-      7
-    )
-    const correctionPass1 = roundTo(
-      Math.exp(
-        -alphaPass1 * deltaT -
-          0.8 * alphaPass1 * alphaPass1 * deltaT * deltaT
-      ),
-      6
-    )
-    const density60Pass1 = roundTo(
-      adjustedObservedDensity / correctionPass1,
-      3
-    )
-    const density60Pass1Rounded = roundTo(density60Pass1, 2)
-
-    // Second density-at-60 pass.
-    const alphaPass2 = roundTo(
-      k0 / (density60Pass1Rounded * density60Pass1Rounded),
-      7
-    )
-    const correctionPass2 = roundTo(
-      Math.exp(
-        -alphaPass2 * deltaT -
-          0.8 * alphaPass2 * alphaPass2 * deltaT * deltaT
-      ),
-      6
-    )
-    const density60 = roundTo(
-      adjustedObservedDensity / correctionPass2,
-      3
-    )
-
-    // Excel BS: final density at 60°F -> API @60, rounded to one decimal.
-    const apiGravity60 = roundTo(
-      apiDensityConstant / density60 - 131.5,
-      1
-    )
-
-    const observedPoint = calculateType1FromDensity60(
-      density60,
-      safeObservedTemp,
-      Number(observedPressurePsig || 0),
-      productGroup
-    )
-
-    return {
-      density60,
-      apiGravity60,
-      ctlObserved: observedPoint.ctl,
-      cplObserved: observedPoint.cpl,
-      ctlpObserved: observedPoint.ctlp,
-      iterations: 2,
-      converged: true,
-      api60Audit: {
-        observedDensity,
-        temperatureScaleFactor,
-        adjustedObservedDensity,
-        alphaPass1,
-        correctionPass1,
-        density60Pass1,
-        density60Pass1Rounded,
-        alphaPass2,
-        correctionPass2,
-        density60,
-        apiGravity60,
-      },
-    }
-  }
-
-  // Preserve the existing iterative API MPMS path for non-crude product groups.
-  const observedDensity = apiToDensityKgM3(safeObservedApi)
   let density60 = observedDensity
 
   for (let i = 0; i < 20; i += 1) {
     const calc = calculateType1FromDensity60(
       density60,
-      safeObservedTemp,
+      observedTempF,
       observedPressurePsig,
       productGroup
     )
@@ -621,7 +510,7 @@ function calculateDensity60FromObservedApi(
     const bump = Math.max(0.001, Math.abs(density60) * 0.000001)
     const calcBump = calculateType1FromDensity60(
       density60 + bump,
-      safeObservedTemp,
+      observedTempF,
       observedPressurePsig,
       productGroup
     )
@@ -641,7 +530,7 @@ function calculateDensity60FromObservedApi(
 
   const finalCalc = calculateType1FromDensity60(
     density60,
-    safeObservedTemp,
+    observedTempF,
     observedPressurePsig,
     productGroup
   )
@@ -657,31 +546,6 @@ function calculateDensity60FromObservedApi(
   }
 }
 
-function calculateVmacsStyleCtlFromApi60(
-  apiGravity60: number,
-  averageTemperatureF: number,
-  productGroup: string
-) {
-  const density60 = apiToDensityKgM3(apiGravity60)
-  if (!Number.isFinite(density60) || density60 <= 0) return 1
-
-  const coeff = getApi11Coefficients(productGroup, density60)
-  // VMACS rounds the thermal expansion coefficient to 7 decimals
-  // before calculating the final ticket CTL.
-  const alpha60 = roundTo(
-    coeff.k0 / (density60 * density60) +
-      coeff.k1 / density60 +
-      coeff.k2,
-    7
-  )
-  const deltaT = Number(averageTemperatureF || 60) - 60
-
-  return Math.exp(
-    -alpha60 * deltaT -
-      0.8 * alpha60 * alpha60 * deltaT * deltaT
-  )
-}
-
 function calculateApi11Corrections(input: {
   productGroup?: string
   observedApiGravity?: number
@@ -692,11 +556,7 @@ function calculateApi11Corrections(input: {
   apiRounding?: number
 }) {
   const productGroup = input.productGroup || 'crude'
-  const rawObservedApiGravity = Number(input.observedApiGravity || 0)
-
-  // VMACS uses the ticketed observed gravity at one decimal when finding API @60.
-  // Example: a stored/raw value of 40.72 is treated as the ticket value 40.7.
-  const observedApiGravity = roundApiHalfEven(rawObservedApiGravity, 1)
+  const observedApiGravity = Number(input.observedApiGravity || 0)
   const observedTemperature = Number(input.observedTemperature || 60)
   const observedPressure = Number(input.observedPressure || 0)
   const averageTemperature = Number(
@@ -711,32 +571,15 @@ function calculateApi11Corrections(input: {
     productGroup
   )
 
-  const apiDecimals = Number(input.apiRounding ?? 1)
-  const factorDecimals = 6
-
-  // Correct observed API to API @60. The rounded API @60 is the ticket display
-  // value only; downstream correction factors use the full corrected density.
-  const roundedApiGravity60 = roundApiHalfEven(base.apiGravity60, apiDecimals)
-  // Keep the rounded API @60 only as the ticket display value.
-  // Use the full corrected density at 60°F from the API correction path
-  // for downstream factors instead of converting rounded API @60 back to density.
-  const calculationDensity60 = base.density60
-
   const volumeCorrection = calculateType1FromDensity60(
-    calculationDensity60,
+    base.density60,
     averageTemperature,
     averagePressure,
     productGroup
   )
 
-  // Calculate CTL and CPL from the full corrected density at 60°F.
-  // API @60 remains rounded to one decimal for ticket display only; it is not
-  // converted back into density for the factor calculation.
-  const ctlRaw = volumeCorrection.ctl
-  const ctlTicket = roundApiFactor(ctlRaw, factorDecimals)
-  const cplRaw = volumeCorrection.cpl
-  const cplTicket = roundApiFactor(cplRaw, factorDecimals)
-  const ctlpRaw = ctlTicket * cplTicket
+  const apiDecimals = Number(input.apiRounding ?? 1)
+  const factorDecimals = 6
 
   return {
     observed_api_gravity: roundTo(observedApiGravity, 5),
@@ -744,109 +587,31 @@ function calculateApi11Corrections(input: {
     observed_pressure: roundTo(observedPressure, 2),
 
     // Display value: API gravity @60 is rounded to nearest tenth for tickets.
-    api_gravity_60: roundedApiGravity60,
-    density_60: roundTo(calculationDensity60, 6),
+    api_gravity_60: roundApiHalfEven(base.apiGravity60, apiDecimals),
+    density_60: roundTo(base.density60, 6),
     average_temperature: roundTo(averageTemperature, 2),
     average_pressure: roundTo(averagePressure, 2),
 
     // Display / ticket factors. Chapter 12.2 R2021 tickets use these rounded factors.
-    ctl: ctlTicket,
-    cpl: cplTicket,
-    ctlp: roundApiFactor(ctlpRaw, factorDecimals),
-    ccf: roundApiFactor(ctlpRaw, factorDecimals),
+    ctl: roundApiFactor(volumeCorrection.ctl, factorDecimals),
+    cpl: roundApiFactor(volumeCorrection.cpl, factorDecimals),
+    ctlp: roundApiFactor(volumeCorrection.ctlp, factorDecimals),
+    ccf: roundApiFactor(volumeCorrection.ccf, factorDecimals),
 
-    // Audit values: preserve the raw stored gravity while showing which one-decimal
-    // observed API was actually used to find API @60.
-    raw_observed_api_gravity: rawObservedApiGravity,
-    observed_api_gravity_used: observedApiGravity,
+    // Audit values: full precision is retained for validation and troubleshooting.
     raw_api_gravity_60: base.apiGravity60,
     raw_density_60: base.density60,
-    calculation_density_60: calculationDensity60,
-    raw_ctl: ctlRaw,
-    ctl_rounding_method: 'full_density_then_factor_rounding',
-    raw_cpl: cplRaw,
-    raw_ctlp: ctlpRaw,
-    raw_ccf: ctlpRaw,
+    raw_ctl: volumeCorrection.ctl,
+    raw_cpl: volumeCorrection.cpl,
+    raw_ctlp: volumeCorrection.ctlp,
+    raw_ccf: volumeCorrection.ccf,
     raw_fp: volumeCorrection.fp,
     raw_alpha60: volumeCorrection.alpha60,
     product_sub_group: volumeCorrection.productSubGroup,
-    api_engine: 'API MPMS 11.1 full-density factor calculation',
+    api_engine: 'API MPMS 11.1 / 11.1.6.1',
     api_engine_note: base.converged
-      ? 'API @60 is displayed at ticket precision while full corrected density @60 is retained for factor calculations.'
+      ? 'Calculated using API MPMS 11.1 implementation procedure with rounded display factors.'
       : 'Calculated but density iteration did not fully converge.',
-  }
-}
-
-
-type TicketCalculationEngineInput = {
-  productGroup?: string
-  observedApiGravity?: number
-  observedTemperature?: number
-  observedPressure?: number
-  averageTemperature?: number
-  averagePressure?: number
-  apiRounding?: number
-  factorRounding?: number
-  volumeRounding?: number
-  indicatedVolume?: number | null
-  meterFactor?: number | null
-  bswPercent?: number | null
-  csw?: number | null
-  netVolumeAdjustmentBbl?: number | null
-}
-
-function calculateTicketCalculationEngine(input: TicketCalculationEngineInput) {
-  const factorDecimals = Number(input.factorRounding ?? 6)
-  const volumeDecimals = Number(input.volumeRounding ?? 2)
-  const corrections = calculateApi11Corrections({
-    productGroup: input.productGroup || 'crude',
-    observedApiGravity: Number(input.observedApiGravity || 0),
-    observedTemperature: Number(input.observedTemperature || 60),
-    observedPressure: Number(input.observedPressure || 0),
-    averageTemperature: Number(input.averageTemperature ?? input.observedTemperature ?? 60),
-    averagePressure: Number(input.averagePressure || 0),
-    apiRounding: Number(input.apiRounding ?? 1),
-  })
-
-  const ctl = roundApiFactor(corrections.ctl, factorDecimals)
-  const cpl = roundApiFactor(corrections.cpl, factorDecimals)
-  const ctlp = roundApiFactor(ctl * cpl, factorDecimals)
-  const iv = input.indicatedVolume === null || input.indicatedVolume === undefined
-    ? null
-    : Number(input.indicatedVolume)
-  const mf = roundApiHalfEven(Number(input.meterFactor ?? 1), 4)
-  const resolvedCsw = input.bswPercent !== null && input.bswPercent !== undefined
-    ? roundApiFactor(1 - Number(input.bswPercent) / 100, 6)
-    : Number(input.csw ?? 1)
-  const gvRaw = iv === null ? null : iv * mf
-  const gsvRaw = iv === null ? null : iv * mf * ctl * cpl
-
-  // API ticket rounding sequence: GSV is established at the configured
-  // volume precision before CSW is applied to calculate NSV. This keeps the
-  // saved result consistent with the displayed ticket calculation.
-  const gvRounded = gvRaw === null ? null : roundApiHalfEven(gvRaw, volumeDecimals)
-  const gsvRounded = gsvRaw === null ? null : roundApiHalfEven(gsvRaw, volumeDecimals)
-  const nsvRaw = gsvRounded === null ? null : gsvRounded * resolvedCsw
-  const adjustment = Number(input.netVolumeAdjustmentBbl || 0)
-
-  return {
-    ...corrections,
-    ctl,
-    cpl,
-    ctlp,
-    ccf: ctlp,
-    iv,
-    mf,
-    csw: resolvedCsw,
-    gvRaw,
-    gsvRaw,
-    nsvRaw,
-    gv: gvRounded,
-    gsv: gsvRounded,
-    baseNsv: nsvRaw === null ? null : roundApiHalfEven(nsvRaw, volumeDecimals),
-    netVolumeAdjustmentBbl: adjustment,
-    nsv: nsvRaw === null ? null : roundApiHalfEven(nsvRaw + adjustment, volumeDecimals),
-    calculation_engine: 'single_shared_ticket_engine_v2_gsv_before_nsv_rounding',
   }
 }
 
@@ -1146,52 +911,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [refinedProductType, setRefinedProductType] = useState('')
   const [refinedProductCode, setRefinedProductCode] = useState('')
   const [refinedMovementDestination, setRefinedMovementDestination] = useState('')
-  // Butane-only ticket inputs. These are intentionally isolated from crude tickets.
-  const [butaneEquilibriumPressure, setButaneEquilibriumPressure] = useState('')
-  const [butaneSpecificGravity, setButaneSpecificGravity] = useState('')
-  const [butaneShrinkFactorOverride, setButaneShrinkFactorOverride] = useState('')
-
-  useEffect(() => {
-    const selectedProduct = String(refinedProductCode || '').trim().toLowerCase()
-    const butaneSelected = selectedProduct === 'butane' || selectedProduct === 'lpg'
-
-    if (!butaneSelected) {
-      setButaneEquilibriumPressure('')
-      setButaneSpecificGravity('')
-      setButaneShrinkFactorOverride('')
-    }
-  }, [refinedProductCode])
   const [ticketBatchNumber, setTicketBatchNumber] = useState('')
-
-  // Batch numbers are sequenced independently for each meter. When a meter is
-  // selected for a new ticket, use the highest saved numeric batch for that
-  // meter and suggest the next number. The field remains editable.
-  useEffect(() => {
-    if (!selectedMeter) {
-      setTicketBatchNumber('')
-      return
-    }
-
-    if (ticketWorkflowTab !== 'create' || isDraftTicketEditOpen) return
-
-    const highestSavedBatch = asArray(tickets)
-      .filter((ticket: any) => {
-        const observed = ticket?.observed_inputs || {}
-        return String(ticket?.meter_id || observed.meter_id || '') === String(selectedMeter)
-      })
-      .map((ticket: any) => String(getTicketBatchNumberValue(ticket) || '').trim())
-      .filter((value: string) => /^\d+$/.test(value))
-      .map((value: string) => Number(value))
-      .filter((value: number) => Number.isSafeInteger(value))
-      .reduce((highest: number | null, value: number) =>
-        highest === null || value > highest ? value : highest,
-      null)
-
-    setTicketBatchNumber(
-      highestSavedBatch === null ? '' : String(highestSavedBatch + 1)
-    )
-  }, [selectedMeter, ticketWorkflowTab, isDraftTicketEditOpen])
-
   const [selectedTank, setSelectedTank] = useState('')
   const [selectedTankCalibrationVersionId, setSelectedTankCalibrationVersionId] = useState('')
   const [selectedLineFill, setSelectedLineFill] = useState('')
@@ -4183,32 +3903,13 @@ function handleProvingAreaSelect(areaId: string) {
   }
 
   function getRefinedProductCodeOptions() {
-    return ['Crude Oil', 'Butane', 'Diesel', 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
-  }
-
-  function isButaneTicketContext() {
-    // Butane-only controls and calculations are enabled only after the user
-    // explicitly selects Butane from the Product dropdown. Meter/contract
-    // metadata must not make the Butane section appear on a crude ticket.
-    const selectedProduct = String(refinedProductCode || '')
-      .trim()
-      .toLowerCase()
-
-    return selectedProduct === 'butane' || selectedProduct === 'lpg'
+    return ['Crude Oil', 'Diesel', 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
   }
 
   function getTicketBatchNumberValue(ticket: any) {
     const observed = ticket?.observed_inputs || {}
     const calc = ticket?.calculation_results || {}
-    const snapshot = ticket?.calculation_profile_snapshot || {}
-    return (
-      observed.batch_number ||
-      observed.batch_no ||
-      calc.batch_number ||
-      snapshot.batch_number ||
-      ticket?.batch_number ||
-      ''
-    )
+    return observed.batch_number || calc.batch_number || ticket?.batch_number || observed.batch_no || ''
   }
 
   function getTicketPdfFileName(ticket: any) {
@@ -4327,70 +4028,53 @@ function handleProvingAreaSelect(areaId: string) {
     const ctlpRounding = isChapter122021Ticket ? 6 : Number(contractProfile?.ctlp_rounding ?? 6)
     const volumeRounding = isChapter122021Ticket ? 2 : Number(contractProfile?.volume_rounding ?? 2)
     const usePressure = contractProfile?.use_pressure !== false
-    const profileShrinkFactor = contractProfile?.use_shrink
+    const shrinkFactor = contractProfile?.use_shrink
       ? Number(contractProfile?.shrink_factor || 1)
       : 1
-    const shrinkFactor = isButaneTicketContext() && butaneShrinkFactorOverride !== ''
-      ? Number(butaneShrinkFactorOverride || profileShrinkFactor)
-      : profileShrinkFactor
 
     const avgTemp = Number(latestReading?.average_temperature || latestReading?.temperature || 60)
     const avgPressure = Number(latestReading?.average_pressure || 0)
 
     const productGroup = selectedProductGroup
-    const isButaneTicket = isButaneTicketContext()
-    const butaneEquilibriumPressureValue = isButaneTicket
-      ? Number(butaneEquilibriumPressure || avgPressure || 0)
-      : 0
 
-    const rawObservedApiForTicket = Number(
-      ((latestPot as any)?.observed_api_gravity_raw) ??
-        ((latestPot as any)?.observed_api_raw) ??
-        ((latestPot as any)?.sample_gravity_raw) ??
-        ((latestPot as any)?.observed_api_exact) ??
-        ((latestPot as any)?.api_gravity_exact) ??
-        latestPot?.observed_api_gravity ??
-        latestPot?.api_gravity ??
-        latestPot?.api_gravity_60 ??
-        0
-    )
-    const observedTempForTicket = Number(
-      latestPot?.observed_temperature || latestPot?.sample_temperature || 60
-    )
-    const factorToUse = Number(latestApprovedProving?.accepted_meter_factor || latestReading?.meter_factor || 1)
-    const mf = roundApiHalfEven(factorToUse, 4)
-    const csw = Number(latestPot?.csw || 1)
-    const bswPercent = getPotBswPercentValue(latestPot) ?? roundTo((1 - csw) * 100, 4)
-    const engineResult = calculateTicketCalculationEngine({
+    const corrections = calculateApi11Corrections({
       productGroup,
-      observedApiGravity: rawObservedApiForTicket,
-      observedTemperature: observedTempForTicket,
-      // Equilibrium pressure applies to butane only. Crude continues using the
-      // existing operator-reading pressure path with no changes.
-      observedPressure: isButaneTicket ? butaneEquilibriumPressureValue : 0,
+      observedApiGravity: Number(
+        ((latestPot as any)?.observed_api_gravity_raw) ??
+          ((latestPot as any)?.observed_api_raw) ??
+          ((latestPot as any)?.sample_gravity_raw) ??
+          ((latestPot as any)?.observed_api_exact) ??
+          ((latestPot as any)?.api_gravity_exact) ??
+          latestPot?.observed_api_gravity ??
+          latestPot?.api_gravity ??
+          latestPot?.api_gravity_60 ??
+          0
+      ),
+      observedTemperature: Number(
+        latestPot?.observed_temperature ||
+          latestPot?.sample_temperature ||
+          60
+      ),
+      observedPressure: 0,
       averageTemperature: avgTemp,
-      averagePressure: usePressure
-        ? (isButaneTicket ? butaneEquilibriumPressureValue : avgPressure)
-        : 0,
+      averagePressure: usePressure ? avgPressure : 0,
       apiRounding,
-      factorRounding: 6,
-      volumeRounding,
-      indicatedVolume: iv,
-      meterFactor: mf,
-      bswPercent,
-      csw,
     })
-    const corrections = engineResult
-    const ctl = roundApiFactor(engineResult.ctl, ctlRounding)
-    const cpl = roundApiFactor(engineResult.cpl, cplRounding)
-    const ctlp = roundApiFactor(engineResult.ctlp, ctlpRounding)
-    const ccf = engineResult.ccf
+
+    const ctl = roundApiFactor(corrections.ctl, ctlRounding)
+    const cpl = roundApiFactor(corrections.cpl, cplRounding)
+    const ctlp = roundApiFactor(corrections.ctlp, ctlpRounding)
+    const ccf = corrections.ccf
 
     const finalCtl = tankTicketSnapshot ? tankTicketSnapshot.ctl : ctl
     const finalCpl = tankTicketSnapshot ? tankTicketSnapshot.cpl : cpl
     const finalCtlp = tankTicketSnapshot ? tankTicketSnapshot.ctlp : ctlp
     const finalCcf = tankTicketSnapshot ? tankTicketSnapshot.ccf : ccf
 
+    const factorToUse = Number(latestApprovedProving?.accepted_meter_factor || latestReading?.meter_factor || 1)
+    const mf = roundApiHalfEven(factorToUse, 4)
+    const csw = Number(latestPot?.csw || 1)
+    const bswPercent = getPotBswPercentValue(latestPot) ?? roundTo((1 - csw) * 100, 4)
     const isApi12 = isChapter122021Ticket || selectedContractStandard.includes('API 12') || selectedCalculationMethod === 'chapter12_2_2021' || selectedCalculationMethod === 'chapter12_2021'
     // API MPMS Chapter 12.2 R2021 sequence, matching the API example:
     // IV × MF × CTL × CPL = GSV
@@ -4398,21 +4082,17 @@ function handleProvingAreaSelect(areaId: string) {
     // GV = IV × MF is displayed as informational only.
     const gvRaw = tankTicketSnapshot
       ? Number((tankTicketSnapshot as any).iv || tankTicketSnapshot.gov || iv || 0) * mf
-      : Number(engineResult.gvRaw || 0)
-    const gv = tankTicketSnapshot
-      ? roundApiHalfEven(gvRaw, volumeRounding)
-      : Number(engineResult.gv || 0)
+      : iv * mf
+    const gv = roundApiHalfEven(gvRaw, volumeRounding)
 
     const gsvRaw = tankTicketSnapshot
       ? tankTicketSnapshot.gsv
-      : Number(engineResult.gsvRaw || 0)
-    const gsv = tankTicketSnapshot
-      ? roundApiHalfEven(gsvRaw, volumeRounding)
-      : Number(engineResult.gsv || 0)
+      : isApi12 ? iv * mf * ctl * cpl : iv * ccf * mf
+    const gsv = roundApiHalfEven(gsvRaw, volumeRounding)
 
     const nsv = tankTicketSnapshot
       ? roundApiHalfEven(tankTicketSnapshot.nsv, volumeRounding)
-      : Number(engineResult.nsv || 0)
+      : roundApiHalfEven(gsvRaw * csw, volumeRounding)
 
     const ticketInsertPayload: any = {
       company_id: companyId,
@@ -4447,9 +4127,6 @@ function handleProvingAreaSelect(areaId: string) {
         product_code: refinedProductCode || null,
         refined_destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
-        butane_equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
-        butane_specific_gravity: isButaneTicket && butaneSpecificGravity !== '' ? Number(butaneSpecificGravity) : null,
-        butane_shrink_factor: isButaneTicket ? shrinkFactor : null,
       },
       api_chapter: profile?.standard || null,
       calculation_method: corrections.api_engine,
@@ -4575,11 +4252,6 @@ function handleProvingAreaSelect(areaId: string) {
         batch_number: ticketBatchNumber || null,
         batch_no: ticketBatchNumber || null,
         shrink_factor: shrinkFactor,
-        equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
-        butane_equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
-        butane_specific_gravity: isButaneTicket && butaneSpecificGravity !== '' ? Number(butaneSpecificGravity) : null,
-        butane_shrink_factor_override: isButaneTicket && butaneShrinkFactorOverride !== '' ? Number(butaneShrinkFactorOverride) : null,
-        butane_calculation_enabled: isButaneTicket,
         product_sub_group: corrections.product_sub_group,
       },
       calculation_results: {
@@ -4622,11 +4294,7 @@ function handleProvingAreaSelect(areaId: string) {
         refined_destination: refinedMovementDestination || null,
         movement_destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
-        equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
-        butane_specific_gravity: isButaneTicket && butaneSpecificGravity !== '' ? Number(butaneSpecificGravity) : null,
-        shrink_factor: isButaneTicket ? shrinkFactor : null,
-        butane_calculation_enabled: isButaneTicket,
-        formula_profile: isButaneTicket ? 'Butane / LPG' : (isApi12 ? 'API 12 2021' : 'API 11.1'),
+        formula_profile: isApi12 ? 'API 12 2021' : 'API 11.1',
       },
     }
     let ticketInsertResult = await supabase.from('tickets').insert(ticketInsertPayload).select().maybeSingle()
@@ -4712,9 +4380,6 @@ function handleProvingAreaSelect(areaId: string) {
     setRefinedProductType('')
     setRefinedProductCode('')
     setRefinedMovementDestination('')
-    setButaneEquilibriumPressure('')
-    setButaneSpecificGravity('')
-    setButaneShrinkFactorOverride('')
     setTicketBatchNumber('')
     setAutofillPreview(null)
     loadAll()
@@ -5045,63 +4710,26 @@ function handleProvingAreaSelect(areaId: string) {
 
   function getDraftTicketEditCalculatedVolumes(values: Record<string, string>) {
     const iv = getDraftTicketEditIv(values)
-    const observedApi = ticketEditNumber(values, 'observed_api_gravity')
-    const observedTemp = ticketEditNumber(values, 'observed_temperature')
-    const averageTemp = ticketEditNumber(values, 'average_temperature')
-    const averagePressure = ticketEditNumber(values, 'average_pressure')
+    const ctl = ticketEditNumber(values, 'ctl') ?? Number(selectedTicket?.calculation_results?.ctl ?? selectedTicket?.observed_inputs?.ctl ?? 1)
+    const cpl = ticketEditNumber(values, 'cpl') ?? Number(selectedTicket?.calculation_results?.cpl ?? selectedTicket?.observed_inputs?.cpl ?? 1)
     const mf = ticketEditNumber(values, 'mf') ?? Number(selectedTicket?.calculation_results?.mf ?? selectedTicket?.observed_inputs?.mf ?? 1)
     const swPercent = ticketEditNumber(values, 'sw_percent')
+    const csw = swPercent !== null
+      ? roundTo(1 - swPercent / 100, 5)
+      : Number(selectedTicket?.calculation_results?.csw ?? selectedTicket?.observed_inputs?.csw ?? 1)
+    const gv = iv !== null && Number.isFinite(mf)
+      ? roundTo(iv * mf, 2)
+      : null
+    const baseGsv = iv !== null && Number.isFinite(ctl) && Number.isFinite(cpl) && Number.isFinite(mf)
+      ? roundTo(iv * mf * ctl * cpl, 2)
+      : null
+    const baseNsv = baseGsv !== null && Number.isFinite(csw)
+      ? roundTo(baseGsv * csw, 2)
+      : null
     const adjustment = ticketEditNumber(values, 'net_volume_adjustment_bbl') ?? 0
-    const productGroup = String(
-      selectedTicket?.calculation_results?.product_group ||
-      selectedTicket?.observed_inputs?.product_group ||
-      'crude'
-    )
+    const adjustedNsv = baseNsv !== null ? roundTo(baseNsv + adjustment, 2) : null
 
-    if (observedApi === null || observedTemp === null) {
-      return {
-        apiGravity60: null,
-        ctl: Number(selectedTicket?.calculation_results?.ctl ?? selectedTicket?.observed_inputs?.ctl ?? 1),
-        cpl: Number(selectedTicket?.calculation_results?.cpl ?? selectedTicket?.observed_inputs?.cpl ?? 1),
-        ctlp: Number(selectedTicket?.calculation_results?.ctlp ?? selectedTicket?.observed_inputs?.ctlp ?? 1),
-        iv,
-        gv: null,
-        baseGsv: null,
-        baseNsv: null,
-        adjustment,
-        adjustedNsv: null,
-      }
-    }
-
-    const result = calculateTicketCalculationEngine({
-      productGroup,
-      observedApiGravity: observedApi,
-      observedTemperature: observedTemp,
-      observedPressure: 0,
-      averageTemperature: averageTemp ?? observedTemp,
-      averagePressure: averagePressure ?? 0,
-      apiRounding: 1,
-      factorRounding: 6,
-      volumeRounding: 2,
-      indicatedVolume: iv,
-      meterFactor: mf,
-      bswPercent: swPercent,
-      csw: Number(selectedTicket?.calculation_results?.csw ?? selectedTicket?.observed_inputs?.csw ?? 1),
-      netVolumeAdjustmentBbl: adjustment,
-    })
-
-    return {
-      apiGravity60: result.api_gravity_60,
-      ctl: result.ctl,
-      cpl: result.cpl,
-      ctlp: result.ctlp,
-      iv: result.iv,
-      gv: result.gv,
-      baseGsv: result.gsv,
-      baseNsv: result.baseNsv,
-      adjustment,
-      adjustedNsv: result.nsv,
-    }
+    return { iv, gv, baseGsv, baseNsv, adjustment, adjustedNsv }
   }
 
   async function saveTankTicketEdits() {
@@ -5402,9 +5030,7 @@ function handleProvingAreaSelect(areaId: string) {
     const ctlRounding = isChapter122021Revision ? 6 : Number(calc.ctl_rounding ?? observed.ctl_rounding ?? 6)
     const cplRounding = isChapter122021Revision ? 6 : Number(calc.cpl_rounding ?? observed.cpl_rounding ?? 6)
     const ctlpRounding = isChapter122021Revision ? 6 : Number(calc.ctlp_rounding ?? observed.ctlp_rounding ?? 6)
-    const mfValue = ticketEditNumber(values, 'mf') ?? Number(calc.mf ?? observed.mf ?? 1)
-    const netVolumeAdjustmentBbl = ticketEditNumber(values, 'net_volume_adjustment_bbl') ?? 0
-    const engineResult = calculateTicketCalculationEngine({
+    const corrections = calculateApi11Corrections({
       productGroup,
       observedApiGravity: Number(observedApi ?? calc.observed_api_gravity ?? observed.observed_api_gravity ?? 0),
       observedTemperature: Number(observedTemp ?? calc.observed_temperature ?? observed.observed_temperature ?? 60),
@@ -5412,25 +5038,21 @@ function handleProvingAreaSelect(areaId: string) {
       averageTemperature: Number(averageTemperature ?? calc.average_temperature ?? observed.average_temperature ?? 60),
       averagePressure: Number(averagePressure ?? calc.average_pressure ?? observed.average_pressure ?? 0),
       apiRounding,
-      factorRounding: 6,
-      volumeRounding: 2,
-      indicatedVolume: totalBatchBarrels,
-      meterFactor: mfValue,
-      bswPercent: swPercent,
-      csw: Number(calc.csw ?? observed.csw ?? 1),
-      netVolumeAdjustmentBbl,
     })
-    const corrections = engineResult
-    const apiGravity60Value = engineResult.api_gravity_60
-    const density60Value = engineResult.density_60
-    const ctlValue = ctlRounding === 6 ? engineResult.ctl : roundTo(engineResult.ctl, ctlRounding)
-    const cplValue = cplRounding === 6 ? engineResult.cpl : roundTo(engineResult.cpl, cplRounding)
-    const ctlpValue = ctlpRounding === 6 ? engineResult.ctlp : roundTo(engineResult.ctlp, ctlpRounding)
-    const cswValue = engineResult.csw
-    const gvValue = engineResult.gv
-    const gsvValue = engineResult.gsv
-    const baseNsvValue = engineResult.baseNsv
-    const nsvValue = engineResult.nsv
+    const apiGravity60Value = corrections.api_gravity_60
+    const density60Value = corrections.density_60
+    const ctlValue = roundTo(corrections.ctl, ctlRounding)
+    const cplValue = roundTo(corrections.cpl, cplRounding)
+    const ctlpValue = roundTo(corrections.ctlp, ctlpRounding)
+    const mfValue = ticketEditNumber(values, 'mf') ?? Number(calc.mf ?? observed.mf ?? 1)
+    const cswValue = swPercent !== null ? roundTo(1 - swPercent / 100, 5) : Number(calc.csw ?? observed.csw ?? 1)
+    const calculatedGv = totalBatchBarrels !== null ? roundTo(totalBatchBarrels * mfValue, 2) : null
+    const calculatedGsv = totalBatchBarrels !== null ? roundTo(totalBatchBarrels * mfValue * ctlValue * cplValue, 2) : null
+    const gvValue = calculatedGv
+    const gsvValue = calculatedGsv
+    const baseNsvValue = gsvValue !== null ? roundTo(gsvValue * cswValue, 2) : null
+    const netVolumeAdjustmentBbl = ticketEditNumber(values, 'net_volume_adjustment_bbl') ?? 0
+    const nsvValue = baseNsvValue !== null ? roundTo(baseNsvValue + netVolumeAdjustmentBbl, 2) : null
     const netVolumeAdjustmentReason = String(values.net_volume_adjustment_reason || '').trim()
 
     const nextObservedInputs: any = {
@@ -6561,6 +6183,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['S&W Volume', num(swVolumeForPdf, 2)],
       ['BS&W %', num(calc.bsw_percent ?? observed.bsw_percent ?? observed.bsw, 4)],
       ['CSW', num(calc.csw ?? observed.csw, 6)],
+      ['RVP', value(calc.rvp ?? observed.rvp ?? parsePotExtra(observed.notes, 'rvp'))],
+      ['Sulphur', value(calc.sulphur ?? calc.sulfur ?? observed.sulphur ?? observed.sulfur ?? parsePotExtra(observed.notes, 'sulphur') ?? parsePotExtra(observed.notes, 'sulfur'))],
       ['Notes', value(pdfNotes)],
     ]
   }
@@ -6718,6 +6342,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['NSV', rowMap['NSV']],
       ['BS&W %', rowMap['BS&W %']],
       ['CSW', rowMap['CSW']],
+      ['RVP', rowMap['RVP']],
+      ['Sulphur', rowMap['Sulphur']],
     ]
 
     const mainStartY = y
@@ -6753,7 +6379,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['Gross Volume (GV = IV × MF)', '=', rowMap['GV'], 'bbls'],
       ['Gross Standard Volume (GSV = IV × MF × CTL × CPL)', '=', rowMap['GSV'], 'bbls'],
       ['Net Standard Volume (NSV = GSV × CSW)', '=', rowMap['NSV'], 'bbls'],
-      ['S and W Volume (GSV - NSV)', '=', rowMap['S&W Volume'], 'bbls'],
+      ['S&W Volume (GSV − NSV)', '=', rowMap['S&W Volume'], 'bbls'],
     ]
 
     volRows.forEach((row, rowIndex) => {
@@ -16484,13 +16110,12 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <label><div className="ticket-muted">Average Pressure</div><input style={input} value={draftTicketEditValues.average_pressure || ''} onChange={(e) => updateDraftTicketEditField('average_pressure', e.target.value)} /></label>
                       <label><div className="ticket-muted">Observed Gravity/API</div><input style={input} value={draftTicketEditValues.observed_api_gravity || ''} onChange={(e) => updateDraftTicketEditField('observed_api_gravity', e.target.value)} /></label>
                       <label><div className="ticket-muted">Observed Temp</div><input style={input} value={draftTicketEditValues.observed_temperature || ''} onChange={(e) => updateDraftTicketEditField('observed_temperature', e.target.value)} /></label>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">API @ 60°F</div><strong>{formatMeasurementNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).apiGravity60, 1)}</strong><div className="ticket-muted">Live calculation</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">API @ 60°F</div><strong>{(() => { const api = ticketEditNumber(draftTicketEditValues, 'observed_api_gravity'); const temp = ticketEditNumber(draftTicketEditValues, 'observed_temperature'); if (api === null || temp === null) return '—'; return formatMeasurementNumber(calculateApi11Corrections({ productGroup: 'crude', observedApiGravity: api, observedTemperature: temp, averageTemperature: ticketEditNumber(draftTicketEditValues, 'average_temperature') ?? temp, averagePressure: ticketEditNumber(draftTicketEditValues, 'average_pressure') ?? 0, apiRounding: 1 }).api_gravity_60, 1) })()}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <label><div className="ticket-muted">S&W %</div><input style={input} value={draftTicketEditValues.sw_percent || ''} onChange={(e) => updateDraftTicketEditField('sw_percent', e.target.value)} /></label>
                       <label><div className="ticket-muted">RVP</div><input style={input} value={draftTicketEditValues.rvp || ''} onChange={(e) => updateDraftTicketEditField('rvp', e.target.value)} placeholder="Enter RVP if missing from POT" /></label>
                       <label><div className="ticket-muted">Sulphur</div><input style={input} value={draftTicketEditValues.sulfur || ''} onChange={(e) => updateDraftTicketEditField('sulfur', e.target.value)} placeholder="Enter sulphur if missing from POT" /></label>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTL</div><strong>{formatFactorDetail(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).ctl, 6)}</strong><div className="ticket-muted">Live calculation</div></div>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CPL</div><strong>{formatFactorDetail(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).cpl, 6)}</strong><div className="ticket-muted">Live calculation</div></div>
-                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTPL</div><strong>{formatFactorDetail(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).ctlp, 6)}</strong><div className="ticket-muted">CTL × CPL</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CTL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
+                      <div style={{ ...card, padding: 10 }}><div className="ticket-muted">CPL</div><strong>{formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</strong><div className="ticket-muted">Calculated by app</div></div>
                       <div style={{ ...card, padding: 10 }}><div className="ticket-muted">GV</div><strong>{formatTicketDetailNumber(getDraftTicketEditCalculatedVolumes(draftTicketEditValues).gv, 2)}</strong><div className="ticket-muted">IV × MF</div></div>
                       <label><div className="ticket-muted">MF / CMF</div><input style={input} value={draftTicketEditValues.mf || ''} onChange={(e) => updateDraftTicketEditField('mf', e.target.value)} /></label>
                       <label>
@@ -16745,53 +16370,6 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         onChange={(e) => setRefinedMovementDestination(e.target.value)}
                       />
                     </label>
-                  </div>
-                </div>
-              )}
-
-              {isButaneTicketContext() && (
-                <div style={{ ...card, border: '1px solid rgba(250, 204, 21, 0.45)', background: 'linear-gradient(135deg, rgba(120,53,15,0.24), rgba(2,6,23,0.42))' }}>
-                  <h3 style={{ marginTop: 0 }}>Butane / LPG Ticket Settings</h3>
-                  <p style={{ color: '#fde68a', marginTop: 0, fontSize: 12 }}>
-                    These inputs appear only after Product is set to Butane. They do not change crude-oil tickets or the crude calculation profile.
-                  </p>
-                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                    <label>
-                      <div className="ticket-muted" style={{ marginBottom: 6 }}>Equilibrium Pressure (psig)</div>
-                      <input
-                        style={input}
-                        type="number"
-                        step="0.01"
-                        placeholder="Enter equilibrium pressure"
-                        value={butaneEquilibriumPressure}
-                        onChange={(e) => setButaneEquilibriumPressure(e.target.value)}
-                      />
-                    </label>
-                    <label>
-                      <div className="ticket-muted" style={{ marginBottom: 6 }}>Specific Gravity</div>
-                      <input
-                        style={input}
-                        type="number"
-                        step="0.0001"
-                        placeholder="Optional SG from batch report"
-                        value={butaneSpecificGravity}
-                        onChange={(e) => setButaneSpecificGravity(e.target.value)}
-                      />
-                    </label>
-                    <label>
-                      <div className="ticket-muted" style={{ marginBottom: 6 }}>Shrink Factor Override</div>
-                      <input
-                        style={input}
-                        type="number"
-                        step="0.000001"
-                        placeholder="Blank = contract profile"
-                        value={butaneShrinkFactorOverride}
-                        onChange={(e) => setButaneShrinkFactorOverride(e.target.value)}
-                      />
-                    </label>
-                  </div>
-                  <div style={{ color: '#a8b3bd', fontSize: 11, marginTop: 10 }}>
-                    Equilibrium pressure is passed into the pressure correction only for Butane/LPG tickets. Crude continues using its existing operator-reading pressure and Plains-matching CTL calculation.
                   </div>
                 </div>
               )}

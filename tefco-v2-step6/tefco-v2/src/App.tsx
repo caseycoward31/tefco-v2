@@ -6103,7 +6103,15 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const lease = leases.find((item: any) => String(item.id || '') === String(ticket.lease_id || observed.lease_id || meter?.lease_id || ''))
     const segment = segments.find((item: any) => String(item.id || '') === String(ticket.segment_id || observed.segment_id || ''))
     const producer = producers.find((item: any) => String(item.id || '') === String(ticket.producer_id || observed.producer_id || lease?.producer_id || meter?.producer_id || ''))
-    const value = (v: any) => v === null || v === undefined || v === '' ? '—' : String(v)
+    const value = (v: any) => v === null || v === undefined || String(v).trim() === '' ? '—' : String(v)
+    const firstPresentValue = (...values: any[]) => {
+      for (const candidate of values) {
+        if (candidate === null || candidate === undefined) continue
+        const text = String(candidate).trim()
+        if (text !== '') return text
+      }
+      return '—'
+    }
     const num = (v: any, digits = 2) => {
       const n = Number(v)
       return Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—'
@@ -6183,8 +6191,28 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['S&W Volume', num(swVolumeForPdf, 2)],
       ['BS&W %', num(calc.bsw_percent ?? observed.bsw_percent ?? observed.bsw, 4)],
       ['CSW', num(calc.csw ?? observed.csw, 6)],
-      ['RVP', value(calc.rvp ?? observed.rvp ?? parsePotExtra(observed.notes, 'rvp'))],
-      ['Sulphur', value(calc.sulphur ?? calc.sulfur ?? observed.sulphur ?? observed.sulfur ?? parsePotExtra(observed.notes, 'sulphur') ?? parsePotExtra(observed.notes, 'sulfur'))],
+      ['RVP', firstPresentValue(
+        observed.rvp,
+        calc.rvp,
+        ticket.rvp,
+        parsePotExtra(observed.notes, 'rvp'),
+        parsePotExtra(calc.notes, 'rvp'),
+        parsePotExtra(ticket.notes, 'rvp')
+      )],
+      ['Sulphur', firstPresentValue(
+        observed.sulphur,
+        observed.sulfur,
+        calc.sulphur,
+        calc.sulfur,
+        ticket.sulphur,
+        ticket.sulfur,
+        parsePotExtra(observed.notes, 'sulphur'),
+        parsePotExtra(observed.notes, 'sulfur'),
+        parsePotExtra(calc.notes, 'sulphur'),
+        parsePotExtra(calc.notes, 'sulfur'),
+        parsePotExtra(ticket.notes, 'sulphur'),
+        parsePotExtra(ticket.notes, 'sulfur')
+      )],
       ['Notes', value(pdfNotes)],
     ]
   }
@@ -6501,7 +6529,13 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const calc = ticket?.calculation_results || {}
     const hasRevision = Number(observed.revision_number ?? calc.revision_number ?? ticket?.revision_number ?? 0) > 0
     const existingUrl = getTicketSavedPdfUrl(ticket)
-    if (existingUrl && !hasRevision) return { ticket, url: existingUrl }
+
+    // PDFs saved before the Measurement / Quality RVP + Sulphur update must be rebuilt once.
+    // This prevents Producer PDF bundles from continuing to reuse an older Supabase PDF.
+    const savedAtMs = new Date(ticket?.ticket_pdf_saved_at || 0).getTime()
+    const qualityPdfVersionCutoffMs = new Date('2026-08-04T15:20:00.000Z').getTime()
+    const savedPdfIsCurrent = Number.isFinite(savedAtMs) && savedAtMs >= qualityPdfVersionCutoffMs
+    if (existingUrl && !hasRevision && savedPdfIsCurrent) return { ticket, url: existingUrl }
 
     const saved = await saveTicketPdfToSupabase(ticket)
     const url = getTicketSavedPdfUrl(saved)

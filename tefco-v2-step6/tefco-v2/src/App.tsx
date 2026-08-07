@@ -1146,6 +1146,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [refinedProductType, setRefinedProductType] = useState('')
   const [refinedProductCode, setRefinedProductCode] = useState('')
   const [refinedMovementDestination, setRefinedMovementDestination] = useState('')
+  const [butaneEquilibriumPressure, setButaneEquilibriumPressure] = useState('')
   const [ticketBatchNumber, setTicketBatchNumber] = useState('')
   const [selectedTank, setSelectedTank] = useState('')
   const [selectedTankCalibrationVersionId, setSelectedTankCalibrationVersionId] = useState('')
@@ -1235,6 +1236,12 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   const [potPhotoUploading, setPotPhotoUploading] = useState(false)
   const [potShakeoutPhotos, setPotShakeoutPhotos] = useState<any[]>([])
   const [editingPotId, setEditingPotId] = useState('')
+
+  useEffect(() => {
+    if (String(refinedProductCode || '').trim().toLowerCase() !== 'butane') {
+      setButaneEquilibriumPressure('')
+    }
+  }, [refinedProductCode])
 
 
 
@@ -4138,7 +4145,11 @@ function handleProvingAreaSelect(areaId: string) {
   }
 
   function getRefinedProductCodeOptions() {
-    return ['Crude Oil', 'Diesel', 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
+    return ['Crude Oil', 'Butane', 'Diesel', 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
+  }
+
+  function isButaneTicketContext() {
+    return String(refinedProductCode || '').trim().toLowerCase() === 'butane'
   }
 
   function getTicketBatchNumberValue(ticket: any) {
@@ -4323,6 +4334,10 @@ function handleProvingAreaSelect(areaId: string) {
     const avgPressure = Number(latestReading?.average_pressure || 0)
 
     const productGroup = selectedProductGroup
+    const isButaneTicket = isButaneTicketContext()
+    const butaneEquilibriumPressureValue = isButaneTicket
+      ? Number(butaneEquilibriumPressure || avgPressure || 0)
+      : 0
 
     const rawObservedApiForTicket = Number(
       ((latestPot as any)?.observed_api_gravity_raw) ??
@@ -4346,9 +4361,11 @@ function handleProvingAreaSelect(areaId: string) {
       productGroup,
       observedApiGravity: rawObservedApiForTicket,
       observedTemperature: observedTempForTicket,
-      observedPressure: 0,
+      observedPressure: isButaneTicket ? butaneEquilibriumPressureValue : 0,
       averageTemperature: avgTemp,
-      averagePressure: usePressure ? avgPressure : 0,
+      averagePressure: usePressure
+        ? (isButaneTicket ? butaneEquilibriumPressureValue : avgPressure)
+        : 0,
       apiRounding,
       factorRounding: 6,
       volumeRounding,
@@ -4424,6 +4441,7 @@ function handleProvingAreaSelect(areaId: string) {
         product_code: refinedProductCode || null,
         refined_destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
+        butane_equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
       },
       api_chapter: profile?.standard || null,
       calculation_method: corrections.api_engine,
@@ -4548,6 +4566,8 @@ function handleProvingAreaSelect(areaId: string) {
         destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
         batch_no: ticketBatchNumber || null,
+        equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
+        butane_equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
         shrink_factor: shrinkFactor,
         product_sub_group: corrections.product_sub_group,
       },
@@ -4591,7 +4611,9 @@ function handleProvingAreaSelect(areaId: string) {
         refined_destination: refinedMovementDestination || null,
         movement_destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
-        formula_profile: isApi12 ? 'API 12 2021' : 'API 11.1',
+        equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
+        butane_equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
+        formula_profile: isButaneTicket ? 'Butane / LPG' : (isApi12 ? 'API 12 2021' : 'API 11.1'),
       },
     }
     let ticketInsertResult = await supabase.from('tickets').insert(ticketInsertPayload).select().maybeSingle()
@@ -4677,6 +4699,7 @@ function handleProvingAreaSelect(areaId: string) {
     setRefinedProductType('')
     setRefinedProductCode('')
     setRefinedMovementDestination('')
+    setButaneEquilibriumPressure('')
     setTicketBatchNumber('')
     setAutofillPreview(null)
     loadAll()
@@ -16726,6 +16749,23 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       />
                     </label>
                   </div>
+                </div>
+              )}
+
+              {isButaneTicketContext() && (
+                <div style={{ ...card, border: '1px solid rgba(250, 204, 21, 0.45)' }}>
+                  <h3 style={{ marginTop: 0 }}>Butane Ticket</h3>
+                  <label style={{ display: 'block' }}>
+                    <div className="ticket-muted" style={{ marginBottom: 6 }}>Equilibrium Pressure (psig)</div>
+                    <input
+                      style={input}
+                      type="number"
+                      step="0.01"
+                      placeholder="Enter equilibrium pressure"
+                      value={butaneEquilibriumPressure}
+                      onChange={(e) => setButaneEquilibriumPressure(e.target.value)}
+                    />
+                  </label>
                 </div>
               )}
 

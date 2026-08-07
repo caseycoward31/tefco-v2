@@ -3415,7 +3415,7 @@ function handleReadingAreaSelect(areaId: string) {
 
   function isProvingInKpiMonth(proving: any, monthKey: string) {
     const { start, end } = getProvingKpiMonthRange(monthKey)
-    const value = proving?.approved_at || proving?.proving_date || proving?.created_at
+    const value = proving?.proving_date || proving?.approved_at || proving?.created_at
     if (!value) return false
     const date = new Date(value)
     return !Number.isNaN(date.getTime()) && date >= start && date < end
@@ -10667,7 +10667,7 @@ async function createCompany() {
   }
 
   function getProvingMonthLabel(proving: any) {
-    const parts = getRowAccountingDateParts(proving, ['approved_at', 'proving_date', 'created_at'])
+    const parts = getRowAccountingDateParts(proving, ['proving_date', 'approved_at', 'created_at'])
     return getAccountingMonthLabel(parts.date, parts.time)
   }
 

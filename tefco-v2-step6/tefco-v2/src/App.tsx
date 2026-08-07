@@ -4271,77 +4271,473 @@ function handleProvingAreaSelect(areaId: string) {
     )
   }
 
-  function getIsolatedRefinedRoundingProfile(apiVersion: string) {
-    const v = String(apiVersion || '').toLowerCase()
-    if (['api_11_1_1980', 'api_11_1_2004', 'api_11_1_2007'].includes(v)) return { api: 1, factor: 5, mf: 4, volume: 2, combined: true }
-    if (v === 'api_11_1_2019' || v.startsWith('butane_')) return { api: 1, factor: 6, mf: 4, volume: 2, combined: true }
-    return { api: 1, factor: 6, mf: 4, volume: 2, combined: false }
+  function normalizeRefinedApiVersion(apiVersion: any) {
+    const value = String(apiVersion || '').trim().toLowerCase()
+    if (value.includes('2007')) return 'api_11_1_2007'
+    return 'api_11_1_1980'
   }
 
-  function isolatedRefinedApiToDensity(api: number) { return (999.016 * 141.5) / (Number(api) + 131.5) }
-  function isolatedRefinedDensityToApi(density: number) { return (141.5 * 999.016) / Number(density) - 131.5 }
+  function getIsolatedRefinedRoundingProfile(apiVersion: string) {
+    const version = normalizeRefinedApiVersion(apiVersion)
+    return {
+      api: 1,
+      factor: 5,
+      mf: 4,
+      volume: 2,
+      combined: true,
+      version,
+    }
+  }
+
+  function isolatedRefinedApiToDensity1980(api: number) {
+    const value = Number(api)
+    if (!Number.isFinite(value) || value <= -131.5) return 0
+    // Refined products.xlsx uses 141360.198 for its API/density conversion.
+    return 141360.198 / (value + 131.5)
+  }
+
+  function isolatedRefinedDensityToApi1980(density: number) {
+    const value = Number(density)
+    if (!Number.isFinite(value) || value <= 0) return 0
+    return (141360.198 / value) - 131.5
+  }
 
   function isolatedRefinedTemp68(tempF: number) {
     const tempC = (Number(tempF || 60) - 32) / 1.8
     const scaled = tempC / 630
-    const coeffs = [-0.148759,-0.267408,1.080760,1.269056,-4.089591,-1.871251,7.438081,-3.536296]
+    const coeffs = [
+      -0.148759,
+      -0.267408,
+      1.080760,
+      1.269056,
+      -4.089591,
+      -1.871251,
+      7.438081,
+      -3.536296,
+    ]
+
     let correctionC = 0
-    for (let i = 0; i < coeffs.length; i += 1) correctionC += coeffs[i] * Math.pow(scaled, i + 1)
+    for (let i = 0; i < coeffs.length; i += 1) {
+      correctionC += coeffs[i] * Math.pow(scaled, i + 1)
+    }
+
     return (tempC - correctionC) * 1.8 + 32
   }
 
-  function isolatedRefinedCoefficients(density60: number) {
-    if (density60 >= 838.3127) return { k0: 103.8720, k1: 0.2701, k2: 0, name: 'fuel_oil' }
-    if (density60 >= 787.5195) return { k0: 330.3010, k1: 0, k2: 0, name: 'jet_fuel' }
-    if (density60 >= 770.3520) return { k0: 1489.0670, k1: 0, k2: -0.00186840, name: 'transition' }
-    return { k0: 192.4571, k1: 0.2438, k2: 0, name: 'gasoline_lpg_range' }
+  function isolatedRefinedTruncate(value: number, decimals: number) {
+    if (!Number.isFinite(value)) return 0
+    const p = Math.pow(10, decimals)
+    return Math.trunc(value * p) / p
   }
 
-  function calculateIsolatedRefinedType1(density60: number, tempF: number, pressurePsig: number) {
-    const shiftedTemp = isolatedRefinedTemp68(tempF)
+  function getRefinedWorkbookProductClass(productCode: any, apiAt60?: number) {
+    const product = String(productCode || '').trim().toLowerCase()
+
+    if (
+      product.includes('diesel') ||
+      product.includes('heat') ||
+      product.includes('fuel oil') ||
+      product === 'd'
+    ) {
+      return {
+        key: 'diesel_heat_fuel_oil',
+        label: 'Table Diesel/ Heat & Fuel Oil',
+        k0: 103.8720,
+        k1: 0.2701,
+      }
+    }
+
+    if (
+      product.includes('jet') ||
+      product.includes('kerosene') ||
+      product.includes('kerosine')
+    ) {
+      return {
+        key: 'jet_kerosene',
+        label: 'Jet Fuel/ Kerosines',
+        k0: 330.3010,
+        k1: 0,
+      }
+    }
+
+    if (
+      product.includes('gas') ||
+      product.includes('ul-') ||
+      product.includes('ul83') ||
+      product.includes('pul') ||
+      product.includes('azrbob') ||
+      product.includes('pcbob') ||
+      product.includes('nep') ||
+      product.includes('naph')
+    ) {
+      return {
+        key: 'gasoline_naphthenes',
+        label: 'Gasolines/Naphthenes',
+        k0: 192.4571,
+        k1: 0.2438,
+      }
+    }
+
+    // Workbook fallback ranges for refined products:
+    // 50-85 = Gasolines/Naphthenes; 37-50 = Jet/Kerosines; 0-37 = Diesel/Heat/Fuel Oil.
+    const api = Number(apiAt60)
+    if (Number.isFinite(api)) {
+      if (api < 37) {
+        return {
+          key: 'diesel_heat_fuel_oil',
+          label: 'Table Diesel/ Heat & Fuel Oil',
+          k0: 103.8720,
+          k1: 0.2701,
+        }
+      }
+      if (api < 50) {
+        return {
+          key: 'jet_kerosene',
+          label: 'Jet Fuel/ Kerosines',
+          k0: 330.3010,
+          k1: 0,
+        }
+      }
+    }
+
+    return {
+      key: 'gasoline_naphthenes',
+      label: 'Gasolines/Naphthenes',
+      k0: 192.4571,
+      k1: 0.2438,
+    }
+  }
+
+  function calculateRefinedWorkbookNestedAlpha(
+    density: number,
+    productCode: any,
+    apiAt60?: number
+  ) {
+    const productClass = getRefinedWorkbookProductClass(productCode, apiAt60)
+
+    // Refined products.xlsx STEP-4 / final CTLp sequence:
+    // round K0/rho, then divide by rho and round,
+    // round K1/rho, then add and round to five decimals.
+    const termA = roundTo(productClass.k0 / density, 5)
+    const termB = roundTo(termA / density, 5)
+    const termC = roundTo(productClass.k1 / density, 5)
+    const alpha = roundTo(termB + termC, 5)
+
+    return {
+      ...productClass,
+      termA,
+      termB,
+      termC,
+      alpha,
+    }
+  }
+
+  function calculateRefinedWorkbookApi60(
+    observedApiGravity: number,
+    observedTemperatureF: number,
+    productCode: any
+  ) {
+    // This reproduces Refined products.xlsx BQ:CL (API-2007 gravity correction).
+    const observedApi = roundApiHalfEven(Number(observedApiGravity || 0), 1)
+    const observedTemp = Number(observedTemperatureF || 60)
+
+    const observedDensity = roundTo(
+      isolatedRefinedApiToDensity1980(observedApi),
+      5
+    )
+
+    // Workbook STEP-1 applies the ITS-90 -> IPTS-68 temperature-scale difference
+    // as a truncated five-decimal density multiplier.
+    const temperatureScaleDelta = isolatedRefinedTemp68(observedTemp) - observedTemp
+    const temperatureScaleTerm = isolatedRefinedTruncate(
+      temperatureScaleDelta * 0.001,
+      5
+    )
+    const temperatureScaleFactor = 1 - temperatureScaleTerm
+    const adjustedObservedDensity = roundTo(
+      observedDensity * temperatureScaleFactor,
+      5
+    )
+
+    const alpha = calculateRefinedWorkbookNestedAlpha(
+      adjustedObservedDensity,
+      productCode,
+      observedApi
+    )
+
+    const deltaT = observedTemp - 60
+    const term1 = roundTo(deltaT * alpha.alpha, 5)
+    const term2 = roundTo(0.8 * term1, 5)
+    const term3 = roundTo(term1 * term2, 5)
+    const exponent = -(term1 + term3)
+    const observedVcf = roundTo(Math.exp(exponent), 5)
+
+    const density60 = roundTo(
+      adjustedObservedDensity / observedVcf,
+      5
+    )
+    const apiGravity60 = roundApiHalfEven(
+      isolatedRefinedDensityToApi1980(density60),
+      1
+    )
+
+    return {
+      observedApi,
+      observedTemp,
+      observedDensity,
+      temperatureScaleDelta,
+      temperatureScaleTerm,
+      temperatureScaleFactor,
+      adjustedObservedDensity,
+      density60,
+      apiGravity60,
+      observedVcf,
+      observedAlpha: alpha.alpha,
+      productClass: alpha,
+    }
+  }
+
+  function calculateRefinedWorkbookCtl1980(
+    apiGravity60: number,
+    averageTemperatureF: number,
+    productCode: any
+  ) {
+    // Refined products.xlsx BN: CTL-API-1980.
+    const density60 = isolatedRefinedApiToDensity1980(apiGravity60)
+    const productClass = getRefinedWorkbookProductClass(productCode, apiGravity60)
+    const alpha =
+      ((productClass.k0 / density60) + productClass.k1) /
+      density60
+    const deltaT = Number(averageTemperatureF || 60) - 60
+    const ctlRaw = Math.exp(
+      -alpha * deltaT * (1 + 0.8 * alpha * deltaT)
+    )
+
+    return {
+      ctl: roundTo(ctlRaw, 5),
+      ctlRaw,
+      density60,
+      alpha,
+      productClass,
+    }
+  }
+
+  function calculateRefinedWorkbookCtl2007(
+    density60: number,
+    apiGravity60: number,
+    averageTemperatureF: number,
+    productCode: any
+  ) {
+    // Refined products.xlsx CM:CR: CTL-API-2007.
+    const alpha = calculateRefinedWorkbookNestedAlpha(
+      density60,
+      productCode,
+      apiGravity60
+    )
+    const deltaT = Number(averageTemperatureF || 60) - 60
+
+    // The workbook retains the full multiplication after the five-decimal alpha.
+    const term1 = deltaT * alpha.alpha
+    const term2 = 0.8 * term1
+    const term3 = term1 * term2
+    const exponent = -(term1 + term3)
+    const ctlRaw = Math.exp(exponent)
+
+    return {
+      ctl: roundTo(ctlRaw, 5),
+      ctlRaw,
+      alpha: alpha.alpha,
+      term1,
+      term2,
+      term3,
+      productClass: alpha,
+    }
+  }
+
+  function calculateRefinedWorkbookCpl(
+    apiGravity60: number,
+    averageTemperatureF: number,
+    averagePressurePsig: number,
+    productCode: any
+  ) {
+    // Workbook AW uses the same five-decimal pressure factor for both
+    // the 1980 and 2007 CTL selections.
+    const density60 = (999.016 * 141.5) / (Number(apiGravity60) + 131.5)
+    const shiftedTemp = isolatedRefinedTemp68(Number(averageTemperatureF || 60))
     const deltaT = shiftedTemp - 60.0068749
     const delta60 = 0.01374979547
-    const c = isolatedRefinedCoefficients(density60)
-    const a = (delta60 / 2) * (((c.k0 / density60) + c.k1) / density60 + c.k2)
-    const bb = ((2*c.k0)+(c.k1*density60))/(c.k0+(c.k1*density60)+(c.k2*density60*density60))
-    const density60Star = density60 * Math.exp((a*(1+0.8*a))/(1+a*(1+1.6*a)*bb))
-    const alpha60 = ((c.k0/density60Star)+c.k1)/density60Star+c.k2
-    const ctl = Math.exp(-alpha60*deltaT*(1+0.8*alpha60*(deltaT+delta60)))
-    const fp = Math.exp(-1.9947+0.00013427*shiftedTemp+(793920+2326.0*shiftedTemp)/(density60Star*density60Star))
-    const cpl = 1/(1-0.00001*fp*Math.max(0,Number(pressurePsig||0)))
-    return { ctl, cpl, ctlp: ctl*cpl, fp, alpha60, productSubGroup: c.name }
-  }
+    const productClass = getRefinedWorkbookProductClass(productCode, apiGravity60)
 
-  function calculateIsolatedRefinedDensity60(observedApi: number, observedTemp: number) {
-    const observedDensity = isolatedRefinedApiToDensity(observedApi)
-    let density60 = observedDensity
-    for (let i=0;i<25;i+=1) {
-      const p=calculateIsolatedRefinedType1(density60,observedTemp,0), estimate=density60*p.ctl, error=observedDensity-estimate
-      if (Math.abs(error)<0.000001) return {density60,iterations:i+1,converged:true}
-      const bump=Math.max(0.001,Math.abs(density60)*0.000001), p2=calculateIsolatedRefinedType1(density60+bump,observedTemp,0)
-      const slope=(((density60+bump)*p2.ctl)-estimate)/bump
-      density60 += (!Number.isFinite(slope)||Math.abs(slope)<1e-12)?error:error/slope
-      density60=Math.min(Math.max(density60,470),1210)
+    const a =
+      (delta60 / 2) *
+      (((productClass.k0 / density60) + productClass.k1) / density60)
+
+    const b =
+      ((2 * productClass.k0) + (productClass.k1 * density60)) /
+      (productClass.k0 + (productClass.k1 * density60))
+
+    const density60Star =
+      density60 *
+      Math.exp(
+        (a * (1 + 0.8 * a)) /
+        (1 + a * (1 + 1.6 * a) * b)
+      )
+
+    const fp = Math.exp(
+      -1.9947 +
+      0.00013427 * shiftedTemp +
+      (793920 + 2326.0 * shiftedTemp) /
+        (density60Star * density60Star)
+    )
+
+    const pressure = Math.max(0, Number(averagePressurePsig || 0))
+    const cplRaw = 1 / (1 - 0.00001 * fp * pressure)
+
+    return {
+      cpl: roundTo(cplRaw, 5),
+      cplRaw,
+      fp,
+      density60Star,
+      productClass,
     }
-    return {density60,iterations:25,converged:false}
   }
 
   function calculateIsolatedRefinedTicketEngine(input: any) {
-    const apiVersion=String(input.apiVersion||'api_11_1_1980'), r=getIsolatedRefinedRoundingProfile(apiVersion)
-    const observedApi=roundApiHalfEven(Number(input.observedApiGravity||0),1), observedTemp=Number(input.observedTemperature||60)
-    const avgTemp=Number(input.averageTemperature||observedTemp||60), pressure=Number(input.pressurePsig||0)
-    const dr=calculateIsolatedRefinedDensity60(observedApi,observedTemp), density60=dr.density60
-    const api60=roundApiHalfEven(isolatedRefinedDensityToApi(density60),r.api), f=calculateIsolatedRefinedType1(density60,avgTemp,pressure)
-    const ctl=roundApiHalfEven(f.ctl,r.factor), cpl=roundApiHalfEven(f.cpl,r.factor), ctlp=roundApiHalfEven(ctl*cpl,r.factor)
-    const iv=Number(input.indicatedVolume||0), mf=roundApiHalfEven(Number(input.meterFactor||1),r.mf), bsw=Number(input.bswPercent||0)
-    const csw=roundApiHalfEven(1-bsw/100,6), gsvRaw=r.combined?iv*ctlp*mf:iv*mf*ctl*cpl, gsv=roundApiHalfEven(gsvRaw,r.volume)
-    const baseNsv=roundApiHalfEven(gsv*csw,r.volume), adjustment=Number(input.netVolumeAdjustmentBbl||0)
-    return { engineLane:'refined', api_version:apiVersion, api_gravity_60:api60, density_60:roundTo(density60,6), observed_api_gravity:observedApi,
-      observed_temperature:roundTo(observedTemp,2), observed_pressure:0, average_temperature:roundTo(avgTemp,2), average_pressure:roundTo(pressure,2),
-      ctl,cpl,ctlp,ccf:ctlp,mf,csw,iv:roundTo(iv,2),gvRaw:iv*mf,gv:roundApiHalfEven(iv*mf,r.volume),gsvRaw,gsv,baseNsv,nsv:roundApiHalfEven(baseNsv+adjustment,r.volume),
-      raw_ctl:f.ctl,raw_cpl:f.cpl,raw_ctlp:f.ctlp,raw_fp:f.fp,raw_alpha60:f.alpha60,raw_api_gravity_60:isolatedRefinedDensityToApi(density60),
-      product_sub_group:f.productSubGroup,api_engine:`Isolated Refined Product Engine - ${apiVersion}`,api_engine_note:'Refined-only lane; crude engine is not called.',
-      calculation_engine:`isolated_refined_${apiVersion}`,calculation_formula:r.combined?'GSV = IV × CTPL × MF; NSV = GSV × CSW':'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' }
+    // Exact isolated refined lane based on Refined products.xlsx.
+    // It does not call the crude engine and does not call the Butane engine.
+    const apiVersion = normalizeRefinedApiVersion(
+      input.apiVersion || 'api_11_1_1980'
+    )
+    const rounding = getIsolatedRefinedRoundingProfile(apiVersion)
+    const observedApi = roundApiHalfEven(
+      Number(input.observedApiGravity || 0),
+      1
+    )
+    const observedTemp = Number(input.observedTemperature || 60)
+    const averageTemp = Number(input.averageTemperature || observedTemp || 60)
+    const pressure = Number(input.pressurePsig || 0)
+    const productCode = input.refinedProductType || input.productCode || input.productGroup || ''
+
+    const gravity = calculateRefinedWorkbookApi60(
+      observedApi,
+      observedTemp,
+      productCode
+    )
+
+    const ctl1980 = calculateRefinedWorkbookCtl1980(
+      gravity.apiGravity60,
+      averageTemp,
+      productCode
+    )
+
+    const ctl2007 = calculateRefinedWorkbookCtl2007(
+      gravity.density60,
+      gravity.apiGravity60,
+      averageTemp,
+      productCode
+    )
+
+    const selectedCtl =
+      apiVersion === 'api_11_1_2007'
+        ? ctl2007
+        : ctl1980
+
+    const pressureResult = calculateRefinedWorkbookCpl(
+      gravity.apiGravity60,
+      averageTemp,
+      pressure,
+      productCode
+    )
+
+    const ctl = selectedCtl.ctl
+    const cpl = pressureResult.cpl
+
+    // Workbook AX = CTL × CPL; AR = CTL × CPL × MF rounded to 8.
+    const ctlpRaw = ctl * cpl
+    const ctlp = ctlpRaw
+    const iv = Number(input.indicatedVolume || 0)
+    const mf = roundApiHalfEven(
+      Number(input.meterFactor || 1),
+      rounding.mf
+    )
+    const combinedCorrectionRaw = ctl * cpl * mf
+    const combinedCorrectionFactor = roundTo(
+      combinedCorrectionRaw,
+      8
+    )
+
+    const bsw = Number(input.bswPercent || 0)
+    const csw = roundApiFactor(1 - bsw / 100, 6)
+    const gsvRaw = iv * combinedCorrectionFactor
+    const gsv = roundApiHalfEven(gsvRaw, rounding.volume)
+    const baseNsvRaw = gsvRaw * csw
+    const baseNsv = roundApiHalfEven(baseNsvRaw, rounding.volume)
+    const adjustment = Number(input.netVolumeAdjustmentBbl || 0)
+    const nsv = roundApiHalfEven(
+      baseNsvRaw + adjustment,
+      rounding.volume
+    )
+
+    return {
+      engineLane: 'refined',
+      api_version: apiVersion,
+      api_version_label:
+        apiVersion === 'api_11_1_2007'
+          ? 'API MPMS 11.1 (2007)'
+          : 'API MPMS 11.1 (1980)',
+
+      refined_product_class: selectedCtl.productClass?.label || gravity.productClass?.label || '',
+      refined_product_class_key: selectedCtl.productClass?.key || gravity.productClass?.key || '',
+
+      observed_api_gravity: gravity.observedApi,
+      observed_temperature: roundTo(observedTemp, 2),
+      observed_pressure: 0,
+      api_gravity_60: gravity.apiGravity60,
+      density_60: gravity.density60,
+      average_temperature: roundTo(averageTemp, 2),
+      average_pressure: roundTo(pressure, 2),
+
+      ctl,
+      ctl_1980: ctl1980.ctl,
+      ctl_2007: ctl2007.ctl,
+      raw_ctl: selectedCtl.ctlRaw,
+      raw_ctl_1980: ctl1980.ctlRaw,
+      raw_ctl_2007: ctl2007.ctlRaw,
+
+      cpl,
+      raw_cpl: pressureResult.cplRaw,
+      raw_fp: pressureResult.fp,
+
+      ctlp,
+      raw_ctlp: ctlpRaw,
+      ccf: combinedCorrectionFactor,
+      combined_correction_factor: combinedCorrectionFactor,
+
+      mf,
+      csw,
+      iv: roundTo(iv, rounding.volume),
+      gvRaw: iv * mf,
+      gv: roundApiHalfEven(iv * mf, rounding.volume),
+      gsvRaw,
+      gsv,
+      baseNsv,
+      nsv,
+
+      refined_observed_density: gravity.observedDensity,
+      refined_temperature_scale_delta: gravity.temperatureScaleDelta,
+      refined_temperature_scale_term: gravity.temperatureScaleTerm,
+      refined_adjusted_observed_density: gravity.adjustedObservedDensity,
+      refined_observed_vcf: gravity.observedVcf,
+      refined_observed_alpha: gravity.observedAlpha,
+
+      product_sub_group: selectedCtl.productClass?.key || gravity.productClass?.key || '',
+      api_engine: `Isolated Refined Workbook Engine - ${apiVersion}`,
+      api_engine_note:
+        'Matches Refined products.xlsx. API-1980 and API-2007 use different CTL calculations while sharing the workbook CPL calculation. Crude and Butane engines are not called.',
+      calculation_engine: `isolated_refined_workbook_${apiVersion}`,
+      calculation_formula:
+        'Combined Factor = CTL × CPL × MF; GSV = IV × Combined Factor; NSV = GSV × CSW',
+    }
   }
 
   function calculateButaneWorkbookCtl(specificGravity60: number, averageTemperatureF: number) {
@@ -4703,6 +5099,8 @@ function handleProvingAreaSelect(areaId: string) {
       engineLane,
       apiVersion: selectedApiVersion || (engineLane === 'butane' ? 'butane_api_2019' : engineLane === 'refined' ? 'api_11_1_1980' : 'chapter12_2021'),
       productGroup,
+      refinedProductType: refinedProductCode,
+      productCode: refinedProductCode,
       observedApiGravity: rawObservedApiForTicket,
       observedTemperature: observedTempForTicket,
       averageTemperature: avgTemp,
@@ -5353,6 +5751,7 @@ function handleProvingAreaSelect(areaId: string) {
       nsv: ticketEditString(calc.nsv ?? observed.nsv ?? observed.net_volume_bbl),
       refined_unit_type: ticketEditString(observed.refined_unit_type ?? calc.refined_unit_type ?? observed.unit_of_measure_type),
       refined_product_type: ticketEditString(observed.refined_product_type ?? calc.refined_product_type ?? observed.product_code ?? calc.product_code ?? observed.product_type),
+      api_version: ticketEditString(calc.api_version ?? observed.api_version ?? ticket.calculation_profile_snapshot?.api_version ?? ticket.calculation_profile_snapshot?.contract_profile?.api_version ?? 'api_11_1_1980'),
       refined_destination: ticketEditString(observed.refined_destination ?? calc.refined_destination ?? observed.movement_destination ?? observed.destination),
       batch_number: ticketEditString(observed.batch_number ?? calc.batch_number ?? (ticket as any).batch_number),
       butane_equilibrium_pressure_psig: ticketEditString(observed.butane_equilibrium_pressure_psig ?? observed.equilibrium_pressure_psig ?? calc.butane_equilibrium_pressure_psig ?? calc.equilibrium_pressure_psig),
@@ -5417,12 +5816,14 @@ function handleProvingAreaSelect(areaId: string) {
     const ticketObserved: any = selectedTicket?.observed_inputs || {}
     const ticketCalc: any = selectedTicket?.calculation_results || {}
     const ticketSnapshot: any = selectedTicket?.calculation_profile_snapshot || {}
-    const apiVersion = String(ticketCalc.api_version || ticketObserved.api_version || ticketSnapshot.api_version || ticketSnapshot.contract_profile?.api_version || '')
+    const apiVersion = String(values.api_version || ticketCalc.api_version || ticketObserved.api_version || ticketSnapshot.api_version || ticketSnapshot.contract_profile?.api_version || '')
     const lane = String(ticketCalc.calculation_engine_lane || ticketObserved.calculation_engine_lane || ticketSnapshot.calculation_engine_lane || (apiVersion.startsWith('butane_') ? 'butane' : String(productGroup).toLowerCase() === 'refined' ? 'refined' : String(productGroup).toLowerCase() === 'butane' ? 'butane' : 'crude'))
     const equilibrium = ticketEditNumber(values, 'butane_equilibrium_pressure_psig') ?? Number(ticketObserved.butane_equilibrium_pressure_psig ?? ticketObserved.equilibrium_pressure_psig ?? ticketCalc.butane_equilibrium_pressure_psig ?? ticketCalc.equilibrium_pressure_psig ?? 0)
     const butaneSg60 = ticketEditNumber(values, 'butane_specific_gravity_60') ?? Number(ticketObserved.butane_specific_gravity_60 ?? ticketObserved.specific_gravity_60 ?? ticketObserved.relative_density_60 ?? ticketCalc.butane_specific_gravity_60 ?? ticketCalc.specific_gravity_60 ?? ticketCalc.relative_density_60 ?? 0)
     const result = runSelectedTicketCalculationEngine({
       engineLane: lane, apiVersion: apiVersion || (lane === 'butane' ? 'butane_api_2019' : lane === 'refined' ? 'api_11_1_1980' : 'chapter12_2021'), productGroup,
+      refinedProductType: values.refined_product_type || ticketObserved.refined_product_type || ticketObserved.product_code || ticketCalc.refined_product_type || ticketCalc.product_code || '',
+      productCode: values.refined_product_type || ticketObserved.refined_product_type || ticketObserved.product_code || ticketCalc.refined_product_type || ticketCalc.product_code || '',
       observedApiGravity: observedApi, observedTemperature: observedTemp, averageTemperature: averageTemp ?? observedTemp, pressurePsig: averagePressure ?? 0,
       averagePressurePsig: averagePressure ?? 0, equilibriumPressurePsig: equilibrium, specificGravity60: butaneSg60, apiRounding: 1, volumeRounding: 2, indicatedVolume: iv, meterFactor: mf, bswPercent: swPercent,
       csw: Number(selectedTicket?.calculation_results?.csw ?? selectedTicket?.observed_inputs?.csw ?? 1), netVolumeAdjustmentBbl: adjustment,
@@ -5742,12 +6143,14 @@ function handleProvingAreaSelect(areaId: string) {
     const ctlpRounding = isChapter122021Revision ? 6 : Number(calc.ctlp_rounding ?? observed.ctlp_rounding ?? 6)
     const mfValue = ticketEditNumber(values, 'mf') ?? Number(calc.mf ?? observed.mf ?? 1)
     const netVolumeAdjustmentBbl = ticketEditNumber(values, 'net_volume_adjustment_bbl') ?? 0
-    const storedApiVersion = String(calc.api_version || observed.api_version || selectedTicket.calculation_profile_snapshot?.api_version || selectedTicket.calculation_profile_snapshot?.contract_profile?.api_version || '')
+    const storedApiVersion = String(values.api_version || calc.api_version || observed.api_version || selectedTicket.calculation_profile_snapshot?.api_version || selectedTicket.calculation_profile_snapshot?.contract_profile?.api_version || '')
     const storedLane = String(calc.calculation_engine_lane || observed.calculation_engine_lane || selectedTicket.calculation_profile_snapshot?.calculation_engine_lane || (storedApiVersion.startsWith('butane_') ? 'butane' : String(productGroup).toLowerCase() === 'refined' ? 'refined' : String(productGroup).toLowerCase() === 'butane' ? 'butane' : 'crude'))
     const equilibriumPressureValue = ticketEditNumber(values, 'butane_equilibrium_pressure_psig') ?? Number(observed.butane_equilibrium_pressure_psig ?? observed.equilibrium_pressure_psig ?? calc.butane_equilibrium_pressure_psig ?? calc.equilibrium_pressure_psig ?? 0)
     const butaneSpecificGravity60Value = ticketEditNumber(values, 'butane_specific_gravity_60') ?? Number(observed.butane_specific_gravity_60 ?? observed.specific_gravity_60 ?? observed.relative_density_60 ?? calc.butane_specific_gravity_60 ?? calc.specific_gravity_60 ?? calc.relative_density_60 ?? 0)
     const engineResult = runSelectedTicketCalculationEngine({
       engineLane: storedLane, apiVersion: storedApiVersion || (storedLane === 'butane' ? 'butane_api_2019' : storedLane === 'refined' ? 'api_11_1_1980' : 'chapter12_2021'), productGroup,
+      refinedProductType: values.refined_product_type || observed.refined_product_type || observed.product_code || calc.refined_product_type || calc.product_code || '',
+      productCode: values.refined_product_type || observed.refined_product_type || observed.product_code || calc.refined_product_type || calc.product_code || '',
       observedApiGravity: Number(observedApi ?? calc.observed_api_gravity ?? observed.observed_api_gravity ?? 0), observedTemperature: Number(observedTemp ?? calc.observed_temperature ?? observed.observed_temperature ?? 60),
       averageTemperature: Number(averageTemperature ?? calc.average_temperature ?? observed.average_temperature ?? 60), pressurePsig: Number(averagePressure ?? calc.average_pressure ?? observed.average_pressure ?? 0),
       averagePressurePsig: Number(averagePressure ?? calc.average_pressure ?? observed.average_pressure ?? 0), equilibriumPressurePsig: equilibriumPressureValue, specificGravity60: butaneSpecificGravity60Value, apiRounding, volumeRounding: 2, indicatedVolume: totalBatchBarrels, meterFactor: mfValue, bswPercent: swPercent, csw: Number(calc.csw ?? observed.csw ?? 1), netVolumeAdjustmentBbl,
@@ -5781,7 +6184,7 @@ function handleProvingAreaSelect(areaId: string) {
       specific_gravity_60: storedLane === 'butane' ? butaneSpecificGravity60Value : (observed.specific_gravity_60 ?? null),
       relative_density_60: storedLane === 'butane' ? butaneSpecificGravity60Value : (observed.relative_density_60 ?? null),
       calculation_engine_lane: storedLane,
-      api_version: storedApiVersion || observed.api_version || null,
+      api_version: storedLane === 'refined' ? normalizeRefinedApiVersion(storedApiVersion) : (storedApiVersion || observed.api_version || null),
       observed_api_gravity: observedApi,
       api_observed: observedApi,
       api_gravity_60: apiGravity60Value,
@@ -5867,7 +6270,7 @@ function handleProvingAreaSelect(areaId: string) {
       corrected_api_gravity: apiGravity60Value,
       density_60: density60Value,
       calculation_engine_lane: storedLane,
-      api_version: storedApiVersion || calc.api_version || null,
+      api_version: storedLane === 'refined' ? normalizeRefinedApiVersion(storedApiVersion) : (storedApiVersion || calc.api_version || null),
       equilibrium_pressure_psig: storedLane === 'butane' ? equilibriumPressureValue : (calc.equilibrium_pressure_psig ?? null),
       butane_equilibrium_pressure_psig: storedLane === 'butane' ? equilibriumPressureValue : (calc.butane_equilibrium_pressure_psig ?? null),
       butane_specific_gravity_60: storedLane === 'butane' ? butaneSpecificGravity60Value : (calc.butane_specific_gravity_60 ?? null),
@@ -16862,6 +17265,33 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                             <label><div className="ticket-muted">Relative Density / SG @60°F</div><input style={input} type="number" step="0.0001" value={draftTicketEditValues.butane_specific_gravity_60 || ''} onChange={(e) => updateDraftTicketEditField('butane_specific_gravity_60', e.target.value)} /></label>
                             <label><div className="ticket-muted">Equilibrium Pressure (psig)</div><input style={input} type="number" step="0.01" value={draftTicketEditValues.butane_equilibrium_pressure_psig || ''} onChange={(e) => updateDraftTicketEditField('butane_equilibrium_pressure_psig', e.target.value)} /></label>
                           </>
+                        ) : null
+                      })()}
+                      {(() => {
+                        const observed: any = selectedTicket?.observed_inputs || {}
+                        const calc: any = selectedTicket?.calculation_results || {}
+                        const snapshot: any = selectedTicket?.calculation_profile_snapshot || {}
+                        const storedApiVersion = String(draftTicketEditValues.api_version || calc.api_version || observed.api_version || snapshot.api_version || snapshot.contract_profile?.api_version || '')
+                        const lane = String(calc.calculation_engine_lane || observed.calculation_engine_lane || snapshot.calculation_engine_lane || (
+                          storedApiVersion.startsWith('butane_')
+                            ? 'butane'
+                            : String(calc.product_group || observed.product_group || '').toLowerCase() === 'refined'
+                              ? 'refined'
+                              : ''
+                        ))
+                        return lane === 'refined' ? (
+                          <label>
+                            <div className="ticket-muted">Refined API Version</div>
+                            <select
+                              style={input}
+                              value={normalizeRefinedApiVersion(draftTicketEditValues.api_version || storedApiVersion)}
+                              onChange={(e) => updateDraftTicketEditField('api_version', e.target.value)}
+                            >
+                              <option value="api_11_1_1980">API-1980</option>
+                              <option value="api_11_1_2007">API-2007</option>
+                            </select>
+                            <div className="ticket-muted">Changes the live CTL/GSV/NSV calculation</div>
+                          </label>
                         ) : null
                       })()}
                       <label><div className="ticket-muted">Observed Gravity/API</div><input style={input} value={draftTicketEditValues.observed_api_gravity || ''} onChange={(e) => updateDraftTicketEditField('observed_api_gravity', e.target.value)} /></label>

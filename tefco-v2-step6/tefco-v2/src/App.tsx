@@ -4693,6 +4693,7 @@ function handleProvingAreaSelect(areaId: string) {
       observed_temperature: roundTo(observedTemp, 2),
       observed_pressure: 0,
       api_gravity_60: gravity.apiGravity60,
+      raw_api_gravity_60: gravity.apiGravity60,
       density_60: gravity.density60,
       average_temperature: roundTo(averageTemp, 2),
       average_pressure: roundTo(pressure, 2),

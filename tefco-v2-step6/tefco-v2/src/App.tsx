@@ -6523,6 +6523,22 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['S&W Volume', num(swVolumeForPdf, 2)],
       ['BS&W %', num(calc.bsw_percent ?? observed.bsw_percent ?? observed.bsw, 4)],
       ['CSW', num(calc.csw ?? observed.csw, 6)],
+      ['RVP', value(
+        observed.rvp ??
+        calc.rvp ??
+        parsePotExtra(observed.notes, 'rvp') ??
+        parsePotExtra(calc.notes, 'rvp')
+      )],
+      ['Sulphur', value(
+        observed.sulfur ??
+        observed.sulphur ??
+        calc.sulfur ??
+        calc.sulphur ??
+        parsePotExtra(observed.notes, 'sulfur') ??
+        parsePotExtra(observed.notes, 'sulphur') ??
+        parsePotExtra(calc.notes, 'sulfur') ??
+        parsePotExtra(calc.notes, 'sulphur')
+      )],
       ['Notes', value(pdfNotes)],
     ]
   }
@@ -6680,6 +6696,8 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['NSV', rowMap['NSV']],
       ['BS&W %', rowMap['BS&W %']],
       ['CSW', rowMap['CSW']],
+      ['RVP', rowMap['RVP']],
+      ['Sulphur', rowMap['Sulphur']],
     ]
 
     const mainStartY = y

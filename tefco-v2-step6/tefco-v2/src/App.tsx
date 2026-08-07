@@ -3903,7 +3903,7 @@ function handleProvingAreaSelect(areaId: string) {
   }
 
   function getRefinedProductCodeOptions() {
-    return ['Crude Oil', 'Diesel', 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
+    return ['Crude Oil', 'Diesel', 'Butane' , 'UL-84', 'AZRBOB', 'PCBOB', 'GAS', 'JET', 'NEP', 'UL83S', 'PUL']
   }
 
   function getTicketBatchNumberValue(ticket: any) {

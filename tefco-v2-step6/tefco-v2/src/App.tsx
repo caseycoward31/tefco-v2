@@ -1146,6 +1146,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [refinedProductType, setRefinedProductType] = useState('')
   const [refinedProductCode, setRefinedProductCode] = useState('')
   const [refinedMovementDestination, setRefinedMovementDestination] = useState('')
+  const [butaneSpecificGravity60, setButaneSpecificGravity60] = useState('')
   const [butaneEquilibriumPressure, setButaneEquilibriumPressure] = useState('')
   const [ticketBatchNumber, setTicketBatchNumber] = useState('')
   const [selectedTank, setSelectedTank] = useState('')
@@ -1239,6 +1240,7 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
 
   useEffect(() => {
     if (String(refinedProductCode || '').trim().toLowerCase() !== 'butane') {
+      setButaneSpecificGravity60('')
       setButaneEquilibriumPressure('')
     }
   }, [refinedProductCode])
@@ -4342,12 +4344,232 @@ function handleProvingAreaSelect(areaId: string) {
       calculation_engine:`isolated_refined_${apiVersion}`,calculation_formula:r.combined?'GSV = IV × CTPL × MF; NSV = GSV × CSW':'GV = IV × MF; GSV = IV × MF × CTL × CPL; NSV = GSV × CSW' }
   }
 
+  function calculateButaneWorkbookCtl(specificGravity60: number, averageTemperatureF: number) {
+    // Exact Table 24 sequence from Butane Calc.xlsx, Sheet1 DB:GO.
+    const y60 = roundTo(Number(specificGravity60 || 0), 4)
+    const tx = (Number(averageTemperatureF || 60) + 459.67) / 1.8
+
+    const iY60 = 0.562827
+    const nY60 = 0.584127
+    const delta = (y60 - iY60) / (nY60 - iY60)
+
+    const iTc = 407.85
+    const nTc = 425.16
+    const tc = iTc + delta * (nTc - iTc)
+
+    const trx = tx / tc
+    const trx60 = 519.67 / (1.8 * tc)
+
+    const iZc = 0.28326
+    const nZc = 0.27536
+    const iPc = 3.86
+    const nPc = 3.92
+    const h2 = (iZc * iPc) / (nZc * nPc)
+
+    const iK1 = 2.0474803441
+    const iK2 = -0.289734363425
+    const iK3 = -0.330345036434
+    const iK4 = 0.291757103132
+    const nK1 = 2.03734743118
+    const nK2 = -0.299059145695
+    const nK3 = -0.418883095671
+    const nK4 = 0.380367738748
+
+    const psat = (pc: number, k1: number, k2: number, k3: number, k4: number, tau: number) => {
+      const numerator =
+        (k1 * Math.pow(tau, 0.35)) +
+        (k3 * Math.pow(tau, 2)) +
+        (k4 * Math.pow(tau, 3))
+      const denominator = 1 + (k2 * Math.pow(tau, 0.65))
+      return pc * (1 + (numerator / denominator))
+    }
+
+    const tau60 = 1 - trx60
+    const psat60I = psat(iPc, iK1, iK2, iK3, iK4, tau60)
+    const psat60N = psat(nPc, nK1, nK2, nK3, nK4, tau60)
+
+    const refTerm1 = h2 * psat60N
+    const refTerm2 = psat60I / refTerm1
+    const refTerm3 = refTerm2 - 1
+    const refTerm4 = delta * refTerm3
+    const refTerm5 = 1 + refTerm4
+    const xReference = psat60I / refTerm5
+
+    const tauObserved = 1 - trx
+    const psatObservedI = psat(iPc, iK1, iK2, iK3, iK4, tauObserved)
+    const psatObservedN = psat(nPc, nK1, nK2, nK3, nK4, tauObserved)
+
+    const term1 = h2 * psatObservedN
+    const term2 = psatObservedI / term1
+    const term3 = term2 - 1
+    const term4 = delta * term3
+    const term5 = 1 + term4
+    const term6 = xReference * term5
+    const ctlRaw = psatObservedI / term6
+
+    return {
+      ctl: roundTo(ctlRaw, 5),
+      ctlRaw,
+      interpolation: delta,
+      mixtureTc: tc,
+      reducedObservedTemp: trx,
+      reducedTemp60: trx60,
+    }
+  }
+
+  function calculateButaneWorkbookCpl(
+    specificGravity60: number,
+    averageTemperatureF: number,
+    averagePressurePsig: number,
+    equilibriumPressurePsig: number
+  ) {
+    // Exact special LPG CPL sequence from Butane Calc.xlsx, Sheet1 GP:IL.
+    const g = roundTo(Number(specificGravity60 || 0), 13)
+    const avgTemp = Number(averageTemperatureF || 60)
+    const avgPressure = Number(averagePressurePsig || 0)
+    const equilibriumPressure = Number(equilibriumPressurePsig || 0)
+
+    const dp = avgPressure - equilibriumPressure
+    const g2 = g * g
+    const g4 = g2 * g2
+    const g6 = g2 * g4
+
+    const rankine = roundTo(avgTemp + 459.67, 1)
+    const rankine2 = rankine * rankine
+    const rankine3 = rankine * rankine * rankine
+
+    const bRaw =
+      (-0.00000000060357667 * rankine2) +
+      (0.0000022112678 * rankine * g2) +
+      (0.00088384 * g) -
+      (0.00204016 * g2)
+
+    const bFactor = roundTo(bRaw * 100000, 3)
+
+    const aRaw =
+      (-0.0000021465891 * rankine2) +
+      (0.00001577439 * rankine2 * g2) -
+      (0.000010502139 * rankine2 * g4) +
+      (0.00000028324481 * rankine3 * g6) -
+      0.95495939 +
+      (0.000000072900662 * rankine3 * g2) -
+      (0.00000027769343 * rankine3 * g4) +
+      (0.03645838 * rankine * g2) -
+      (0.05110158 * rankine * g) +
+      (0.00795529 * rankine) +
+      (9.1311491 * g)
+
+    const aRounded = roundTo(aRaw * 100000, 4)
+    const aInteger = Math.trunc(aRounded)
+    const fFactor = 1 / (aInteger + (dp * bFactor))
+    const cpl = 1 / (1 - (fFactor * dp))
+
+    return {
+      cpl,
+      differentialPressure: dp,
+      rankine,
+      bRaw,
+      bFactor,
+      aRaw,
+      aRounded,
+      aInteger,
+      fFactor,
+    }
+  }
+
   function calculateIsolatedButaneTicketEngine(input: any) {
-    const equilibrium=Number(input.equilibriumPressurePsig||0), apiVersion=String(input.apiVersion||'butane_api_2019')
-    const result=calculateIsolatedRefinedTicketEngine({...input,apiVersion,pressurePsig:equilibrium})
-    return {...result,engineLane:'butane',observed_pressure:roundTo(equilibrium,2),average_pressure:roundTo(equilibrium,2),equilibrium_pressure_psig:roundTo(equilibrium,2),
-      butane_equilibrium_pressure_psig:roundTo(equilibrium,2),api_engine:`Isolated Butane/LPG Engine - ${apiVersion}`,api_engine_note:'Butane/LPG-only lane using equilibrium pressure; crude engine is not called.',
-      calculation_engine:`isolated_butane_${apiVersion}`,calculation_formula:'GSV = IV × CTPL × MF; NSV = GSV × CSW'}
+    // Fully isolated Butane/LPG engine. No crude or generic-refined call.
+    const apiVersion = String(input.apiVersion || 'butane_api_2019')
+    const sg60 = Number(input.specificGravity60 || 0)
+    const avgTemp = Number(input.averageTemperature || 60)
+    const avgPressure = Number(input.averagePressurePsig ?? input.pressurePsig ?? 0)
+    const equilibrium = Number(input.equilibriumPressurePsig || 0)
+    const iv = Number(input.indicatedVolume || 0)
+    const mf = roundApiHalfEven(Number(input.meterFactor || 1), 4)
+    const bsw = Number(input.bswPercent || 0)
+    const csw = roundApiFactor(1 - (bsw / 100), 6)
+    const volumeDecimals = Number(input.volumeRounding ?? 2)
+    const adjustment = Number(input.netVolumeAdjustmentBbl || 0)
+
+    if (!Number.isFinite(sg60) || sg60 <= 0) {
+      throw new Error('Butane Relative Density / SG @60 is required.')
+    }
+
+    const ctlResult = calculateButaneWorkbookCtl(sg60, avgTemp)
+    const cplResult = calculateButaneWorkbookCpl(sg60, avgTemp, avgPressure, equilibrium)
+
+    // Workbook BU: 141.5 / SG - 131.5.
+    const api60 = (141.5 / sg60) - 131.5
+
+    // Workbook: CTL rounded 5, special LPG CPL full precision,
+    // CTL × CPL × MF rounded to 8 before GSV.
+    const ctl = ctlResult.ctl
+    const cpl = cplResult.cpl
+    const ctlpRaw = ctl * cpl
+    const ctlp = roundTo(ctlpRaw, 8)
+    const combinedRaw = ctl * cpl * mf
+    const combined = roundTo(combinedRaw, 8)
+
+    const gvRaw = iv * mf
+    const gsvRaw = iv * combined
+    const baseNsvRaw = gsvRaw * csw
+    const nsvRaw = baseNsvRaw + adjustment
+
+    return {
+      engineLane: 'butane',
+      api_version: apiVersion,
+      specific_gravity_60: sg60,
+      butane_specific_gravity_60: sg60,
+      relative_density_60: sg60,
+      api_gravity_60: api60,
+      raw_api_gravity_60: api60,
+      density_60: sg60 * 999.016,
+
+      observed_api_gravity: Number(input.observedApiGravity || api60),
+      observed_temperature: Number(input.observedTemperature || avgTemp),
+      observed_pressure: roundTo(equilibrium, 2),
+      average_temperature: roundTo(avgTemp, 2),
+      average_pressure: roundTo(avgPressure, 2),
+      equilibrium_pressure_psig: roundTo(equilibrium, 2),
+      butane_equilibrium_pressure_psig: roundTo(equilibrium, 2),
+      differential_pressure_psig: roundTo(cplResult.differentialPressure, 4),
+
+      ctl,
+      cpl,
+      ctlp,
+      ccf: combined,
+      combined_correction_factor: combined,
+      mf,
+      csw,
+      iv: roundTo(iv, volumeDecimals),
+      gvRaw,
+      gv: roundApiHalfEven(gvRaw, volumeDecimals),
+      gsvRaw,
+      gsv: roundApiHalfEven(gsvRaw, volumeDecimals),
+      baseNsv: roundApiHalfEven(baseNsvRaw, volumeDecimals),
+      nsvRaw,
+      nsv: roundApiHalfEven(nsvRaw, volumeDecimals),
+
+      raw_ctl: ctlResult.ctlRaw,
+      raw_cpl: cplResult.cpl,
+      raw_ctlp: ctlpRaw,
+      butane_ctl_interpolation: ctlResult.interpolation,
+      butane_mixture_tc: ctlResult.mixtureTc,
+      butane_reduced_observed_temp: ctlResult.reducedObservedTemp,
+      butane_reduced_temp_60: ctlResult.reducedTemp60,
+      butane_cpl_b_factor_raw: cplResult.bRaw,
+      butane_cpl_b_factor: cplResult.bFactor,
+      butane_cpl_a_factor_raw: cplResult.aRaw,
+      butane_cpl_a_factor_rounded: cplResult.aRounded,
+      butane_cpl_a_factor_integer: cplResult.aInteger,
+      butane_cpl_f_factor: cplResult.fFactor,
+
+      product_sub_group: 'butane_lpg',
+      api_engine: `Isolated Butane/LPG Workbook Engine - ${apiVersion}`,
+      api_engine_note: 'Matches Butane Calc.xlsx Table 24 CTL and special LPG CPL using Average Pressure minus Equilibrium Pressure. Crude engine is not called.',
+      calculation_engine: `isolated_butane_workbook_${apiVersion}`,
+      calculation_formula: 'Combined Factor = CTL × CPL × MF; GSV = IV × Combined Factor; NSV = GSV × CSW',
+    }
   }
 
   function resolveTicketCalculationLane(profile: any) {
@@ -4446,7 +4668,13 @@ function handleProvingAreaSelect(areaId: string) {
     const productGroup = selectedProductGroup
     const engineLane = resolveTicketCalculationLane(contractProfile)
     const isButaneTicket = engineLane === 'butane'
+    const butaneSpecificGravity60Value = isButaneTicket ? Number(butaneSpecificGravity60 || 0) : 0
     const butaneEquilibriumPressureValue = isButaneTicket ? Number(butaneEquilibriumPressure || 0) : 0
+
+    if (isButaneTicket && butaneSpecificGravity60 === '') {
+      alert('Enter Butane Relative Density / SG @60 before building the ticket.')
+      return
+    }
 
     if (isButaneTicket && butaneEquilibriumPressure === '') {
       alert('Enter Butane equilibrium pressure before building the ticket.')
@@ -4478,8 +4706,10 @@ function handleProvingAreaSelect(areaId: string) {
       observedApiGravity: rawObservedApiForTicket,
       observedTemperature: observedTempForTicket,
       averageTemperature: avgTemp,
-      pressurePsig: usePressure ? (engineLane === 'butane' ? butaneEquilibriumPressureValue : avgPressure) : 0,
+      pressurePsig: usePressure ? avgPressure : 0,
+      averagePressurePsig: usePressure ? avgPressure : 0,
       equilibriumPressurePsig: butaneEquilibriumPressureValue,
+      specificGravity60: butaneSpecificGravity60Value,
       apiRounding, volumeRounding, indicatedVolume: iv, meterFactor: mf, bswPercent, csw,
     })
     const corrections = engineResult
@@ -4552,6 +4782,9 @@ function handleProvingAreaSelect(areaId: string) {
         refined_destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
         butane_equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
+        butane_specific_gravity_60: isButaneTicket ? butaneSpecificGravity60Value : null,
+        specific_gravity_60: isButaneTicket ? butaneSpecificGravity60Value : null,
+        relative_density_60: isButaneTicket ? butaneSpecificGravity60Value : null,
       },
       api_chapter: profile?.standard || null,
       calculation_method: corrections.api_engine,
@@ -4680,6 +4913,9 @@ function handleProvingAreaSelect(areaId: string) {
         batch_no: ticketBatchNumber || null,
         equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
         butane_equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
+        butane_specific_gravity_60: isButaneTicket ? butaneSpecificGravity60Value : null,
+        specific_gravity_60: isButaneTicket ? butaneSpecificGravity60Value : null,
+        relative_density_60: isButaneTicket ? butaneSpecificGravity60Value : null,
         shrink_factor: shrinkFactor,
         product_sub_group: corrections.product_sub_group,
       },
@@ -4727,6 +4963,9 @@ function handleProvingAreaSelect(areaId: string) {
         batch_number: ticketBatchNumber || null,
         equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
         butane_equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
+        butane_specific_gravity_60: isButaneTicket ? butaneSpecificGravity60Value : null,
+        specific_gravity_60: isButaneTicket ? butaneSpecificGravity60Value : null,
+        relative_density_60: isButaneTicket ? butaneSpecificGravity60Value : null,
         formula_profile: isButaneTicket ? 'Butane / LPG' : (isApi12 ? 'API 12 2021' : 'API 11.1'),
       },
     }
@@ -4813,6 +5052,7 @@ function handleProvingAreaSelect(areaId: string) {
     setRefinedProductType('')
     setRefinedProductCode('')
     setRefinedMovementDestination('')
+    setButaneSpecificGravity60('')
     setButaneEquilibriumPressure('')
     setTicketBatchNumber('')
     setAutofillPreview(null)
@@ -5116,6 +5356,7 @@ function handleProvingAreaSelect(areaId: string) {
       refined_destination: ticketEditString(observed.refined_destination ?? calc.refined_destination ?? observed.movement_destination ?? observed.destination),
       batch_number: ticketEditString(observed.batch_number ?? calc.batch_number ?? (ticket as any).batch_number),
       butane_equilibrium_pressure_psig: ticketEditString(observed.butane_equilibrium_pressure_psig ?? observed.equilibrium_pressure_psig ?? calc.butane_equilibrium_pressure_psig ?? calc.equilibrium_pressure_psig),
+      butane_specific_gravity_60: ticketEditString(observed.butane_specific_gravity_60 ?? observed.specific_gravity_60 ?? observed.relative_density_60 ?? calc.butane_specific_gravity_60 ?? calc.specific_gravity_60 ?? calc.relative_density_60),
       ticket_prepared_by: ticketEditString(observed.ticket_prepared_by ?? observed.loaded_by_name ?? calc.ticket_prepared_by),
       company_representative_name: ticketEditString(observed.company_representative_name ?? observed.company_rep_name ?? calc.company_representative_name),
       calculation_method_used: ticketEditString(observed.calculation_method_used ?? calc.calculation_method_used ?? calc.formula_profile ?? ticket.calculation_method ?? ticket.api_chapter),
@@ -5179,10 +5420,11 @@ function handleProvingAreaSelect(areaId: string) {
     const apiVersion = String(ticketCalc.api_version || ticketObserved.api_version || ticketSnapshot.api_version || ticketSnapshot.contract_profile?.api_version || '')
     const lane = String(ticketCalc.calculation_engine_lane || ticketObserved.calculation_engine_lane || ticketSnapshot.calculation_engine_lane || (apiVersion.startsWith('butane_') ? 'butane' : String(productGroup).toLowerCase() === 'refined' ? 'refined' : String(productGroup).toLowerCase() === 'butane' ? 'butane' : 'crude'))
     const equilibrium = ticketEditNumber(values, 'butane_equilibrium_pressure_psig') ?? Number(ticketObserved.butane_equilibrium_pressure_psig ?? ticketObserved.equilibrium_pressure_psig ?? ticketCalc.butane_equilibrium_pressure_psig ?? ticketCalc.equilibrium_pressure_psig ?? 0)
+    const butaneSg60 = ticketEditNumber(values, 'butane_specific_gravity_60') ?? Number(ticketObserved.butane_specific_gravity_60 ?? ticketObserved.specific_gravity_60 ?? ticketObserved.relative_density_60 ?? ticketCalc.butane_specific_gravity_60 ?? ticketCalc.specific_gravity_60 ?? ticketCalc.relative_density_60 ?? 0)
     const result = runSelectedTicketCalculationEngine({
       engineLane: lane, apiVersion: apiVersion || (lane === 'butane' ? 'butane_api_2019' : lane === 'refined' ? 'api_11_1_1980' : 'chapter12_2021'), productGroup,
-      observedApiGravity: observedApi, observedTemperature: observedTemp, averageTemperature: averageTemp ?? observedTemp, pressurePsig: lane === 'butane' ? equilibrium : (averagePressure ?? 0),
-      equilibriumPressurePsig: equilibrium, apiRounding: 1, volumeRounding: 2, indicatedVolume: iv, meterFactor: mf, bswPercent: swPercent,
+      observedApiGravity: observedApi, observedTemperature: observedTemp, averageTemperature: averageTemp ?? observedTemp, pressurePsig: averagePressure ?? 0,
+      averagePressurePsig: averagePressure ?? 0, equilibriumPressurePsig: equilibrium, specificGravity60: butaneSg60, apiRounding: 1, volumeRounding: 2, indicatedVolume: iv, meterFactor: mf, bswPercent: swPercent,
       csw: Number(selectedTicket?.calculation_results?.csw ?? selectedTicket?.observed_inputs?.csw ?? 1), netVolumeAdjustmentBbl: adjustment,
     })
 
@@ -5503,11 +5745,12 @@ function handleProvingAreaSelect(areaId: string) {
     const storedApiVersion = String(calc.api_version || observed.api_version || selectedTicket.calculation_profile_snapshot?.api_version || selectedTicket.calculation_profile_snapshot?.contract_profile?.api_version || '')
     const storedLane = String(calc.calculation_engine_lane || observed.calculation_engine_lane || selectedTicket.calculation_profile_snapshot?.calculation_engine_lane || (storedApiVersion.startsWith('butane_') ? 'butane' : String(productGroup).toLowerCase() === 'refined' ? 'refined' : String(productGroup).toLowerCase() === 'butane' ? 'butane' : 'crude'))
     const equilibriumPressureValue = ticketEditNumber(values, 'butane_equilibrium_pressure_psig') ?? Number(observed.butane_equilibrium_pressure_psig ?? observed.equilibrium_pressure_psig ?? calc.butane_equilibrium_pressure_psig ?? calc.equilibrium_pressure_psig ?? 0)
+    const butaneSpecificGravity60Value = ticketEditNumber(values, 'butane_specific_gravity_60') ?? Number(observed.butane_specific_gravity_60 ?? observed.specific_gravity_60 ?? observed.relative_density_60 ?? calc.butane_specific_gravity_60 ?? calc.specific_gravity_60 ?? calc.relative_density_60 ?? 0)
     const engineResult = runSelectedTicketCalculationEngine({
       engineLane: storedLane, apiVersion: storedApiVersion || (storedLane === 'butane' ? 'butane_api_2019' : storedLane === 'refined' ? 'api_11_1_1980' : 'chapter12_2021'), productGroup,
       observedApiGravity: Number(observedApi ?? calc.observed_api_gravity ?? observed.observed_api_gravity ?? 0), observedTemperature: Number(observedTemp ?? calc.observed_temperature ?? observed.observed_temperature ?? 60),
-      averageTemperature: Number(averageTemperature ?? calc.average_temperature ?? observed.average_temperature ?? 60), pressurePsig: storedLane === 'butane' ? equilibriumPressureValue : Number(averagePressure ?? calc.average_pressure ?? observed.average_pressure ?? 0),
-      equilibriumPressurePsig: equilibriumPressureValue, apiRounding, volumeRounding: 2, indicatedVolume: totalBatchBarrels, meterFactor: mfValue, bswPercent: swPercent, csw: Number(calc.csw ?? observed.csw ?? 1), netVolumeAdjustmentBbl,
+      averageTemperature: Number(averageTemperature ?? calc.average_temperature ?? observed.average_temperature ?? 60), pressurePsig: Number(averagePressure ?? calc.average_pressure ?? observed.average_pressure ?? 0),
+      averagePressurePsig: Number(averagePressure ?? calc.average_pressure ?? observed.average_pressure ?? 0), equilibriumPressurePsig: equilibriumPressureValue, specificGravity60: butaneSpecificGravity60Value, apiRounding, volumeRounding: 2, indicatedVolume: totalBatchBarrels, meterFactor: mfValue, bswPercent: swPercent, csw: Number(calc.csw ?? observed.csw ?? 1), netVolumeAdjustmentBbl,
     })
     const corrections = engineResult
     const apiGravity60Value = engineResult.api_gravity_60
@@ -5531,9 +5774,12 @@ function handleProvingAreaSelect(areaId: string) {
       indicated_volume_bbl: totalBatchBarrels,
       gross_observed_volume_bbl: totalBatchBarrels,
       average_temperature: averageTemperature,
-      average_pressure: storedLane === 'butane' ? equilibriumPressureValue : averagePressure,
+      average_pressure: averagePressure,
       equilibrium_pressure_psig: storedLane === 'butane' ? equilibriumPressureValue : (observed.equilibrium_pressure_psig ?? null),
       butane_equilibrium_pressure_psig: storedLane === 'butane' ? equilibriumPressureValue : (observed.butane_equilibrium_pressure_psig ?? null),
+      butane_specific_gravity_60: storedLane === 'butane' ? butaneSpecificGravity60Value : (observed.butane_specific_gravity_60 ?? null),
+      specific_gravity_60: storedLane === 'butane' ? butaneSpecificGravity60Value : (observed.specific_gravity_60 ?? null),
+      relative_density_60: storedLane === 'butane' ? butaneSpecificGravity60Value : (observed.relative_density_60 ?? null),
       calculation_engine_lane: storedLane,
       api_version: storedApiVersion || observed.api_version || null,
       observed_api_gravity: observedApi,
@@ -5624,6 +5870,9 @@ function handleProvingAreaSelect(areaId: string) {
       api_version: storedApiVersion || calc.api_version || null,
       equilibrium_pressure_psig: storedLane === 'butane' ? equilibriumPressureValue : (calc.equilibrium_pressure_psig ?? null),
       butane_equilibrium_pressure_psig: storedLane === 'butane' ? equilibriumPressureValue : (calc.butane_equilibrium_pressure_psig ?? null),
+      butane_specific_gravity_60: storedLane === 'butane' ? butaneSpecificGravity60Value : (calc.butane_specific_gravity_60 ?? null),
+      specific_gravity_60: storedLane === 'butane' ? butaneSpecificGravity60Value : (calc.specific_gravity_60 ?? null),
+      relative_density_60: storedLane === 'butane' ? butaneSpecificGravity60Value : (calc.relative_density_60 ?? null),
       observed_temperature: observedTemp,
       bsw_percent: swPercent,
       rvp: values.rvp || null,
@@ -16609,7 +16858,10 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         const apiVersion = String(calc.api_version || observed.api_version || snapshot.api_version || snapshot.contract_profile?.api_version || '')
                         const product = String(draftTicketEditValues.refined_product_type || observed.refined_product_type || observed.product_code || '').toLowerCase()
                         return (lane === 'butane' || apiVersion.startsWith('butane_') || product === 'butane' || String(observed.product_group || '').toLowerCase() === 'butane') ? (
-                          <label><div className="ticket-muted">Equilibrium Pressure (psig)</div><input style={input} type="number" step="0.01" value={draftTicketEditValues.butane_equilibrium_pressure_psig || ''} onChange={(e) => updateDraftTicketEditField('butane_equilibrium_pressure_psig', e.target.value)} /></label>
+                          <>
+                            <label><div className="ticket-muted">Relative Density / SG @60°F</div><input style={input} type="number" step="0.0001" value={draftTicketEditValues.butane_specific_gravity_60 || ''} onChange={(e) => updateDraftTicketEditField('butane_specific_gravity_60', e.target.value)} /></label>
+                            <label><div className="ticket-muted">Equilibrium Pressure (psig)</div><input style={input} type="number" step="0.01" value={draftTicketEditValues.butane_equilibrium_pressure_psig || ''} onChange={(e) => updateDraftTicketEditField('butane_equilibrium_pressure_psig', e.target.value)} /></label>
+                          </>
                         ) : null
                       })()}
                       <label><div className="ticket-muted">Observed Gravity/API</div><input style={input} value={draftTicketEditValues.observed_api_gravity || ''} onChange={(e) => updateDraftTicketEditField('observed_api_gravity', e.target.value)} /></label>
@@ -16882,17 +17134,17 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
               {isButaneTicketContext() && (
                 <div style={{ ...card, border: '1px solid rgba(250, 204, 21, 0.45)' }}>
                   <h3 style={{ marginTop: 0 }}>Butane Ticket</h3>
-                  <label style={{ display: 'block' }}>
-                    <div className="ticket-muted" style={{ marginBottom: 6 }}>Equilibrium Pressure (psig)</div>
-                    <input
-                      style={input}
-                      type="number"
-                      step="0.01"
-                      placeholder="Enter equilibrium pressure"
-                      value={butaneEquilibriumPressure}
-                      onChange={(e) => setButaneEquilibriumPressure(e.target.value)}
-                    />
-                  </label>
+                  <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <label>
+                      <div className="ticket-muted" style={{ marginBottom: 6 }}>Relative Density / SG @60°F</div>
+                      <input style={input} type="number" step="0.0001" placeholder="Example: 0.5855" value={butaneSpecificGravity60} onChange={(e) => setButaneSpecificGravity60(e.target.value)} />
+                    </label>
+                    <label>
+                      <div className="ticket-muted" style={{ marginBottom: 6 }}>Equilibrium Pressure (psig)</div>
+                      <input style={input} type="number" step="0.01" placeholder="Enter equilibrium pressure" value={butaneEquilibriumPressure} onChange={(e) => setButaneEquilibriumPressure(e.target.value)} />
+                    </label>
+                  </div>
+                  <div className="ticket-muted" style={{ marginTop: 8 }}>Butane uses its own Table 24/LPG calculation. CPL uses Average Pressure − Equilibrium Pressure.</div>
                 </div>
               )}
 

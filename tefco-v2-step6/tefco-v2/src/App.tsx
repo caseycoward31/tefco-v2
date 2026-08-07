@@ -4147,6 +4147,58 @@ function handleProvingAreaSelect(areaId: string) {
     return observed.batch_number || calc.batch_number || ticket?.batch_number || observed.batch_no || ''
   }
 
+  function getNextBatchNumberForMeter(meterId: string) {
+    if (!meterId) return ''
+
+    const matchingTickets = asArray(tickets)
+      .filter((ticket: any) => {
+        const observed = ticket?.observed_inputs || {}
+        const ticketMeterId = String(ticket?.meter_id || observed.meter_id || '')
+        return ticketMeterId === String(meterId) && String(getTicketBatchNumberValue(ticket) || '').trim() !== ''
+      })
+      .sort((a: any, b: any) => {
+        const getTicketMs = (ticket: any) => {
+          const observed = ticket?.observed_inputs || {}
+          const calc = ticket?.calculation_results || {}
+          const dateValue =
+            observed.close_datetime ||
+            calc.close_datetime ||
+            ticket?.close_datetime ||
+            ticket?.approved_at ||
+            ticket?.updated_at ||
+            ticket?.created_at ||
+            0
+          const ms = new Date(dateValue).getTime()
+          return Number.isFinite(ms) ? ms : 0
+        }
+        return getTicketMs(b) - getTicketMs(a)
+      })
+
+    const previousBatch = String(getTicketBatchNumberValue(matchingTickets[0]) || '').trim()
+    if (!previousBatch) return ''
+
+    // Normal numeric batch numbers advance by one. Preserve leading zero width.
+    if (/^\d+$/.test(previousBatch)) {
+      const nextNumber = String(Number(previousBatch) + 1)
+      return previousBatch.length > nextNumber.length
+        ? nextNumber.padStart(previousBatch.length, '0')
+        : nextNumber
+    }
+
+    // If a company uses a non-numeric batch format, carry the prior value into
+    // the field rather than inventing a numbering rule. It remains editable.
+    return previousBatch
+  }
+
+  useEffect(() => {
+    if (!selectedMeter) {
+      setTicketBatchNumber('')
+      return
+    }
+
+    setTicketBatchNumber(getNextBatchNumberForMeter(selectedMeter))
+  }, [selectedMeter, tickets])
+
   function getTicketPdfFileName(ticket: any) {
     const observed = ticket?.observed_inputs || {}
     const calc = ticket?.calculation_results || {}

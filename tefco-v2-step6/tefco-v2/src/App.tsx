@@ -1169,6 +1169,7 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [butaneSpecificGravity60, setButaneSpecificGravity60] = useState('')
   const [butaneEquilibriumPressure, setButaneEquilibriumPressure] = useState('')
   const [ticketBatchNumber, setTicketBatchNumber] = useState('')
+  const [crudeSamplePotNumber, setCrudeSamplePotNumber] = useState('')
   const [selectedTank, setSelectedTank] = useState('')
   const [selectedTankCalibrationVersionId, setSelectedTankCalibrationVersionId] = useState('')
   const [selectedLineFill, setSelectedLineFill] = useState('')
@@ -5713,6 +5714,8 @@ function handleProvingAreaSelect(areaId: string) {
         product_code: refinedProductCode || null,
         refined_destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
+        sample_pot_number: engineLane === 'crude' && ticketType === 'meter' ? crudeSamplePotNumber : null,
+        crude_sample_pot: engineLane === 'crude' && ticketType === 'meter' ? crudeSamplePotNumber : null,
         butane_equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
         butane_specific_gravity_60: isButaneTicket ? butaneSpecificGravity60Value : null,
         specific_gravity_60: isButaneTicket ? butaneSpecificGravity60Value : null,
@@ -5843,6 +5846,8 @@ function handleProvingAreaSelect(areaId: string) {
         destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
         batch_no: ticketBatchNumber || null,
+        sample_pot_number: engineLane === 'crude' && ticketType === 'meter' ? crudeSamplePotNumber : null,
+        crude_sample_pot: engineLane === 'crude' && ticketType === 'meter' ? crudeSamplePotNumber : null,
         equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
         butane_equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
         butane_specific_gravity_60: isButaneTicket ? butaneSpecificGravity60Value : null,
@@ -5893,6 +5898,8 @@ function handleProvingAreaSelect(areaId: string) {
         refined_destination: refinedMovementDestination || null,
         movement_destination: refinedMovementDestination || null,
         batch_number: ticketBatchNumber || null,
+        sample_pot_number: engineLane === 'crude' && ticketType === 'meter' ? crudeSamplePotNumber : null,
+        crude_sample_pot: engineLane === 'crude' && ticketType === 'meter' ? crudeSamplePotNumber : null,
         equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
         butane_equilibrium_pressure_psig: isButaneTicket ? butaneEquilibriumPressureValue : null,
         butane_specific_gravity_60: isButaneTicket ? butaneSpecificGravity60Value : null,
@@ -5987,6 +5994,7 @@ function handleProvingAreaSelect(areaId: string) {
     setButaneSpecificGravity60('')
     setButaneEquilibriumPressure('')
     setTicketBatchNumber('')
+    setCrudeSamplePotNumber('')
     setAutofillPreview(null)
     loadAll()
   }
@@ -7122,7 +7130,14 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
     const refinedUnitPdf = observed.refined_unit_type || calc.refined_unit_type || observed.unit_of_measure_type || calc.unit_of_measure_type || '—'
     const refinedDestinationPdf = observed.refined_destination || calc.refined_destination || observed.movement_destination || observed.destination || '—'
     const batchNumberPdf = observed.batch_number || calc.batch_number || ticket.batch_number || observed.batch_no || '—'
-    const assignedPot = observed.assigned_pot_label || ticket.assigned_pot_id || (observed.pot_source === 'latest_pot_quality' ? 'Sample POT' : '—')
+    const assignedPot =
+      observed.sample_pot_number ||
+      observed.crude_sample_pot ||
+      calc.sample_pot_number ||
+      calc.crude_sample_pot ||
+      observed.assigned_pot_label ||
+      ticket.assigned_pot_id ||
+      (observed.pot_source === 'latest_pot_quality' ? 'Sample POT' : '—')
     const potQualitySource = observed.pot_source === 'latest_pot_quality' ? 'Latest POT Quality' : assignedPot
     const pdfRvp = observed.rvp || parsePotExtra(observed.notes, 'rvp') || '—'
     const pdfSulfur = observed.sulfur || parsePotExtra(observed.notes, 'sulfur') || parsePotExtra(observed.notes, 'sulphur') || '—'
@@ -7806,6 +7821,12 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['Revision No.', revisionNumber > 0 ? String(revisionNumber) : 'Original'],
       ['Revision Notes', value(revisionReason)],
       ['Batch Number', value(observed.batch_number || calc.batch_number || ticket.batch_number)],
+      ['Sample POT', value(
+        observed.sample_pot_number ||
+        observed.crude_sample_pot ||
+        calc.sample_pot_number ||
+        calc.crude_sample_pot
+      )],
       ['Status', value(ticket.status)],
       ['Calculation Method', value(getTicketCalculationMethodLabel(ticket))],
       ['Producer', value(producer?.name || observed.producer_name)],
@@ -7988,6 +8009,7 @@ This only removes the draft. Approved tickets cannot be deleted here.`)
       ['Revision No.', rowMap['Revision No.']],
       ['Revision Notes', rowMap['Revision Notes']],
       ['Batch Number', rowMap['Batch Number']],
+      ['Sample POT', rowMap['Sample POT']],
       ['Status', rowMap['Status']],
       ['Method', rowMap['Calculation Method']],
       ['Producer', rowMap['Producer']],
@@ -18270,6 +18292,23 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   onChange={(e) => setTicketBatchNumber(e.target.value)}
                 />
               </label>
+
+              {ticketType === 'meter' && resolveTicketCalculationLane(getSelectedTicketContractProfile()) === 'crude' && (
+                <label style={{ display: 'block' }}>
+                  <div className="ticket-muted" style={{ marginBottom: 6 }}>Crude Sample POT</div>
+                  <select
+                    style={input}
+                    value={crudeSamplePotNumber}
+                    onChange={(e) => setCrudeSamplePotNumber(e.target.value)}
+                  >
+                    <option value="">Select Sample POT</option>
+                    <option value="POT #1">Sample POT #1</option>
+                    <option value="POT #2">Sample POT #2</option>
+                    <option value="POT #3">Sample POT #3</option>
+                    <option value="POT #4">Sample POT #4</option>
+                  </select>
+                </label>
+              )}
 
               <select style={input} value={ticketType} onChange={(e) => setTicketType(e.target.value)}>
                 <option value="meter">Meter Ticket</option>

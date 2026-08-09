@@ -1083,6 +1083,26 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [editingBalanceEquationId, setEditingBalanceEquationId] = useState('')
   const [meterMasterSegmentFilterId, setMeterMasterSegmentFilterId] = useState('')
   const [selectedMeterMasterId, setSelectedMeterMasterId] = useState('')
+
+  // Quick Lease & Meter Management (admin only)
+  const [quickLeaseSegmentId, setQuickLeaseSegmentId] = useState('')
+  const [quickLeaseProducerId, setQuickLeaseProducerId] = useState('')
+  const [quickLeaseName, setQuickLeaseName] = useState('')
+  const [quickLeaseNumber, setQuickLeaseNumber] = useState('')
+  const [quickSelectedLeaseId, setQuickSelectedLeaseId] = useState('')
+  const [quickEditLeaseName, setQuickEditLeaseName] = useState('')
+  const [quickEditLeaseNumber, setQuickEditLeaseNumber] = useState('')
+  const [quickEditLeaseSegmentId, setQuickEditLeaseSegmentId] = useState('')
+  const [quickEditLeaseProducerId, setQuickEditLeaseProducerId] = useState('')
+
+  const [quickMeterLeaseId, setQuickMeterLeaseId] = useState('')
+  const [quickMeterNumber, setQuickMeterNumber] = useState('')
+  const [quickMeterName, setQuickMeterName] = useState('')
+  const [quickSelectedMeterId, setQuickSelectedMeterId] = useState('')
+  const [quickEditMeterNumber, setQuickEditMeterNumber] = useState('')
+  const [quickEditMeterName, setQuickEditMeterName] = useState('')
+  const [quickEditMeterLeaseId, setQuickEditMeterLeaseId] = useState('')
+
   const [companies, setCompanies] = useState<Company[]>([])
   const [newCompanyName, setNewCompanyName] = useState('')
   const [selectedAdminCompanyId, setSelectedAdminCompanyId] = useState('')
@@ -2036,6 +2056,316 @@ const provingCompliancePercent =
   const filteredPotLeases = sortLeasesForDropdown(selectedPotSegmentLeases)
   const selectedPotLeaseMeters = selectedPotLease ? getVisibleMeters(selectedPotLease) : []
   const selectedPotMeterRow: any = asArray(meters).find((meter: any) => String(meter.id || '') === String(selectedPotMeter))
+
+  function getAdminSetupCompanyId() {
+    return userIsSuperAdmin && selectedAdminCompanyId
+      ? selectedAdminCompanyId
+      : companyId
+  }
+
+  function quickLeaseHasHistory(leaseId: string) {
+    const id = String(leaseId || '')
+    if (!id) return false
+
+    const leaseMeters = asArray(meters).filter((meter: any) => String(meter.lease_id || '') === id)
+    const meterIds = new Set(leaseMeters.map((meter: any) => String(meter.id || '')))
+
+    return (
+      leaseMeters.length > 0 ||
+      asArray(tickets).some((row: any) =>
+        String(row.lease_id || row.observed_inputs?.lease_id || row.calculation_results?.lease_id || '') === id ||
+        meterIds.has(String(row.meter_id || row.observed_inputs?.meter_id || ''))
+      ) ||
+      asArray(readings).some((row: any) =>
+        String(row.lease_id || '') === id ||
+        meterIds.has(String(row.meter_id || ''))
+      ) ||
+      asArray(potQuality).some((row: any) =>
+        String(row.lease_id || '') === id ||
+        meterIds.has(String(row.meter_id || ''))
+      ) ||
+      asArray(provings).some((row: any) =>
+        String(row.lease_id || '') === id ||
+        meterIds.has(String(row.meter_id || ''))
+      )
+    )
+  }
+
+  function quickMeterHasHistory(meterId: string) {
+    const id = String(meterId || '')
+    if (!id) return false
+
+    return (
+      asArray(tickets).some((row: any) =>
+        String(row.meter_id || row.observed_inputs?.meter_id || row.calculation_results?.meter_id || '') === id
+      ) ||
+      asArray(readings).some((row: any) => String(row.meter_id || '') === id) ||
+      asArray(potQuality).some((row: any) => String(row.meter_id || '') === id) ||
+      asArray(provings).some((row: any) => String(row.meter_id || '') === id) ||
+      asArray(provingScheduleRows).some((row: any) => String(row.meter_id || '') === id)
+    )
+  }
+
+  function loadQuickLeaseForEdit(leaseId: string) {
+    setQuickSelectedLeaseId(leaseId)
+    const lease: any = asArray(leases).find((row: any) => String(row.id || '') === String(leaseId || ''))
+    if (!lease) {
+      setQuickEditLeaseName('')
+      setQuickEditLeaseNumber('')
+      setQuickEditLeaseSegmentId('')
+      setQuickEditLeaseProducerId('')
+      return
+    }
+
+    setQuickEditLeaseName(String(lease.lease_name || lease.name || ''))
+    setQuickEditLeaseNumber(String(lease.lease_number || ''))
+    setQuickEditLeaseSegmentId(String(lease.segment_id || ''))
+    setQuickEditLeaseProducerId(String(lease.producer_id || ''))
+  }
+
+  function loadQuickMeterForEdit(meterId: string) {
+    setQuickSelectedMeterId(meterId)
+    const meter: any = asArray(meters).find((row: any) => String(row.id || '') === String(meterId || ''))
+    if (!meter) {
+      setQuickEditMeterNumber('')
+      setQuickEditMeterName('')
+      setQuickEditMeterLeaseId('')
+      return
+    }
+
+    setQuickEditMeterNumber(String(meter.meter_number || ''))
+    setQuickEditMeterName(String(meter.meter_name || ''))
+    setQuickEditMeterLeaseId(String(meter.lease_id || ''))
+  }
+
+  async function quickAddLease() {
+    const activeCompanyId = getAdminSetupCompanyId()
+    if (!activeCompanyId) return
+    if (!quickLeaseName.trim()) {
+      alert('Enter a lease name.')
+      return
+    }
+    if (!quickLeaseSegmentId) {
+      alert('Select a segment for the lease.')
+      return
+    }
+
+    const segment: any = asArray(segments).find((row: any) => String(row.id || '') === String(quickLeaseSegmentId))
+    const payload: any = {
+      company_id: activeCompanyId,
+      area_id: segment?.area_id || null,
+      segment_id: quickLeaseSegmentId,
+      producer_id: quickLeaseProducerId || null,
+      lease_name: quickLeaseName.trim(),
+      lease_number: quickLeaseNumber.trim() || null,
+      active: true,
+    }
+
+    const { error } = await supabase.from('leases').insert(payload)
+    if (error) {
+      alert('Could not add lease: ' + error.message)
+      return
+    }
+
+    setQuickLeaseName('')
+    setQuickLeaseNumber('')
+    await loadAll()
+  }
+
+  async function quickSaveLease() {
+    if (!quickSelectedLeaseId) return
+    if (!quickEditLeaseName.trim()) {
+      alert('Lease name cannot be blank.')
+      return
+    }
+
+    const segment: any = asArray(segments).find((row: any) => String(row.id || '') === String(quickEditLeaseSegmentId || ''))
+    const payload: any = {
+      lease_name: quickEditLeaseName.trim(),
+      lease_number: quickEditLeaseNumber.trim() || null,
+      segment_id: quickEditLeaseSegmentId || null,
+      area_id: segment?.area_id || null,
+      producer_id: quickEditLeaseProducerId || null,
+    }
+
+    const { error } = await supabase
+      .from('leases')
+      .update(payload)
+      .eq('id', quickSelectedLeaseId)
+
+    if (error) {
+      alert('Could not update lease: ' + error.message)
+      return
+    }
+
+    await loadAll()
+  }
+
+  async function quickToggleLeaseActive() {
+    if (!quickSelectedLeaseId) return
+    const lease: any = asArray(leases).find((row: any) => String(row.id || '') === String(quickSelectedLeaseId))
+    if (!lease) return
+    const nextActive = lease.active === false
+
+    const message = nextActive
+      ? 'Reactivate this lease for new tickets?'
+      : 'Deactivate this lease? Historical tickets will remain intact.'
+
+    if (!window.confirm(message)) return
+
+    const { error } = await supabase
+      .from('leases')
+      .update({ active: nextActive })
+      .eq('id', quickSelectedLeaseId)
+
+    if (error) {
+      alert('Could not update lease status: ' + error.message)
+      return
+    }
+
+    await loadAll()
+  }
+
+  async function quickDeleteLeasePermanently() {
+    if (!quickSelectedLeaseId) return
+    if (quickLeaseHasHistory(quickSelectedLeaseId)) {
+      alert('Permanent delete is blocked because this lease has meters or historical records. Deactivate it instead.')
+      return
+    }
+
+    const lease: any = asArray(leases).find((row: any) => String(row.id || '') === String(quickSelectedLeaseId))
+    const label = lease?.lease_name || lease?.name || lease?.lease_number || 'this lease'
+    if (!window.confirm(`Permanently delete ${label}? This cannot be undone.`)) return
+
+    const { error } = await supabase
+      .from('leases')
+      .delete()
+      .eq('id', quickSelectedLeaseId)
+
+    if (error) {
+      alert('Could not permanently delete lease: ' + error.message)
+      return
+    }
+
+    loadQuickLeaseForEdit('')
+    await loadAll()
+  }
+
+  async function quickAddMeter() {
+    const activeCompanyId = getAdminSetupCompanyId()
+    if (!activeCompanyId) return
+    if (!quickMeterNumber.trim()) {
+      alert('Enter a meter number.')
+      return
+    }
+    if (!quickMeterLeaseId) {
+      alert('Select a lease for the meter.')
+      return
+    }
+
+    const lease: any = asArray(leases).find((row: any) => String(row.id || '') === String(quickMeterLeaseId))
+    const payload: any = {
+      company_id: activeCompanyId,
+      meter_number: quickMeterNumber.trim(),
+      meter_name: quickMeterName.trim() || null,
+      lease_id: quickMeterLeaseId,
+      segment_id: lease?.segment_id || null,
+      area_id: lease?.area_id || null,
+      producer_id: lease?.producer_id || null,
+      active: true,
+      proving_frequency_days: 30,
+    }
+
+    const { error } = await supabase.from('meters').insert(payload)
+    if (error) {
+      alert('Could not add meter: ' + error.message)
+      return
+    }
+
+    setQuickMeterNumber('')
+    setQuickMeterName('')
+    await loadAll()
+  }
+
+  async function quickSaveMeter() {
+    if (!quickSelectedMeterId) return
+    if (!quickEditMeterNumber.trim()) {
+      alert('Meter number cannot be blank.')
+      return
+    }
+
+    const lease: any = asArray(leases).find((row: any) => String(row.id || '') === String(quickEditMeterLeaseId || ''))
+    const payload: any = {
+      meter_number: quickEditMeterNumber.trim(),
+      meter_name: quickEditMeterName.trim() || null,
+      lease_id: quickEditMeterLeaseId || null,
+      segment_id: lease?.segment_id || null,
+      area_id: lease?.area_id || null,
+      producer_id: lease?.producer_id || null,
+    }
+
+    const { error } = await supabase
+      .from('meters')
+      .update(payload)
+      .eq('id', quickSelectedMeterId)
+
+    if (error) {
+      alert('Could not update meter: ' + error.message)
+      return
+    }
+
+    await loadAll()
+  }
+
+  async function quickToggleMeterActive() {
+    if (!quickSelectedMeterId) return
+    const meter: any = asArray(meters).find((row: any) => String(row.id || '') === String(quickSelectedMeterId))
+    if (!meter) return
+    const nextActive = meter.active === false
+
+    const message = nextActive
+      ? 'Reactivate this meter for new tickets?'
+      : 'Deactivate this meter? Historical tickets and provings will remain intact.'
+
+    if (!window.confirm(message)) return
+
+    const { error } = await supabase
+      .from('meters')
+      .update({ active: nextActive })
+      .eq('id', quickSelectedMeterId)
+
+    if (error) {
+      alert('Could not update meter status: ' + error.message)
+      return
+    }
+
+    await loadAll()
+  }
+
+  async function quickDeleteMeterPermanently() {
+    if (!quickSelectedMeterId) return
+    if (quickMeterHasHistory(quickSelectedMeterId)) {
+      alert('Permanent delete is blocked because this meter has historical tickets, readings, provings, POT records, or a proving schedule. Deactivate it instead.')
+      return
+    }
+
+    const meter: any = asArray(meters).find((row: any) => String(row.id || '') === String(quickSelectedMeterId))
+    const label = meter?.meter_number || meter?.meter_name || 'this meter'
+    if (!window.confirm(`Permanently delete meter ${label}? This cannot be undone.`)) return
+
+    const { error } = await supabase
+      .from('meters')
+      .delete()
+      .eq('id', quickSelectedMeterId)
+
+    if (error) {
+      alert('Could not permanently delete meter: ' + error.message)
+      return
+    }
+
+    loadQuickMeterForEdit('')
+    await loadAll()
+  }
 
   async function addArea() {
     if (!newArea || !companyId) return
@@ -14869,6 +15199,144 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <p style={{ color: '#a8b3bd', fontSize: 12 }}>
                         V3 headers also supported: meter_role, product_type, include_in_os, check_meter_group, reports_to_check_meter.
                       </p>
+                    </div>
+
+                    <div style={{ ...(adminSection === 'meters' ? card : { display: 'none' }), gridColumn: '1 / -1' }}>
+                      <h3>Quick Lease & Meter Management</h3>
+                      <p style={{ color: '#a8b3bd' }}>
+                        Add or maintain one lease or one meter without re-importing the master CSV. Deactivate keeps historical records intact. Permanent delete is blocked when the app sees linked history.
+                      </p>
+
+                      <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14 }}>
+                        <div style={{ ...box, display: 'grid', gap: 10 }}>
+                          <h4 style={{ margin: 0 }}>Add Lease</h4>
+                          <select style={input} value={quickLeaseSegmentId} onChange={(e) => setQuickLeaseSegmentId(e.target.value)}>
+                            <option value="">Select Segment</option>
+                            {segments.map((segment: any) => (
+                              <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name || 'Segment'}</option>
+                            ))}
+                          </select>
+                          <select style={input} value={quickLeaseProducerId} onChange={(e) => setQuickLeaseProducerId(e.target.value)}>
+                            <option value="">Producer (optional)</option>
+                            {producers.map((producer: any) => (
+                              <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name || 'Producer'}</option>
+                            ))}
+                          </select>
+                          <input style={input} placeholder="Lease Name" value={quickLeaseName} onChange={(e) => setQuickLeaseName(e.target.value)} />
+                          <input style={input} placeholder="Lease Number (optional)" value={quickLeaseNumber} onChange={(e) => setQuickLeaseNumber(e.target.value)} />
+                          <button style={button} onClick={() => runSafeAction('Adding lease', quickAddLease)}>Add Lease</button>
+                        </div>
+
+                        <div style={{ ...box, display: 'grid', gap: 10 }}>
+                          <h4 style={{ margin: 0 }}>Add Meter to Existing Lease</h4>
+                          <select style={input} value={quickMeterLeaseId} onChange={(e) => setQuickMeterLeaseId(e.target.value)}>
+                            <option value="">Select Lease</option>
+                            {sortLeasesForDropdown(leases).map((lease: any) => (
+                              <option key={lease.id} value={lease.id}>
+                                {lease.lease_name || lease.name || lease.lease_number || 'Lease'}{lease.active === false ? ' (inactive)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                          <input style={input} placeholder="Meter Number" value={quickMeterNumber} onChange={(e) => setQuickMeterNumber(e.target.value)} />
+                          <input style={input} placeholder="Meter Name (optional)" value={quickMeterName} onChange={(e) => setQuickMeterName(e.target.value)} />
+                          <button style={button} onClick={() => runSafeAction('Adding meter', quickAddMeter)}>Add Meter</button>
+                        </div>
+
+                        <div style={{ ...box, display: 'grid', gap: 10 }}>
+                          <h4 style={{ margin: 0 }}>Edit / Deactivate Lease</h4>
+                          <select style={input} value={quickSelectedLeaseId} onChange={(e) => loadQuickLeaseForEdit(e.target.value)}>
+                            <option value="">Select Lease</option>
+                            {sortLeasesForDropdown(leases).map((lease: any) => (
+                              <option key={lease.id} value={lease.id}>
+                                {lease.lease_name || lease.name || lease.lease_number || 'Lease'}{lease.active === false ? ' (inactive)' : ''}
+                              </option>
+                            ))}
+                          </select>
+
+                          {quickSelectedLeaseId && (
+                            <>
+                              <select style={input} value={quickEditLeaseSegmentId} onChange={(e) => setQuickEditLeaseSegmentId(e.target.value)}>
+                                <option value="">Select Segment</option>
+                                {segments.map((segment: any) => (
+                                  <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name || 'Segment'}</option>
+                                ))}
+                              </select>
+                              <select style={input} value={quickEditLeaseProducerId} onChange={(e) => setQuickEditLeaseProducerId(e.target.value)}>
+                                <option value="">Producer (optional)</option>
+                                {producers.map((producer: any) => (
+                                  <option key={producer.id} value={producer.id}>{producer.name || producer.producer_name || 'Producer'}</option>
+                                ))}
+                              </select>
+                              <input style={input} placeholder="Lease Name" value={quickEditLeaseName} onChange={(e) => setQuickEditLeaseName(e.target.value)} />
+                              <input style={input} placeholder="Lease Number" value={quickEditLeaseNumber} onChange={(e) => setQuickEditLeaseNumber(e.target.value)} />
+
+                              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                <button style={{ ...button, width: 'auto' }} onClick={() => runSafeAction('Saving lease', quickSaveLease)}>Save Lease</button>
+                                <button
+                                  style={{ ...button, width: 'auto', background: '#92400e' }}
+                                  onClick={() => runSafeAction('Updating lease status', quickToggleLeaseActive)}
+                                >
+                                  {leases.find((lease: any) => String(lease.id) === String(quickSelectedLeaseId))?.active === false ? 'Reactivate Lease' : 'Deactivate Lease'}
+                                </button>
+                                <button
+                                  style={{ ...button, width: 'auto', background: '#7f1d1d' }}
+                                  disabled={quickLeaseHasHistory(quickSelectedLeaseId)}
+                                  title={quickLeaseHasHistory(quickSelectedLeaseId) ? 'Historical records or meters are linked to this lease. Deactivate it instead.' : 'Permanently delete unused lease'}
+                                  onClick={() => runSafeAction('Deleting lease', quickDeleteLeasePermanently)}
+                                >
+                                  Permanent Delete
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        <div style={{ ...box, display: 'grid', gap: 10 }}>
+                          <h4 style={{ margin: 0 }}>Edit / Deactivate Meter</h4>
+                          <select style={input} value={quickSelectedMeterId} onChange={(e) => loadQuickMeterForEdit(e.target.value)}>
+                            <option value="">Select Meter</option>
+                            {getScopedMeters().map((meter: any) => {
+                              const lease: any = leases.find((row: any) => String(row.id) === String(meter.lease_id || ''))
+                              return (
+                                <option key={meter.id} value={meter.id}>
+                                  {meter.meter_number || meter.meter_name || 'Meter'}{lease ? ` • ${lease.lease_name || lease.name || 'Lease'}` : ''}{meter.active === false ? ' (inactive)' : ''}
+                                </option>
+                              )
+                            })}
+                          </select>
+
+                          {quickSelectedMeterId && (
+                            <>
+                              <select style={input} value={quickEditMeterLeaseId} onChange={(e) => setQuickEditMeterLeaseId(e.target.value)}>
+                                <option value="">Select Lease</option>
+                                {sortLeasesForDropdown(leases).map((lease: any) => (
+                                  <option key={lease.id} value={lease.id}>{lease.lease_name || lease.name || lease.lease_number || 'Lease'}</option>
+                                ))}
+                              </select>
+                              <input style={input} placeholder="Meter Number" value={quickEditMeterNumber} onChange={(e) => setQuickEditMeterNumber(e.target.value)} />
+                              <input style={input} placeholder="Meter Name" value={quickEditMeterName} onChange={(e) => setQuickEditMeterName(e.target.value)} />
+
+                              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                <button style={{ ...button, width: 'auto' }} onClick={() => runSafeAction('Saving meter', quickSaveMeter)}>Save Meter</button>
+                                <button
+                                  style={{ ...button, width: 'auto', background: '#92400e' }}
+                                  onClick={() => runSafeAction('Updating meter status', quickToggleMeterActive)}
+                                >
+                                  {meters.find((meter: any) => String(meter.id) === String(quickSelectedMeterId))?.active === false ? 'Reactivate Meter' : 'Deactivate Meter'}
+                                </button>
+                                <button
+                                  style={{ ...button, width: 'auto', background: '#7f1d1d' }}
+                                  disabled={quickMeterHasHistory(quickSelectedMeterId)}
+                                  title={quickMeterHasHistory(quickSelectedMeterId) ? 'Historical records are linked to this meter. Deactivate it instead.' : 'Permanently delete unused meter'}
+                                  onClick={() => runSafeAction('Deleting meter', quickDeleteMeterPermanently)}
+                                >
+                                  Permanent Delete
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
                     <div style={{ ...(adminSection === 'meters' ? card : { display: 'none' }), gridColumn: '1 / -1' }}>

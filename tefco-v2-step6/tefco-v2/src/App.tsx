@@ -1659,7 +1659,34 @@ useEffect(() => {
     const resolvedAreaData = Array.isArray(hierarchyPayload?.areas) && hierarchyPayload.areas.length ? hierarchyPayload.areas : areaData
     const resolvedSegmentData = Array.isArray(hierarchyPayload?.segments) && hierarchyPayload.segments.length ? hierarchyPayload.segments : segData
     const resolvedLeaseData = Array.isArray(hierarchyPayload?.leases) && hierarchyPayload.leases.length ? hierarchyPayload.leases : leaseData
-    const resolvedMeterData = Array.isArray(hierarchyPayload?.meters) && hierarchyPayload.meters.length ? hierarchyPayload.meters : meterData
+
+    // The dropdown hierarchy RPC does not always include active/deleted fields.
+    // Merge those status fields from the real meters table so operational
+    // dropdowns honor meter deactivation reliably.
+    const rawHierarchyMeters = Array.isArray(hierarchyPayload?.meters) && hierarchyPayload.meters.length
+      ? hierarchyPayload.meters
+      : meterData
+
+    const meterStatusById = new Map(
+      asArray(meterData).map((meter: any) => [
+        String(meter.id || ''),
+        {
+          active: meter.active,
+          is_active: meter.is_active,
+          enabled: meter.enabled,
+          status: meter.status,
+          meter_status: meter.meter_status,
+          deleted: meter.deleted,
+          deleted_at: meter.deleted_at,
+          archived_at: meter.archived_at,
+        },
+      ])
+    )
+
+    const resolvedMeterData = asArray(rawHierarchyMeters).map((meter: any) => {
+      const status = meterStatusById.get(String(meter.id || ''))
+      return status ? { ...meter, ...status } : meter
+    })
 
     const areaAccessQuery = (scope.isSuperAdmin || scope.isCompanyAdmin)
       ? applyCompanyScope(supabase.from('user_area_access').select('*'))

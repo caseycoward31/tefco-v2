@@ -14483,7 +14483,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
           </div>
         </div>
 
-        {['dashboard', 'admin', 'reports', 'readings', 'pot', 'pot_map', 'contracts', 'api_engine', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).map((p) => (
+        {['dashboard', 'admin', 'reports', 'readings', 'pot', 'pot_map', 'contracts', 'api_engine', 'provings', 'tickets'].filter((p) => p !== 'admin' || canViewAdmin).filter((p) => p !== 'pot_map' && p !== 'api_engine').map((p) => (
           <button key={p} onClick={() => { setPage(p); setMobileNavOpen(false) }} style={button}>
             {p === 'pot_map' ? 'POT MAP' : p === 'contracts' ? 'CONTRACTS' : p === 'api_engine' ? 'API ENGINE' : p.toUpperCase()}
           </button>

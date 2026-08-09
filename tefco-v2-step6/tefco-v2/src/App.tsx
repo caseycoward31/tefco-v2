@@ -2021,6 +2021,12 @@ const provingCompliancePercent =
   const filteredLeases = sortLeasesForDropdown(selectedTicketSegmentLeases)
   const selectedTicketLeaseMeters = selectedLease ? getVisibleMeters(selectedLease) : []
   const filteredMeters = sortMetersForDropdown(selectedTicketLeaseMeters)
+
+  useEffect(() => {
+    if (selectedMeter && !filteredMeters.some((meter: any) => String(meter.id) === String(selectedMeter))) {
+      setSelectedMeter('')
+    }
+  }, [selectedMeter, selectedLease, meters])
   const selectedTicketLeaseRow: any = asArray(leases).find((lease: any) => String(lease.id || '') === String(selectedLease))
   const selectedTicketMeterRow: any = asArray(meters).find((meter: any) => String(meter.id || '') === String(selectedMeter))
   const selectedTicketProducerKey = String(
@@ -2558,11 +2564,41 @@ const provingCompliancePercent =
     return leaseRows.filter((lease: any) => leaseIds.has(String(lease.id || '')))
   }
 
+  function isOperationalMeter(meter: any) {
+    if (!meter) return false
+
+    const activeValue = meter.active ?? meter.is_active ?? meter.enabled
+    const normalizedActive = String(activeValue ?? '').trim().toLowerCase()
+    const normalizedStatus = String(meter.status ?? meter.meter_status ?? '').trim().toLowerCase()
+
+    if (
+      activeValue === false ||
+      activeValue === 0 ||
+      normalizedActive === 'false' ||
+      normalizedActive === '0' ||
+      normalizedActive === 'inactive' ||
+      normalizedActive === 'disabled' ||
+      normalizedStatus === 'inactive' ||
+      normalizedStatus === 'disabled' ||
+      normalizedStatus === 'deleted' ||
+      meter.deleted === true ||
+      String(meter.deleted ?? '').trim().toLowerCase() === 'true' ||
+      Boolean(meter.deleted_at) ||
+      Boolean(meter.archived_at)
+    ) {
+      return false
+    }
+
+    return true
+  }
+
   function getScopedMeters(): any[] {
-    const meterRows = asArray(meters)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return (meterRows).filter((meter: any) => meter?.active !== false && !meter?.deleted_at && meter?.deleted !== true)
+    const meterRows = asArray(meters).filter((meter: any) => isOperationalMeter(meter))
+    if (userIsSuperAdmin || userIsCompanyAdmin) return meterRows
+
     const { meterIds } = buildScopedHierarchyIds()
-    return (meterRows.filter((meter: any) => meterIds.has(String(meter.id || '')))).filter((meter: any) => meter?.active !== false && !meter?.deleted_at && meter?.deleted !== true)  }
+    return meterRows.filter((meter: any) => meterIds.has(String(meter.id || '')))
+  }
 
   function getVisibleSegments(areaId: string) {
     if (!areaId) return []
@@ -2619,7 +2655,8 @@ const provingCompliancePercent =
   function getVisibleMeters(leaseId: string) {
     if (!leaseId) return []
 
-    const scopedMeterRows = getScopedMeters()
+    // Hard operational filter for Tickets, POT, Readings, and Provings.
+    const scopedMeterRows = getScopedMeters().filter((meter: any) => isOperationalMeter(meter))
 
     // Primary behavior: selecting a lease only shows meters linked to that lease.
     const exactLeaseMatches = scopedMeterRows.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))

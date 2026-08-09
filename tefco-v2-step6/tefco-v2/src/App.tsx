@@ -2353,9 +2353,17 @@ const provingCompliancePercent =
 
   async function quickToggleMeterActive() {
     if (!quickSelectedMeterId) return
-    const meter: any = asArray(meters).find((row: any) => String(row.id || '') === String(quickSelectedMeterId))
-    if (!meter) return
-    const nextActive = meter.active === false
+
+    const meter: any = asArray(meters).find(
+      (row: any) => String(row.id || '') === String(quickSelectedMeterId)
+    )
+    if (!meter) {
+      alert('Could not find the selected meter.')
+      return
+    }
+
+    const currentlyActive = isOperationalMeter(meter)
+    const nextActive = !currentlyActive
 
     const message = nextActive
       ? 'Reactivate this meter for new tickets?'
@@ -2363,17 +2371,62 @@ const provingCompliancePercent =
 
     if (!window.confirm(message)) return
 
-    const { error } = await supabase
+    // Ask Supabase to return the updated row. A plain update can succeed with
+    // zero matched rows under RLS without giving us enough evidence that the
+    // meter status actually changed.
+    const { data: updatedRows, error } = await supabase
       .from('meters')
       .update({ active: nextActive })
       .eq('id', quickSelectedMeterId)
+      .select('id, active')
 
     if (error) {
       alert('Could not update meter status: ' + error.message)
       return
     }
 
+    const updatedRow: any = Array.isArray(updatedRows) ? updatedRows[0] : null
+
+    if (!updatedRow) {
+      alert(
+        'The meter status was NOT changed. Supabase did not return an updated row. ' +
+        'This usually means the update is being blocked by an RLS/policy or the meter row did not match.'
+      )
+      return
+    }
+
+    if (Boolean(updatedRow.active) !== nextActive) {
+      alert(
+        `The meter status was NOT changed. Expected active=${nextActive}, but Supabase returned active=${updatedRow.active}.`
+      )
+      return
+    }
+
     await loadAll()
+
+    const reloadedMeter: any = asArray(
+      await (async () => {
+        const { data } = await supabase
+          .from('meters')
+          .select('id, meter_number, meter_name, active')
+          .eq('id', quickSelectedMeterId)
+          .limit(1)
+        return data || []
+      })()
+    )[0]
+
+    if (!reloadedMeter || Boolean(reloadedMeter.active) !== nextActive) {
+      alert(
+        'The meter update did not persist after reload. Check the Supabase meters table RLS/update policy.'
+      )
+      return
+    }
+
+    alert(
+      nextActive
+        ? 'Meter reactivated successfully.'
+        : 'Meter deactivated successfully. It will no longer appear in operational dropdowns.'
+    )
   }
 
   async function quickDeleteMeterPermanently() {

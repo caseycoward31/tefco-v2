@@ -2560,11 +2560,9 @@ const provingCompliancePercent =
 
   function getScopedMeters(): any[] {
     const meterRows = asArray(meters)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return meterRows
-
+    if (userIsSuperAdmin || userIsCompanyAdmin) return (meterRows).filter((meter: any) => meter?.active !== false && !meter?.deleted_at && meter?.deleted !== true)
     const { meterIds } = buildScopedHierarchyIds()
-    return meterRows.filter((meter: any) => meterIds.has(String(meter.id || '')))
-  }
+    return (meterRows.filter((meter: any) => meterIds.has(String(meter.id || '')))).filter((meter: any) => meter?.active !== false && !meter?.deleted_at && meter?.deleted !== true)  }
 
   function getVisibleSegments(areaId: string) {
     if (!areaId) return []
@@ -15571,7 +15569,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </p>
 
                       {(() => {
-                        const scopedMeters = getScopedMeters()
+                        const scopedMeters = meters
                         const filteredMeters = scopedMeters.filter((meter: any) => !meterMasterSegmentFilterId || String(meter.segment_id || '') === String(meterMasterSegmentFilterId))
                         const selectedMeter = scopedMeters.find((meter: any) => String(meter.id) === String(selectedMeterMasterId)) || filteredMeters[0]
                         const selectedSegment = selectedMeter ? segments.find((segment: any) => String(segment.id) === String(selectedMeter.segment_id)) : null
@@ -15683,7 +15681,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <div style={{ margin: '10px 0', color: '#a8b3bd' }}>Output / check meters</div>
                       <select style={input} value={newCheckGroupCheckMeterId} onChange={(e) => setNewCheckGroupCheckMeterId(e.target.value)} disabled={!newCheckGroupSegmentId}>
                         <option value="">Select output/check meter to add</option>
-                        {meters.filter((meter: any) => String(meter.segment_id || '') === String(newCheckGroupSegmentId || '') && !newCheckGroupCheckMeterIds.includes(String(meter.id))).map((meter: any) => { const label = getMeterDisplayName(meter); return <option key={meter.id} value={meter.id}>{label.main}{label.secondary ? ` (${label.secondary})` : ''}</option> })}
+                        {meters.filter((meter: any) => meter.active !== false && !meter.deleted_at && meter.deleted !== true && String(meter.segment_id || '') === String(newCheckGroupSegmentId || '') && !newCheckGroupCheckMeterIds.includes(String(meter.id))).map((meter: any) => { const label = getMeterDisplayName(meter); return <option key={meter.id} value={meter.id}>{label.main}{label.secondary ? ` (${label.secondary})` : ''}</option> })}
                       </select>
                       <button
                         type="button"
@@ -15715,7 +15713,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       <div style={{ margin: '10px 0', color: '#a8b3bd' }}>Input / receipt leases / meters</div>
                       <input style={input} placeholder="Search lease or meter..." value={checkGroupMeterSearch} onChange={(e) => setCheckGroupMeterSearch(e.target.value)} disabled={!newCheckGroupSegmentId} />
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
-                        {meters.filter((meter: any) => String(meter.segment_id || '') === String(newCheckGroupSegmentId || '') && !newCheckGroupCheckMeterIds.includes(String(meter.id)) && String(meter.id) !== String(newCheckGroupCheckMeterId || '') && meterMatchesSearch(meter, checkGroupMeterSearch)).map((meter: any) => (
+                        {meters.filter((meter: any) => meter.active !== false && !meter.deleted_at && meter.deleted !== true && String(meter.segment_id || '') === String(newCheckGroupSegmentId || '') && !newCheckGroupCheckMeterIds.includes(String(meter.id)) && String(meter.id) !== String(newCheckGroupCheckMeterId || '') && meterMatchesSearch(meter, checkGroupMeterSearch)).map((meter: any) => (
                           <label key={meter.id} style={{ ...box, display: 'flex', gap: 8, alignItems: 'center' }}>
                             <input
                               type="checkbox"

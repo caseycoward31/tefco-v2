@@ -3072,9 +3072,15 @@ function handleReadingAreaSelect(areaId: string) {
 
     const observed = ticket?.observed_inputs || {}
     const calc = ticket?.calculation_results || {}
+
+    // IMPORTANT: Number(null) === 0, so blank/null fields must be skipped.
+    // Otherwise the guardrail can falsely show the previous close as 0.
     const candidates = [
       ticket?.closing_reading,
       ticket?.closing_meter_reading,
+      ticket?.close_reading,
+      ticket?.close_meter_reading,
+      ticket?.close_meter,
       observed?.closing_reading,
       observed?.closing_meter_reading,
       observed?.close_reading,
@@ -3082,9 +3088,16 @@ function handleReadingAreaSelect(areaId: string) {
       observed?.close_meter,
       calc?.closing_reading,
       calc?.closing_meter_reading,
+      calc?.close_reading,
+      calc?.close_meter_reading,
+      calc?.close_meter,
     ]
 
     for (const candidate of candidates) {
+      if (candidate === null || candidate === undefined || String(candidate).trim() === '') {
+        continue
+      }
+
       const value = Number(candidate)
       if (Number.isFinite(value)) return value
     }

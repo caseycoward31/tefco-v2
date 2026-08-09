@@ -3029,6 +3029,195 @@ function handleReadingAreaSelect(areaId: string) {
     }
   }
 
+  const API60_GUARDRAIL_WARNING_DELTA = 0.5
+
+  function getTicketEventMs(ticket: any) {
+    const observed = ticket?.observed_inputs || {}
+    const calc = ticket?.calculation_results || {}
+    const candidate =
+      observed.close_datetime ||
+      calc.close_datetime ||
+      ticket?.close_datetime ||
+      ticket?.approved_at ||
+      ticket?.updated_at ||
+      ticket?.created_at ||
+      0
+    const ms = new Date(candidate).getTime()
+    return Number.isFinite(ms) ? ms : 0
+  }
+
+  function getApprovedTicketForMeter(meterId: string, excludeTicketId = '') {
+    const id = String(meterId || '')
+    if (!id) return null
+
+    return asArray(tickets)
+      .filter((ticket: any) => {
+        if (excludeTicketId && String(ticket?.id || '') === String(excludeTicketId)) return false
+        const status = String(ticket?.status || '').toLowerCase()
+        const observed = ticket?.observed_inputs || {}
+        const calc = ticket?.calculation_results || {}
+        const ticketMeterId =
+          ticket?.meter_id ||
+          observed?.meter_id ||
+          calc?.meter_id ||
+          ''
+        return status === 'approved' && String(ticketMeterId || '') === id
+      })
+      .sort((a: any, b: any) => getTicketEventMs(b) - getTicketEventMs(a))[0] || null
+  }
+
+  function getLastApprovedTicketCloseForMeter(meterId: string) {
+    const ticket: any = getApprovedTicketForMeter(meterId)
+    if (!ticket) return null
+
+    const observed = ticket?.observed_inputs || {}
+    const calc = ticket?.calculation_results || {}
+    const candidates = [
+      ticket?.closing_reading,
+      ticket?.closing_meter_reading,
+      observed?.closing_reading,
+      observed?.closing_meter_reading,
+      observed?.close_reading,
+      observed?.close_meter_reading,
+      observed?.close_meter,
+      calc?.closing_reading,
+      calc?.closing_meter_reading,
+    ]
+
+    for (const candidate of candidates) {
+      const value = Number(candidate)
+      if (Number.isFinite(value)) return value
+    }
+
+    return null
+  }
+
+  function getLastApprovedApi60ForMeter(meterId: string, leaseId = '') {
+    const id = String(meterId || '')
+    const lease = String(leaseId || '')
+
+    if (id) {
+      const ticket: any = getApprovedTicketForMeter(id)
+      if (ticket) {
+        const observed = ticket?.observed_inputs || {}
+        const calc = ticket?.calculation_results || {}
+        const candidates = [
+          calc?.api_gravity_60,
+          observed?.api_gravity_60,
+          calc?.api_gravity,
+          observed?.api_gravity,
+        ]
+
+        for (const candidate of candidates) {
+          const value = Number(candidate)
+          if (Number.isFinite(value) && value > 0) {
+            return {
+              value,
+              source: 'Last approved ticket',
+              date: ticket?.approved_at || ticket?.created_at || '',
+            }
+          }
+        }
+      }
+    }
+
+    const previousPot = asArray(potQuality)
+      .filter((pot: any) => {
+        if (editingPotId && String(pot?.id || '') === String(editingPotId)) return false
+        const sameMeter = id && String(pot?.meter_id || '') === id
+        const sameLease = lease && String(pot?.lease_id || '') === lease
+        return sameMeter || (!id && sameLease) || (id && !pot?.meter_id && sameLease)
+      })
+      .filter((pot: any) => {
+        const value = Number(pot?.api_gravity_60 ?? pot?.api_gravity)
+        return Number.isFinite(value) && value > 0
+      })
+      .sort((a: any, b: any) =>
+        new Date(b?.sample_date || b?.created_at || 0).getTime() -
+        new Date(a?.sample_date || a?.created_at || 0).getTime()
+      )[0]
+
+    if (previousPot) {
+      return {
+        value: Number(previousPot.api_gravity_60 ?? previousPot.api_gravity),
+        source: 'Previous POT',
+        date: previousPot.sample_date || previousPot.created_at || '',
+      }
+    }
+
+    return null
+  }
+
+  function getCurrentPotApi60Guardrail() {
+    if (!selectedPotLease || !potGravity || !potTemp) return null
+
+    const currentApi60 = Number(
+      calculateApi11Corrections({
+        productGroup: 'crude',
+        observedApiGravity: Number(potGravity || 0),
+        observedTemperature: Number(potTemp || 60),
+        observedPressure: 0,
+        averageTemperature: Number(potTemp || 60),
+        averagePressure: 0,
+      }).api_gravity_60
+    )
+
+    if (!Number.isFinite(currentApi60) || currentApi60 <= 0) return null
+
+    const previous = getLastApprovedApi60ForMeter(
+      selectedPotMeter || '',
+      selectedPotLease || ''
+    )
+    if (!previous) {
+      return {
+        currentApi60,
+        previousApi60: null,
+        difference: null,
+        warning: false,
+        source: '',
+        date: '',
+      }
+    }
+
+    const difference = currentApi60 - Number(previous.value)
+    return {
+      currentApi60,
+      previousApi60: Number(previous.value),
+      difference,
+      warning: Math.abs(difference) > API60_GUARDRAIL_WARNING_DELTA,
+      source: previous.source,
+      date: previous.date,
+    }
+  }
+
+  function getCurrentReadingGuardrail() {
+    if (!selectedReadingMeter) return null
+    const previousClose = getLastApprovedTicketCloseForMeter(selectedReadingMeter)
+    if (previousClose === null) return null
+
+    const opening = readingOpen === '' ? null : Number(readingOpen)
+    const closing = readingClose === '' ? null : Number(readingClose)
+
+    const openingLower =
+      opening !== null &&
+      Number.isFinite(opening) &&
+      opening < previousClose
+
+    const closingLower =
+      closing !== null &&
+      Number.isFinite(closing) &&
+      closing < previousClose
+
+    return {
+      previousClose,
+      opening,
+      closing,
+      openingLower,
+      closingLower,
+      warning: openingLower || closingLower,
+    }
+  }
+
   function getSelectedReadingMeterNumber() {
     const meter = meters.find((m: any) => String(m.id) === String(selectedReadingMeter))
     return meter?.meter_number || meter?.meter_name || ''
@@ -3394,6 +3583,7 @@ function handleReadingAreaSelect(areaId: string) {
       segment_id: selectedPotSegment || null,
       producer_id: potProducer || null,
       lease_id: selectedPotLease || null,
+      meter_id: selectedPotMeter || null,
       sample_date: potDate,
       api_gravity: apiGravity60,
       observed_api_gravity: Number(potGravity || 0),
@@ -16128,6 +16318,49 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 )}
                 <input style={input} placeholder="Opening Reading" value={readingOpen} onChange={(e) => setReadingOpen(e.target.value)} />
                 <input style={input} placeholder="Closing Reading" value={readingClose} onChange={(e) => setReadingClose(e.target.value)} />
+
+                {(() => {
+                  const guardrail = getCurrentReadingGuardrail()
+                  if (!guardrail) return null
+
+                  return (
+                    <div style={{
+                      ...card,
+                      border: guardrail.warning
+                        ? '1px solid rgba(248,113,113,0.9)'
+                        : '1px solid rgba(74,222,128,0.45)',
+                      background: guardrail.warning
+                        ? 'rgba(127,29,29,0.18)'
+                        : 'rgba(20,83,45,0.14)',
+                    }}>
+                      <strong>Meter Reading Guardrail</strong>
+                      <div style={{ marginTop: 5, color: '#cbd5e1' }}>
+                        Last approved ticket close: <strong>{guardrail.previousClose}</strong>
+                      </div>
+                      {guardrail.openingLower && (
+                        <div style={{ marginTop: 6, color: '#fca5a5', fontWeight: 800 }}>
+                          ⚠ Opening reading {guardrail.opening} is LOWER than the last approved ticket close.
+                        </div>
+                      )}
+                      {guardrail.closingLower && (
+                        <div style={{ marginTop: 6, color: '#fca5a5', fontWeight: 800 }}>
+                          ⚠ Closing reading {guardrail.closing} is LOWER than the last approved ticket close.
+                        </div>
+                      )}
+                      {!guardrail.warning && (
+                        <div style={{ marginTop: 6, color: '#86efac' }}>
+                          Reading is not below the previous approved ticket close.
+                        </div>
+                      )}
+                      {guardrail.warning && (
+                        <div style={{ marginTop: 5, color: '#fbbf24', fontSize: 12 }}>
+                          Warning only — verify the meter value or confirm a rollover/reset before saving.
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+
                 <input style={input} placeholder="Average Temperature" value={readingAvgTemp} onChange={(e) => setReadingAvgTemp(e.target.value)} />
                 <input style={input} placeholder="Average Pressure" value={readingAvgPressure} onChange={(e) => setReadingAvgPressure(e.target.value)} />
                 <input style={input} placeholder="Fallback Meter Factor" value={readingMF} onChange={(e) => setReadingMF(e.target.value)} />
@@ -16720,6 +16953,47 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     averagePressure: 0,
                   }).api_gravity_60}
                 </div>
+
+                {(() => {
+                  const guardrail = getCurrentPotApi60Guardrail()
+                  if (!guardrail || guardrail.previousApi60 === null) return null
+
+                  return (
+                    <div style={{
+                      ...card,
+                      border: guardrail.warning
+                        ? '1px solid rgba(251,191,36,0.9)'
+                        : '1px solid rgba(74,222,128,0.45)',
+                      background: guardrail.warning
+                        ? 'rgba(120,53,15,0.18)'
+                        : 'rgba(20,83,45,0.14)',
+                    }}>
+                      <strong>API @60 Guardrail</strong>
+                      <div style={{ marginTop: 5, color: '#cbd5e1' }}>
+                        {guardrail.source}: <strong>{Number(guardrail.previousApi60).toFixed(1)}</strong>
+                        {' → '}
+                        Current: <strong>{Number(guardrail.currentApi60).toFixed(1)}</strong>
+                      </div>
+                      <div style={{
+                        marginTop: 6,
+                        color: guardrail.warning ? '#fbbf24' : '#86efac',
+                        fontWeight: 800,
+                      }}>
+                        Difference: {guardrail.difference >= 0 ? '+' : ''}{Number(guardrail.difference).toFixed(1)} API
+                      </div>
+                      {guardrail.warning ? (
+                        <div style={{ marginTop: 5, color: '#fca5a5' }}>
+                          ⚠ More than ±{API60_GUARDRAIL_WARNING_DELTA.toFixed(1)} API from the previous value. Verify observed gravity and sample temperature before saving.
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: 5, color: '#86efac' }}>
+                          Within ±{API60_GUARDRAIL_WARNING_DELTA.toFixed(1)} API of the previous value.
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+
                 <input style={input} placeholder="BS&W %" value={potBSW} onChange={(e) => setPotBSW(e.target.value)} />
                 <input style={input} placeholder="Notes" value={potNotes} onChange={(e) => setPotNotes(e.target.value)} />
 

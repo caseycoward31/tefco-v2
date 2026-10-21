@@ -16398,7 +16398,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0 }}>
                 {[
                   ['new', 'New Reading', 'Enter meter reading'],
-                  ['history', `Monthly History (${getScopedReadings().length})`, 'Grouped by month'],
+                  ['history', `Monthly History (${readings.length})`, 'Grouped by month'],
                   ['photos', 'Photos / Review', 'Lease photo history'],
                 ].map(([key, label, sub]) => (
                   <button
@@ -16580,7 +16580,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         </select>
                         <select style={input} value={readingQueueSegmentFilter} onChange={(e) => setReadingQueueSegmentFilter(e.target.value)}>
                           <option value="">All Segments</option>
-                          {getScopedSegments().map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+                          {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
                         </select>
                       </div>
 
@@ -16660,7 +16660,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         </select>
                         <select style={input} value={readingQueueSegmentFilter} onChange={(e) => setReadingQueueSegmentFilter(e.target.value)}>
                           <option value="">All Segments</option>
-                          {getScopedSegments().map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+                          {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
                         </select>
                       </div>
 

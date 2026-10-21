@@ -13778,7 +13778,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
 
 
   function getDraftWorkflowTickets() {
-    return tickets
+    return getScopedTickets()
       .filter((ticket: any) => !['approved', 'voided'].includes(String(ticket.status || 'draft').toLowerCase()))
       .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
   }
@@ -13798,7 +13798,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
   }
 
   function getApprovedTickets() {
-    return tickets
+    return getScopedTickets()
       .filter((ticket: any) => String(ticket.status || '').toLowerCase() === 'approved')
       .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
   }

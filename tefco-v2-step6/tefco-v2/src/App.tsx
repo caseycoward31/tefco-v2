@@ -2659,6 +2659,17 @@ const provingCompliancePercent =
     return asArray(segments).filter((row: any) => segmentIds.has(String(row.id || '')))
   }
 
+  // Limit producer choices to producers with leases in the currently visible area(s).
+  // Producer master records can be shared across areas, so scope by lease association.
+  function getScopedProducers(): Producer[] {
+    const allowedLeaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id || '')))
+    const producerIds = new Set(asArray(leases)
+      .filter((lease: any) => allowedLeaseIds.has(String(lease.id || '')))
+      .map((lease: any) => String(lease.producer_id || ''))
+      .filter(Boolean))
+    return asArray(producers).filter((producer: any) => producerIds.has(String(producer.id || '')))
+  }
+
   function getScopedLeases(): any[] {
     const { leaseIds } = buildScopedHierarchyIds(getHistoryAreaIds())
     return asArray(leases).filter((row: any) => leaseIds.has(String(row.id || '')))
@@ -13889,15 +13900,15 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
   }
 
   function getProducersForSegment(segmentId: string) {
-    if (!segmentId) return producers
+    const scopedProducers = getScopedProducers()
+    if (!segmentId) return scopedProducers
     const producerIds = new Set(
-      leases
+      getScopedLeases()
         .filter((lease: any) => String(lease.segment_id || '') === String(segmentId))
         .map((lease: any) => String(lease.producer_id || ''))
         .filter(Boolean)
     )
-
-    return producers.filter((producer: any) => producerIds.has(String(producer.id || '')))
+    return scopedProducers.filter((producer: any) => producerIds.has(String(producer.id || '')))
   }
 
   function getTicketSegmentLabel(ticket: any) {
@@ -17019,7 +17030,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 </p>
                 <select style={input} value={potCsvProducerId} onChange={(e) => setPotCsvProducerId(e.target.value)}>
                   <option value="">All Producers</option>
-                  {producers.map((producer) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
+                  {getScopedProducers().map((producer) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
                 </select>
                 <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <input style={input} type="date" value={potCsvStartDate} onChange={(e) => setPotCsvStartDate(e.target.value)} />
@@ -17195,7 +17206,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         </select>
                         <select style={input} value={potQueueSegmentFilter} onChange={(e) => { setPotQueueSegmentFilter(e.target.value); setPotQueueProducerFilter('') }}>
                           <option value="">All Segments</option>
-                          {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+                          {getScopedSegments().map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
                         </select>
                         <select style={input} value={potQueueProducerFilter} onChange={(e) => setPotQueueProducerFilter(e.target.value)}>
                           <option value="">{potQueueSegmentFilter ? 'All Producers in Segment' : 'All Producers'}</option>
@@ -17694,7 +17705,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
 
                 <select style={input} value={reportSegmentId} onChange={(e) => { setReportSegmentId(e.target.value); setReportProducerId('') }}>
                   <option value="">All Segments</option>
-                  {segments.map((segment: any) => (
+                  {getScopedSegments().map((segment: any) => (
                     <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
                   ))}
                 </select>
@@ -17766,7 +17777,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <input style={input} type="date" value={potCsvEndDate} onChange={(e) => setPotCsvEndDate(e.target.value)} />
                   <select style={input} value={potCsvProducerId} onChange={(e) => setPotCsvProducerId(e.target.value)}>
                     <option value="">All Producers</option>
-                    {producers.map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
+                    {getScopedProducers().map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
                   </select>
                 </div>
                 <button style={button} onClick={() => runSafeAction('Exporting POT workings CSV', exportPotWorkingsCsv)}>
@@ -17786,7 +17797,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <input style={input} placeholder="LACT Name" value={flowxLactName} onChange={(e) => setFlowxLactName(e.target.value)} />
                   <select style={input} value={flowxDefaultSegmentId} onChange={(e) => setFlowxDefaultSegmentId(e.target.value)}>
                     <option value="">Default Segment</option>
-                    {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                    {getScopedSegments().map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
                   </select>
                 </div>
 
@@ -17891,7 +17902,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
                   <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
                     <option value="">All Segments</option>
-                    {segments.map((segment: any) => (
+                    {getScopedSegments().map((segment: any) => (
                       <option key={segment.id} value={segment.id}>{segment.name}</option>
                     ))}
                   </select>
@@ -18695,7 +18706,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </select>
                       <select style={input} value={ticketArchiveSegmentFilter} onChange={(e) => { setTicketArchiveSegmentFilter(e.target.value); setTicketArchiveProducerFilter('') }}>
                         <option value="">All Segments</option>
-                        {segments.map((segment: any) => (
+                        {getScopedSegments().map((segment: any) => (
                           <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
                         ))}
                       </select>
@@ -18813,7 +18824,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </select>
                       <select style={input} value={ticketArchiveSegmentFilter} onChange={(e) => { setTicketArchiveSegmentFilter(e.target.value); setTicketArchiveProducerFilter('') }}>
                         <option value="">All Segments</option>
-                        {segments.map((segment: any) => (
+                        {getScopedSegments().map((segment: any) => (
                           <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
                         ))}
                       </select>

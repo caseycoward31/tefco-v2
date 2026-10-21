@@ -1157,6 +1157,8 @@ const [flowxManualSplitOverride, setFlowxManualSplitOverride] = useState(false)
   const [newProducerProfile, setNewProducerProfile] = useState('')
 
   const [selectedArea, setSelectedArea] = useState('')
+  // History/report view only; independent of the Admin setup and ticket entry selectors.
+  const [historyAreaId, setHistoryAreaId] = useState('')
   const [selectedSegment, setSelectedSegment] = useState('')
   const [selectedProducer, setSelectedProducer] = useState('')
   const [selectedLease, setSelectedLease] = useState('')
@@ -1826,7 +1828,7 @@ useEffect(() => {
 
   function getScheduledRowsForMonth(monthKey = provingKpiMonth) {
     return asArray(provingScheduleRows).filter((row: any) =>
-      row?.active !== false && String(row.month_key || '') === String(monthKey)
+      row?.active !== false && String(row.month_key || '') === String(monthKey) && rowBelongsToHistoryArea(row)
     )
   }
 
@@ -1836,7 +1838,7 @@ useEffect(() => {
 
   function getApprovedProvingForScheduledRow(row: any) {
     if (!row?.meter_id) return null
-    return asArray(provings)
+    return getScopedProvings()
       .filter((proving: any) =>
         String(proving.status || '').toLowerCase() === 'approved' &&
         String(proving.meter_id || '') === String(row.meter_id || '') &&
@@ -1930,7 +1932,7 @@ useEffect(() => {
   function getScheduleSegmentMeters() {
     if (!scheduleSegmentId) return []
     return sortMetersForDropdown(
-      asArray(meters).filter((meter: any) => meter.active !== false && String(getMeterSegmentId(meter)) === String(scheduleSegmentId))
+      getScopedMeters().filter((meter: any) => meter.active !== false && String(getMeterSegmentId(meter)) === String(scheduleSegmentId))
     )
   }
 
@@ -1973,25 +1975,25 @@ useEffect(() => {
     downloadCsv(`proving_schedule_${provingKpiMonth}.csv`, [header, ...body])
   }
 
-  const activeMeters = meters.filter((m) => m.active !== false)
+  const activeMeters = getScopedMeters().filter((m) => m.active !== false)
   const provingScheduleSummary = getScheduledKpiSummary(provingKpiMonth)
   const provedThisMonthCount = provingScheduleSummary.completed
   const remainingProvingCount = provingScheduleSummary.remaining
   const provingCompliance = provingScheduleSummary.compliance
-  const pendingProvings = provings.filter((p) => p.status !== 'approved')
-  const draftProvings = provings.filter((p) => String(p.status || '').toLowerCase() === 'draft')
-  const approvalProvings = provings.filter((p) => p.status !== 'approved' && String(p.status || '').toLowerCase() !== 'draft')
-  const approvedProvings = provings.filter((p) => p.status === 'approved')
-  const activeTickets = tickets.filter((t) => t.status !== 'approved')
+  const pendingProvings = getScopedProvings().filter((p) => p.status !== 'approved')
+  const draftProvings = getScopedProvings().filter((p) => String(p.status || '').toLowerCase() === 'draft')
+  const approvalProvings = getScopedProvings().filter((p) => p.status !== 'approved' && String(p.status || '').toLowerCase() !== 'draft')
+  const approvedProvings = getScopedProvings().filter((p) => p.status === 'approved')
+  const activeTickets = getScopedTickets().filter((t) => t.status !== 'approved')
   const overdueMeters = meters.filter(
     (m) => getProvingComplianceStatus(m.next_proving_due) === 'OVERDUE'
   )
 
-  const dueSoonMeters = meters.filter(
+  const dueSoonMeters = getScopedMeters().filter(
     (m) => getProvingComplianceStatus(m.next_proving_due) === 'DUE_SOON'
   )
 
-  const compliantMeters = meters.filter(
+  const compliantMeters = getScopedMeters().filter(
     (m) => getProvingComplianceStatus(m.next_proving_due) === 'COMPLIANT'
   )
 
@@ -2038,11 +2040,11 @@ const canViewAdmin = userCanManageCompanySetup
   const canEditAdmin = userCanManageCompanySetup
 
 const provingCompliancePercent =
-    meters.length > 0
-      ? Math.round((compliantMeters.length / meters.length) * 100)
+    getScopedMeters().length > 0
+      ? Math.round((compliantMeters.length / getScopedMeters().length) * 100)
       : 100
 
-  const approvedTickets = tickets.filter((t) => t.status === 'approved')
+  const approvedTickets = getScopedTickets().filter((t) => t.status === 'approved')
 
   const selectedTicketSegmentLeases = selectedSegment ? getVisibleLeases(selectedSegment) : []
   const filteredLeases = sortLeasesForDropdown(selectedTicketSegmentLeases)
@@ -2539,16 +2541,40 @@ const provingCompliancePercent =
       .map((row: any) => String(row.area_id))
   }
 
+  // One area scope for all history, KPIs and reports. Administrators can choose
+  // a single area or All Areas; other users are limited to assigned areas.
+  function getHistoryAreaIds(): Set<string> {
+    const permitted = getAllowedAreaIdsForCurrentUser()
+    if ((userIsSuperAdmin || userIsCompanyAdmin) && historyAreaId && permitted.includes(historyAreaId)) {
+      return new Set([historyAreaId])
+    }
+    return new Set(permitted)
+  }
+
+  function rowBelongsToHistoryArea(row: any): boolean {
+    const ids = buildScopedHierarchyIds(getHistoryAreaIds())
+    const area = String(row?.area_id || row?.observed_inputs?.area_id || '')
+    const segment = String(row?.segment_id || row?.observed_inputs?.segment_id || '')
+    const lease = String(row?.lease_id || row?.observed_inputs?.lease_id || '')
+    const meter = String(row?.meter_id || row?.observed_inputs?.meter_id || '')
+    // A direct area link takes precedence over old, possibly stale associations.
+    if (area) return ids.areaIds.has(area)
+    if (segment) return ids.segmentIds.has(segment)
+    if (lease) return ids.leaseIds.has(lease)
+    if (meter) return ids.meterIds.has(meter)
+    return false // Never leak unassigned history into another area.
+  }
+
   function getScopedAreas(): any[] {
     const areaRows = asArray(areas)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return areaRows
+    if (userIsSuperAdmin || userIsCompanyAdmin) return historyAreaId ? areaRows.filter((a: any) => String(a.id) === historyAreaId) : areaRows
 
     const allowed = getAllowedAreaIdsForCurrentUser()
     return areaRows.filter((area: any) => allowed.includes(String(area.id)))
   }
 
   function getVisibleAreas() {
-    return getScopedAreas()
+    return asArray(areas).filter((area: any) => getAllowedAreaIdsForCurrentUser().includes(String(area.id)))
   }
 
   function getDefaultWorkflowAreaId() {
@@ -2629,19 +2655,24 @@ const provingCompliancePercent =
   }
 
   function getScopedSegments(): any[] {
-    const segmentRows = asArray(segments)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return segmentRows
+    const { segmentIds } = buildScopedHierarchyIds(getHistoryAreaIds())
+    return asArray(segments).filter((row: any) => segmentIds.has(String(row.id || '')))
+  }
 
-    const { segmentIds } = buildScopedHierarchyIds()
-    return segmentRows.filter((segment: any) => segmentIds.has(String(segment.id || '')))
+  // Limit producer choices to producers with leases in the currently visible area(s).
+  // Producer master records can be shared across areas, so scope by lease association.
+  function getScopedProducers(): Producer[] {
+    const allowedLeaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id || '')))
+    const producerIds = new Set(asArray(leases)
+      .filter((lease: any) => allowedLeaseIds.has(String(lease.id || '')))
+      .map((lease: any) => String(lease.producer_id || ''))
+      .filter(Boolean))
+    return asArray(producers).filter((producer: any) => producerIds.has(String(producer.id || '')))
   }
 
   function getScopedLeases(): any[] {
-    const leaseRows = asArray(leases)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return leaseRows
-
-    const { leaseIds } = buildScopedHierarchyIds()
-    return leaseRows.filter((lease: any) => leaseIds.has(String(lease.id || '')))
+    const { leaseIds } = buildScopedHierarchyIds(getHistoryAreaIds())
+    return asArray(leases).filter((row: any) => leaseIds.has(String(row.id || '')))
   }
 
   function isOperationalMeter(meter: any) {
@@ -2673,11 +2704,8 @@ const provingCompliancePercent =
   }
 
   function getScopedMeters(): any[] {
-    const meterRows = asArray(meters).filter((meter: any) => isOperationalMeter(meter))
-    if (userIsSuperAdmin || userIsCompanyAdmin) return meterRows
-
-    const { meterIds } = buildScopedHierarchyIds()
-    return meterRows.filter((meter: any) => meterIds.has(String(meter.id || '')))
+    const { meterIds } = buildScopedHierarchyIds(getHistoryAreaIds())
+    return asArray(meters).filter((meter: any) => isOperationalMeter(meter) && meterIds.has(String(meter.id || '')))
   }
 
   function getVisibleSegments(areaId: string) {
@@ -2686,7 +2714,7 @@ const provingCompliancePercent =
 
     const areaIds = new Set([String(areaId)])
     const { segmentIds } = buildScopedHierarchyIds(areaIds)
-    const rows = getScopedSegments().filter((segment: any) =>
+    const rows = asArray(segments).filter((segment: any) =>
       segmentIds.has(String(segment.id || '')) || String(segment.area_id || '') === String(areaId)
     )
 
@@ -2710,7 +2738,7 @@ const provingCompliancePercent =
   function getVisibleLeases(segmentId: string) {
     if (!segmentId) return []
 
-    const scopedLeaseRows = getScopedLeases()
+    const scopedLeaseRows = asArray(leases).filter((lease: any) => buildScopedHierarchyIds(new Set(getAllowedAreaIdsForCurrentUser())).leaseIds.has(String(lease.id || '')))
     const selectedSegmentRow: any = asArray(segments).find((segment: any) => String(segment.id || '') === String(segmentId))
     const selectedSegmentName = String(selectedSegmentRow?.segment_name || selectedSegmentRow?.name || '').trim().toLowerCase()
 
@@ -2736,7 +2764,8 @@ const provingCompliancePercent =
     if (!leaseId) return []
 
     // Hard operational filter for Tickets, POT, Readings, and Provings.
-    const scopedMeterRows = getScopedMeters().filter((meter: any) => isOperationalMeter(meter))
+    const permittedMeterIds = buildScopedHierarchyIds(new Set(getAllowedAreaIdsForCurrentUser())).meterIds
+    const scopedMeterRows = asArray(meters).filter((meter: any) => isOperationalMeter(meter) && permittedMeterIds.has(String(meter.id || '')))
 
     // Primary behavior: selecting a lease only shows meters linked to that lease.
     const exactLeaseMatches = scopedMeterRows.filter((meter: any) => String(meter.lease_id || '') === String(leaseId))
@@ -2757,65 +2786,19 @@ const provingCompliancePercent =
   }
 
   function getScopedReadings(): any[] {
-    const readingRows = asArray(readings)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return readingRows
-
-    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
-    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
-
-    return readingRows.filter((reading: any) =>
-      areaIds.has(String(reading.area_id || '')) ||
-      meterIds.has(String(reading.meter_id || '')) ||
-      leaseIds.has(String(reading.lease_id || ''))
-    )
+    return asArray(readings).filter((row: any) => rowBelongsToHistoryArea(row))
   }
 
   function getScopedTickets(): any[] {
-    const ticketRows = asArray(tickets)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return ticketRows
-
-    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
-    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
-    const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
-
-    return ticketRows.filter((ticket: any) =>
-      areaIds.has(String(ticket.area_id || ticket.observed_inputs?.area_id || '')) ||
-      segmentIds.has(String(ticket.segment_id || ticket.observed_inputs?.segment_id || '')) ||
-      leaseIds.has(String(ticket.lease_id || ticket.observed_inputs?.lease_id || '')) ||
-      meterIds.has(String(ticket.meter_id || ticket.observed_inputs?.meter_id || ''))
-    )
+    return asArray(tickets).filter((row: any) => rowBelongsToHistoryArea(row))
   }
 
   function getScopedPotQuality(): any[] {
-    const rows = asArray(potQuality)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return rows
-
-    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    const segmentIds = new Set(getScopedSegments().map((segment: any) => String(segment.id)))
-    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
-
-    return rows.filter((pot: any) =>
-      areaIds.has(String(pot.area_id || '')) ||
-      segmentIds.has(String(pot.segment_id || '')) ||
-      leaseIds.has(String(pot.lease_id || ''))
-    )
+    return asArray(potQuality).filter((row: any) => rowBelongsToHistoryArea(row))
   }
 
   function getScopedProvings(): any[] {
-    const rows = asArray(provings)
-    if (userIsSuperAdmin || userIsCompanyAdmin) return rows
-
-    const areaIds = new Set(getScopedAreas().map((area: any) => String(area.id)))
-    const leaseIds = new Set(getScopedLeases().map((lease: any) => String(lease.id)))
-    const meterIds = new Set(getScopedMeters().map((meter: any) => String(meter.id)))
-
-    return rows.filter((proving: any) =>
-      areaIds.has(String(proving.area_id || '')) ||
-      leaseIds.has(String(proving.lease_id || '')) ||
-      meterIds.has(String(proving.meter_id || ''))
-    )
+    return asArray(provings).filter((row: any) => rowBelongsToHistoryArea(row))
   }
 
   function getAreaAccessDebugText() {
@@ -12121,7 +12104,7 @@ async function createCompany() {
       return ['delivery', 'outbound', 'tank delivery'].includes(role)
     }
 
-    const getSegmentApprovedTickets = (segmentId: string) => tickets.filter((ticket: any) =>
+    const getSegmentApprovedTickets = (segmentId: string) => getScopedTickets().filter((ticket: any) =>
       ticket.status === 'approved' &&
       String(ticket.segment_id || '') === String(segmentId) &&
       isTicketInOverShortRange(ticket)
@@ -13007,7 +12990,7 @@ async function saveUserRole() {
     const start = new Date(`${potCsvStartDate}T00:00:00`)
     const end = new Date(`${potCsvEndDate}T23:59:59`)
 
-    const rowsToExport = potQuality.filter((pot: any) => {
+    const rowsToExport = getScopedPotQuality().filter((pot: any) => {
       const sampleDate = pot.sample_date || pot.sampleDate || pot.effective_date || (pot as any).created_at || ''
       const dateOk = sampleDate ? new Date(sampleDate) >= start && new Date(sampleDate) <= end : false
       const producerOk = potCsvProducerId ? pot.producer_id === potCsvProducerId || pot.producerId === potCsvProducerId : true
@@ -13806,7 +13789,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
 
 
   function getDraftWorkflowTickets() {
-    return tickets
+    return getScopedTickets()
       .filter((ticket: any) => !['approved', 'voided'].includes(String(ticket.status || 'draft').toLowerCase()))
       .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
   }
@@ -13826,7 +13809,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
   }
 
   function getApprovedTickets() {
-    return tickets
+    return getScopedTickets()
       .filter((ticket: any) => String(ticket.status || '').toLowerCase() === 'approved')
       .sort((a: any, b: any) => new Date(getTicketDateValue(b)).getTime() - new Date(getTicketDateValue(a)).getTime())
   }
@@ -13917,15 +13900,15 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
   }
 
   function getProducersForSegment(segmentId: string) {
-    if (!segmentId) return producers
+    const scopedProducers = getScopedProducers()
+    if (!segmentId) return scopedProducers
     const producerIds = new Set(
-      leases
+      getScopedLeases()
         .filter((lease: any) => String(lease.segment_id || '') === String(segmentId))
         .map((lease: any) => String(lease.producer_id || ''))
         .filter(Boolean)
     )
-
-    return producers.filter((producer: any) => producerIds.has(String(producer.id || '')))
+    return scopedProducers.filter((producer: any) => producerIds.has(String(producer.id || '')))
   }
 
   function getTicketSegmentLabel(ticket: any) {
@@ -14762,6 +14745,18 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
 
         {!mobileMenuOpen && (
           <>
+        {(userIsSuperAdmin || userIsCompanyAdmin) && getVisibleAreas().length > 1 && page !== 'admin' && (
+          <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+            <strong>Viewing area</strong>
+            <select aria-label="History and report area" style={{ ...input, maxWidth: 320 }} value={historyAreaId} onChange={(e) => setHistoryAreaId(e.target.value)}>
+              <option value="">All Areas</option>
+              {getVisibleAreas().map((area: any) => (
+                <option key={area.id} value={area.id}>{area.area_name || area.name || area.id}</option>
+              ))}
+            </select>
+            <span style={{ color: '#a8b3bd', fontSize: 12 }}>Applies to history, dashboard, KPIs and reports</span>
+          </div>
+        )}
         {page === 'dashboard' && (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 14 }}>
@@ -16403,7 +16398,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
               <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0 }}>
                 {[
                   ['new', 'New Reading', 'Enter meter reading'],
-                  ['history', `Monthly History (${readings.length})`, 'Grouped by month'],
+                  ['history', `Monthly History (${getScopedReadings().length})`, 'Grouped by month'],
                   ['photos', 'Photos / Review', 'Lease photo history'],
                 ].map(([key, label, sub]) => (
                   <button
@@ -16585,7 +16580,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         </select>
                         <select style={input} value={readingQueueSegmentFilter} onChange={(e) => setReadingQueueSegmentFilter(e.target.value)}>
                           <option value="">All Segments</option>
-                          {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+                          {getScopedSegments().map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
                         </select>
                       </div>
 
@@ -16665,7 +16660,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         </select>
                         <select style={input} value={readingQueueSegmentFilter} onChange={(e) => setReadingQueueSegmentFilter(e.target.value)}>
                           <option value="">All Segments</option>
-                          {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+                          {getScopedSegments().map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
                         </select>
                       </div>
 
@@ -17035,7 +17030,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 </p>
                 <select style={input} value={potCsvProducerId} onChange={(e) => setPotCsvProducerId(e.target.value)}>
                   <option value="">All Producers</option>
-                  {producers.map((producer) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
+                  {getScopedProducers().map((producer) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
                 </select>
                 <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <input style={input} type="date" value={potCsvStartDate} onChange={(e) => setPotCsvStartDate(e.target.value)} />
@@ -17188,7 +17183,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
               <div style={box}>
                 {(() => {
                   const monthOptions = getGenericMonthOptions(potQuality, ['sample_date', 'created_at'])
-                  const filteredPots = potQuality.filter((p: any) =>
+                  const filteredPots = getScopedPotQuality().filter((p: any) =>
                     (!potQueueMonthFilter || getGenericMonthKey(p, ['sample_date', 'created_at']) === potQueueMonthFilter) &&
                     (!potQueueSegmentFilter || getPotSegmentId(p) === potQueueSegmentFilter) &&
                     (!potQueueProducerFilter || getPotProducerId(p) === potQueueProducerFilter)
@@ -17211,7 +17206,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                         </select>
                         <select style={input} value={potQueueSegmentFilter} onChange={(e) => { setPotQueueSegmentFilter(e.target.value); setPotQueueProducerFilter('') }}>
                           <option value="">All Segments</option>
-                          {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
+                          {getScopedSegments().map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>)}
                         </select>
                         <select style={input} value={potQueueProducerFilter} onChange={(e) => setPotQueueProducerFilter(e.target.value)}>
                           <option value="">{potQueueSegmentFilter ? 'All Producers in Segment' : 'All Producers'}</option>
@@ -17710,7 +17705,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
 
                 <select style={input} value={reportSegmentId} onChange={(e) => { setReportSegmentId(e.target.value); setReportProducerId('') }}>
                   <option value="">All Segments</option>
-                  {segments.map((segment: any) => (
+                  {getScopedSegments().map((segment: any) => (
                     <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
                   ))}
                 </select>
@@ -17782,7 +17777,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <input style={input} type="date" value={potCsvEndDate} onChange={(e) => setPotCsvEndDate(e.target.value)} />
                   <select style={input} value={potCsvProducerId} onChange={(e) => setPotCsvProducerId(e.target.value)}>
                     <option value="">All Producers</option>
-                    {producers.map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
+                    {getScopedProducers().map((producer: any) => <option key={producer.id} value={producer.id}>{producer.name}</option>)}
                   </select>
                 </div>
                 <button style={button} onClick={() => runSafeAction('Exporting POT workings CSV', exportPotWorkingsCsv)}>
@@ -17802,7 +17797,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <input style={input} placeholder="LACT Name" value={flowxLactName} onChange={(e) => setFlowxLactName(e.target.value)} />
                   <select style={input} value={flowxDefaultSegmentId} onChange={(e) => setFlowxDefaultSegmentId(e.target.value)}>
                     <option value="">Default Segment</option>
-                    {segments.map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+                    {getScopedSegments().map((segment: any) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
                   </select>
                 </div>
 
@@ -17907,7 +17902,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <input style={input} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
                   <select style={input} value={overShortSegmentId} onChange={(e) => setOverShortSegmentId(e.target.value)}>
                     <option value="">All Segments</option>
-                    {segments.map((segment: any) => (
+                    {getScopedSegments().map((segment: any) => (
                       <option key={segment.id} value={segment.id}>{segment.name}</option>
                     ))}
                   </select>
@@ -18711,7 +18706,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </select>
                       <select style={input} value={ticketArchiveSegmentFilter} onChange={(e) => { setTicketArchiveSegmentFilter(e.target.value); setTicketArchiveProducerFilter('') }}>
                         <option value="">All Segments</option>
-                        {segments.map((segment: any) => (
+                        {getScopedSegments().map((segment: any) => (
                           <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
                         ))}
                       </select>
@@ -18829,7 +18824,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       </select>
                       <select style={input} value={ticketArchiveSegmentFilter} onChange={(e) => { setTicketArchiveSegmentFilter(e.target.value); setTicketArchiveProducerFilter('') }}>
                         <option value="">All Segments</option>
-                        {segments.map((segment: any) => (
+                        {getScopedSegments().map((segment: any) => (
                           <option key={segment.id} value={segment.id}>{segment.name || segment.segment_name}</option>
                         ))}
                       </select>

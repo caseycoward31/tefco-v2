@@ -888,6 +888,8 @@ function getHighestRole(roles: any[]) {
 
 function App() {
   const [session, setSession] = useState<any>(null)
+  const [historicalMonth, setHistoricalMonth] = useState('')
+  const [loadFullHistory, setLoadFullHistory] = useState(false)
   const [page, setPage] = useState('dashboard')
   const [provingTab, setProvingTab] = useState<'create' | 'drafts' | 'pending' | 'approved' | 'kpi' | 'schedule'>('create')
   const [potTab, setPotTab] = useState<'create' | 'history' | 'export'>('create')
@@ -1297,6 +1299,10 @@ const [selectedReadingMeter, setSelectedReadingMeter] = useState('')
   }, [areas.length, selectedPotArea, selectedReadingArea])
 
   useEffect(() => {
+    if (session) loadAll()
+  }, [historicalMonth, loadFullHistory])
+
+  useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
       setLoading(false)
@@ -1600,6 +1606,21 @@ useEffect(() => {
     const scope = await reloadCurrentUserRole()
     const activeCompanyIdForLoad = scope.isSuperAdmin && selectedAdminCompanyId ? selectedAdminCompanyId : scope.companyId
     const applyCompanyScope = (query: any) => activeCompanyIdForLoad ? query.eq('company_id', activeCompanyIdForLoad) : query
+    // Monthly measurement periods begin at 07:01 local time on the first.
+    // Keep reference/configuration tables unfiltered; scope only transaction tables.
+    const now = new Date()
+    const currentPeriodMonth = now.getDate() === 1 && (now.getHours() < 7 || (now.getHours() === 7 && now.getMinutes() === 0)) ? -1 : 0
+    const periodStart = (monthOffset: number) => {
+      const d = new Date(now.getFullYear(), now.getMonth() + currentPeriodMonth + monthOffset, 1, 7, 1, 0)
+      return d.toISOString()
+    }
+    const historyStart = historicalMonth ? new Date(Number(historicalMonth.slice(0, 4)), Number(historicalMonth.slice(5, 7)) - 1, 1, 7, 1, 0).toISOString() : periodStart(-1)
+    const historyEnd = historicalMonth ? new Date(Number(historicalMonth.slice(0, 4)), Number(historicalMonth.slice(5, 7)), 1, 7, 1, 0).toISOString() : periodStart(1)
+    const scopedTransactions = (table: string, dateColumn: string) => {
+      let query = applyCompanyScope(supabase.from(table).select('*'))
+      if (!loadFullHistory) query = query.gte(dateColumn, historyStart).lt(dateColumn, historyEnd)
+      return query
+    }
 
     async function loadCompanyRows(tableName: string, orderColumn = 'id') {
       const allRows: any[] = []
@@ -1709,11 +1730,9 @@ useEffect(() => {
     }
     const resolvedAreaAccessData = Array.isArray(areaAccessData) ? areaAccessData : []
 
-    const { data: ticketData } = await applyCompanyScope(supabase.from('tickets').select('*')).order('created_at', { ascending: false })
+    const { data: ticketData } = await scopedTransactions('tickets', 'created_at').order('created_at', { ascending: false })
 
-    const { data: auditData } = await applyCompanyScope(
-      supabase.from('ticket_audit_log').select('*')
-    ).order('created_at', { ascending: false })
+    const { data: auditData } = await scopedTransactions('ticket_audit_log', 'created_at').order('created_at', { ascending: false })
 
     const roleQuery = scope.isSuperAdmin
       ? supabase.from('user_roles').select('*').eq('active', true)
@@ -1740,14 +1759,14 @@ useEffect(() => {
       .select('*')
     const { data: profileData } = await applyCompanyScope(supabase.from('calculation_profiles').select('*')).order('name')
     const { data: producerData } = await applyCompanyScope(supabase.from('producers').select('*')).order('name')
-    const { data: readingData } = await applyCompanyScope(supabase.from('operator_readings').select('*')).order('created_at', { ascending: false })
-    const { data: readingPhotoData, error: readingPhotoLoadError } = await applyCompanyScope(supabase.from('operator_reading_photos').select('*')).order('created_at', { ascending: false })
+    const { data: readingData } = await scopedTransactions('operator_readings', 'created_at').order('created_at', { ascending: false })
+    const { data: readingPhotoData, error: readingPhotoLoadError } = await scopedTransactions('operator_reading_photos', 'created_at').order('created_at', { ascending: false })
     if (readingPhotoLoadError) {
       console.warn('Operator reading photo table unavailable:', readingPhotoLoadError)
     }
-    const { data: provingData } = await applyCompanyScope(supabase.from('meter_provings').select('*')).order('proving_date', { ascending: false })
-    const { data: potData } = await applyCompanyScope(supabase.from('pot_quality').select('*')).order('sample_date', { ascending: false })
-    const { data: potPhotoData, error: potPhotoLoadError } = await applyCompanyScope(supabase.from('pot_quality_photos').select('*')).order('created_at', { ascending: false })
+    const { data: provingData } = await scopedTransactions('meter_provings', 'proving_date').order('proving_date', { ascending: false })
+    const { data: potData } = await scopedTransactions('pot_quality', 'sample_date').order('sample_date', { ascending: false })
+    const { data: potPhotoData, error: potPhotoLoadError } = await scopedTransactions('pot_quality_photos', 'created_at').order('created_at', { ascending: false })
     if (potPhotoLoadError) {
       console.warn('POT shakeout photo table unavailable:', potPhotoLoadError)
     }
@@ -14644,6 +14663,13 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
         padding: 30,
         background: 'linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)), #070a0d',
       }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14, fontSize: 12, color: '#a8b3bd' }}>
+          <span>Data window: {loadFullHistory ? 'All history' : historicalMonth ? `Accounting month ${historicalMonth}` : 'Current + previous accounting months'}</span>
+          <input type="month" aria-label="Historical accounting month" value={historicalMonth} onChange={e => { setHistoricalMonth(e.target.value); setLoadFullHistory(false) }} style={{ colorScheme: 'dark', padding: 5, borderRadius: 5 }} />
+          <button type="button" onClick={() => { setHistoricalMonth(''); setLoadFullHistory(false) }} style={{ ...button, width: 'auto', padding: '6px 10px' }}>Recent months</button>
+          <button type="button" onClick={() => { setLoadFullHistory(true) }} style={{ ...button, width: 'auto', padding: '6px 10px' }}>All history</button>
+          <button type="button" onClick={() => loadAll()} style={{ ...button, width: 'auto', padding: '6px 10px' }}>Refresh</button>
+        </div>
         {/* Offline Warning */}
         {typeof navigator !== 'undefined' && !navigator.onLine && (
           <div style={{ ...card, border: '1px solid rgba(220,38,38,0.45)', marginBottom: 14 }}>

@@ -1656,16 +1656,24 @@ useEffect(() => {
       console.warn('Hierarchy dropdown load status:', { areaLoadError, segmentLoadError, leaseLoadError, meterLoadError, hierarchyRpcError })
     }
     const hierarchyPayload: any = Array.isArray(hierarchyData) ? hierarchyData[0] : hierarchyData
-    const resolvedAreaData = Array.isArray(hierarchyPayload?.areas) && hierarchyPayload.areas.length ? hierarchyPayload.areas : areaData
-    const resolvedSegmentData = Array.isArray(hierarchyPayload?.segments) && hierarchyPayload.segments.length ? hierarchyPayload.segments : segData
-    const resolvedLeaseData = Array.isArray(hierarchyPayload?.leases) && hierarchyPayload.leases.length ? hierarchyPayload.leases : leaseData
+    // Prefer the company-scoped tables. The SECURITY DEFINER hierarchy RPC can
+    // return a different set of rows and must not override successful direct loads.
+    const resolvedAreaData = !areaLoadError && Array.isArray(areaData)
+      ? areaData
+      : (Array.isArray(hierarchyPayload?.areas) ? hierarchyPayload.areas : [])
+    const resolvedSegmentData = !segmentLoadError && Array.isArray(segData)
+      ? segData
+      : (Array.isArray(hierarchyPayload?.segments) ? hierarchyPayload.segments : [])
+    const resolvedLeaseData = !leaseLoadError && Array.isArray(leaseData)
+      ? leaseData
+      : (Array.isArray(hierarchyPayload?.leases) ? hierarchyPayload.leases : [])
 
     // The dropdown hierarchy RPC does not always include active/deleted fields.
     // Merge those status fields from the real meters table so operational
     // dropdowns honor meter deactivation reliably.
-    const rawHierarchyMeters = Array.isArray(hierarchyPayload?.meters) && hierarchyPayload.meters.length
-      ? hierarchyPayload.meters
-      : meterData
+    const rawHierarchyMeters = !meterLoadError && Array.isArray(meterData)
+      ? meterData
+      : (Array.isArray(hierarchyPayload?.meters) ? hierarchyPayload.meters : [])
 
     const meterStatusById = new Map(
       asArray(meterData).map((meter: any) => [

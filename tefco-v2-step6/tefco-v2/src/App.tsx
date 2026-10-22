@@ -5821,8 +5821,18 @@ function handleProvingAreaSelect(areaId: string) {
       ? roundApiHalfEven(tankTicketSnapshot.nsv, volumeRounding)
       : Number(engineResult.nsv || 0)
 
+    // Tickets RLS requires a company-matched area_id on every new row.
+    // Prefer the selected segment's canonical area to avoid stale UI area selection.
+    const ticketSegmentRow = segments.find((segment) => String(segment.id) === String(selectedSegment))
+    const ticketAreaId = ticketSegmentRow?.area_id || selectedArea || null
+    if (!ticketAreaId) {
+      alert('Select an area and segment before creating a ticket.')
+      return
+    }
+
     const ticketInsertPayload: any = {
       company_id: companyId,
+      area_id: ticketAreaId,
       ticket_number: generatedNumber,
       ticket_type: ticketType,
       status: 'draft',
@@ -6061,6 +6071,7 @@ function handleProvingAreaSelect(areaId: string) {
 
       const fallbackTicketPayload: any = {
         company_id: companyId,
+        area_id: ticketAreaId,
         ticket_number: generatedNumber,
         ticket_type: ticketType,
         status: 'draft',

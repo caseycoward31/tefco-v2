@@ -14263,6 +14263,13 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
     return num.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })
   }
 
+  // Display-only formatting. Never feed these strings back into custody-transfer calculations.
+  function formatMeasurementDisplay(value: unknown, digits: number): string {
+    if (value === null || value === undefined || value === '') return '—'
+    const number = Number(value)
+    return Number.isFinite(number) ? number.toFixed(digits) : '—'
+  }
+
   function formatFactorDetail(value: any, digits = 6) {
     const num = Number(value)
     if (!Number.isFinite(num)) return '—'
@@ -16959,7 +16966,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                           {profileArea?.name || 'Area —'} • {profileSegment?.name || profileSegment?.segment_name || 'Segment —'} • Producer: {profileProducer?.name || profile.transporter_name || '—'}
                         </div>
                         <div style={{ color: '#a8b3bd', marginTop: 4 }}>
-                          Product: {profile.product_group || 'crude'} • Method: {profile.calculation_method || 'chapter12_2021'} • API: {profile.standard || getApiVersionLabel(profile.api_version || '') || profile.api_version || '—'} • CTL/CPL: {profile.correction_source || 'app_calculated'} • Factor: {profile.meter_factor || 1}
+                          Product: {profile.product_group || 'crude'} • Method: {profile.calculation_method || 'chapter12_2021'} • API: {profile.standard || getApiVersionLabel(profile.api_version || '') || profile.api_version || '—'} • CTL/CPL: {profile.correction_source || 'app_calculated'} • Factor: {formatMeasurementDisplay(profile.meter_factor ?? 1, 4)}
                         </div>
                       </div>
                       <button style={{ ...button, background: '#dc2626', width: 120 }} onClick={() => deleteContractProfile(profile.id)}>Delete</button>
@@ -17278,7 +17285,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                                         <div>Date: {p.sample_date || '—'}</div>
                                         <div>Observed API Gravity: {p.observed_api_gravity ?? p.api_gravity}</div>
                                         <div>Observed Temp: {p.observed_temperature ?? p.sample_temperature}</div>
-                                        <div>API Gravity @60: {p.api_gravity_60 ?? p.api_gravity}</div>
+                                        <div>API Gravity @60: {formatMeasurementDisplay(p.api_gravity_60 ?? p.api_gravity, 1)}</div>
                                         <div>BS&W: {formatPotBswPercent(p)}</div>
                                         <div>CSW: {p.csw}</div>
                                         <div>RVP: {((p as any).rvp ?? parsePotExtra(p.notes, 'rvp')) || '—'}</div>
@@ -18305,7 +18312,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     <div><strong>CPL:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl, 6)}</div>
                     <div><strong>CTPL:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.ctpl ?? selectedTicket!.observed_inputs?.ctpl ?? ((Number(selectedTicket!.calculation_results?.ctl ?? selectedTicket!.observed_inputs?.ctl ?? 0) || 0) * (Number(selectedTicket!.calculation_results?.cpl ?? selectedTicket!.observed_inputs?.cpl ?? 0) || 0)), 6)}</div>
                     <div><strong>CCF:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.ccf ?? selectedTicket!.observed_inputs?.ccf, 6)}</div>
-                    <div><strong>MF:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.mf ?? selectedTicket!.observed_inputs?.mf, 6)}</div>
+                    <div><strong>MF:</strong> {formatMeasurementDisplay(selectedTicket!.calculation_results?.mf ?? selectedTicket!.observed_inputs?.mf, 4)}</div>
                     <div><strong>CSW:</strong> {formatFactorDetail(selectedTicket!.calculation_results?.csw ?? selectedTicket!.observed_inputs?.csw, 6)}</div>
                     <hr style={{ borderColor: '#1f2937' }} />
                     <div><strong>GSV:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.gsv, 1)}</div>
@@ -18315,7 +18322,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <div style={card}>
                     <h3>Quality Information</h3>
                     <div><strong>Observed API:</strong> {formatTicketDetailNumber(selectedTicket!.observed_inputs?.observed_api_gravity ?? selectedTicket!.observed_inputs?.api_observed ?? selectedTicket!.observed_inputs?.api_gravity_observed, 2)}</div>
-                    <div><strong>API Gravity @ 60°F:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.api_gravity_60 ?? selectedTicket!.observed_inputs?.api_gravity_60 ?? selectedTicket!.calculation_results?.api_gravity ?? selectedTicket!.observed_inputs?.api_gravity, 2)}</div>
+                    <div><strong>API Gravity @ 60°F:</strong> {formatMeasurementDisplay(selectedTicket!.calculation_results?.api_gravity_60 ?? selectedTicket!.observed_inputs?.api_gravity_60 ?? selectedTicket!.calculation_results?.api_gravity ?? selectedTicket!.observed_inputs?.api_gravity, 1)}</div>
                     <div><strong>Observed Temp:</strong> {formatTicketDetailNumber(selectedTicket!.observed_inputs?.observed_temperature ?? selectedTicket!.observed_inputs?.temperature ?? selectedTicket!.observed_inputs?.average_temperature ?? selectedTicket!.calculation_results?.average_temperature, 2)}</div>
                     <div><strong>Average Temp:</strong> {formatTicketDetailNumber(selectedTicket!.calculation_results?.average_temperature ?? selectedTicket!.observed_inputs?.average_temperature, 2)}</div>
                     <div><strong>Observed Pressure:</strong> {formatTicketDetailNumber(selectedTicket!.observed_inputs?.observed_pressure ?? selectedTicket!.observed_inputs?.pressure ?? selectedTicket!.observed_inputs?.average_pressure ?? selectedTicket!.calculation_results?.average_pressure, 2)}</div>
@@ -18692,7 +18699,7 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 <div>Latest Approved {autofillPreview?.proving?.factor_type || 'MF'}: {autofillPreview?.proving?.accepted_meter_factor ?? 'None'}</div>
                 <div>POT Observed API Gravity: {autofillPreview?.pot?.observed_api_gravity ?? autofillPreview?.pot?.api_gravity ?? 'None'}</div>
                 <div>POT Observed Temp: {autofillPreview?.pot?.observed_temperature ?? autofillPreview?.pot?.sample_temperature ?? 'None'}</div>
-                <div>POT API Gravity @60: {autofillPreview?.pot?.api_gravity_60 ?? autofillPreview?.pot?.api_gravity ?? 'None'}</div>
+                <div>POT API Gravity @60: {formatMeasurementDisplay(autofillPreview?.pot?.api_gravity_60 ?? autofillPreview?.pot?.api_gravity, 1)}</div>
                 <div>POT BS&W: {formatPotBswPercent(autofillPreview?.pot)}</div>
                 <div>
                   POT CSW: {

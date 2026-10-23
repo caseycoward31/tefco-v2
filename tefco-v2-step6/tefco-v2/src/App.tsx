@@ -14853,8 +14853,15 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                   <input style={{ ...input, width: 155 }} type="date" value={overShortEndDate} onChange={(e) => setOverShortEndDate(e.target.value)} />
                 </div>
               </div>
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12 }}>
-                {dashboardOverShortRows.map((row: any) => (
+              {getScopedAreas().map((area: any) => {
+                const areaSegments = new Set(getScopedSegments().filter((segment: any) => segment.area_id === area.id).map((segment: any) => segment.id))
+                const areaRows = dashboardOverShortRows.filter((row: any) => areaSegments.has(row.segment.id))
+                if (!areaRows.length) return null
+                return (
+                  <div key={area.id} style={{ marginBottom: 20 }}>
+                    <h3 style={{ margin: '0 0 12px', color: '#e2e8f0', borderBottom: `2px solid ${getCompanyAccentColor()}`, paddingBottom: 9 }}>{area.name}</h3>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12 }}>
+                      {areaRows.map((row: any) => (
                   <div key={row.segment.id} style={{ ...card, borderLeft: `5px solid ${row.totalsOnly ? '#38bdf8' : Math.abs(row.overShort) > 0.01 ? '#f87171' : '#22c55e'}` }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                       <strong style={{ fontSize: 18 }}>{row.segment.name}</strong>
@@ -14883,8 +14890,11 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                     )}
                     {row.butaneEnabled && <div style={{ color: '#fef3c7', fontSize: 12 }}>Butane Blend {row.butaneAdjustment.blendPercent.toFixed(4)}% • Shrink {row.butaneAdjustment.shrinkageAdjustmentBbl.toFixed(2)}</div>}
                   </div>
-                ))}
-              </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
 
             <div style={box}>
@@ -14901,8 +14911,15 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                 </div>
               </div>
 
-              <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
-                {dashboardMeterTicketKpiRows.map((row: any) => (
+              {getScopedAreas().map((area: any) => {
+                const areaSegments = new Set(getScopedSegments().filter((segment: any) => segment.area_id === area.id).map((segment: any) => segment.id))
+                const areaRows = dashboardMeterTicketKpiRows.filter((row: any) => areaSegments.has(row.segmentId || row.segment.id))
+                if (!areaRows.length) return null
+                return (
+                  <div key={area.id} style={{ marginBottom: 20 }}>
+                    <h3 style={{ margin: '0 0 12px', color: '#e2e8f0', borderBottom: `2px solid ${getCompanyAccentColor()}`, paddingBottom: 9 }}>{area.name}</h3>
+                    <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+                      {areaRows.map((row: any) => (
                   <div key={row.segmentId || row.segment.name} style={{ ...card, borderLeft: `5px solid ${row.missingMeters > 0 ? '#f87171' : '#22c55e'}` }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                       <strong style={{ fontSize: 18 }}>{row.segment.segment_name || row.segment.name || 'Unassigned Segment'}</strong>
@@ -14945,11 +14962,14 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
                       })}
                     </div>
                   </div>
-                ))}
-                {dashboardMeterTicketKpiRows.length === 0 && (
-                  <div style={card}>No active meters or meter tickets found for this period.</div>
-                )}
-              </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+              {dashboardMeterTicketKpiRows.length === 0 && (
+                <div style={card}>No active meters or meter tickets found for this period.</div>
+              )}
             </div>
 
             <div className="responsive-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 12 }}>

@@ -13828,9 +13828,81 @@ Segment: ${segments.find((s: any) => s.id === reportSegmentId)?.name || 'All Seg
     return date ? date.toISOString() : (ticket.approved_at || ticket.updated_at || ticket.created_at || new Date().toISOString())
   }
 
+  // Tickets-page archive grouping only. Use the ticket's closing wall-clock
+  // time in America/Chicago, not the approval/creation calendar month.
+  // A first-of-month close at 07:00 belongs to the prior measurement month;
+  // 07:01 begins the new month. This does not change stored ticket values.
   function getTicketMonthKey(ticket: any) {
-    const parts = getRowAccountingDateParts(ticket, ['approved_at', 'updated_at', 'created_at'])
-    return getAccountingMonthKey(parts.date, parts.time)
+    const observed = ticket?.observed_inputs || {}
+    const calc = ticket?.calculation_results || {}
+    const firstValue = (...values: any[]) =>
+      values.find((value) => value !== null && value !== undefined && String(value).trim() !== '')
+
+    const explicitDate = firstValue(
+      ticket?.close_date, observed?.close_date, calc?.close_date,
+      ticket?.closing_date, observed?.closing_date, calc?.closing_date
+    )
+    const explicitTime = firstValue(
+      ticket?.close_time, observed?.close_time, calc?.close_time,
+      ticket?.closing_time, observed?.closing_time, calc?.closing_time
+    )
+    const closeValue = explicitDate || firstValue(
+      ticket?.close_datetime, observed?.close_datetime, calc?.close_datetime,
+      ticket?.closing_datetime, observed?.closing_datetime, calc?.closing_datetime
+    )
+    const fallback = firstValue(ticket?.approved_at, ticket?.updated_at, ticket?.created_at)
+    const value = String(closeValue || fallback || '').trim()
+    if (!value) return 'Unknown'
+
+    let year: number
+    let month: number
+    let day: number
+    let hours = 0
+    let minutes = 0
+
+    // Explicit UTC/offset timestamps are converted to Central Time, including
+    // daylight saving time. Naive ticket timestamps are already Central wall time.
+    const hasOffset = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)
+    if (hasOffset) {
+      const parsed = new Date(value)
+      if (Number.isNaN(parsed.getTime())) return 'Unknown'
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Chicago', year: 'numeric', month: '2-digit',
+        day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+      }).formatToParts(parsed)
+      const field = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0)
+      year = field('year')
+      month = field('month')
+      day = field('day')
+      hours = field('hour')
+      minutes = field('minute')
+    } else {
+      const match = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{1,2}):(\d{2}))?/)
+      if (!match) return 'Unknown'
+      year = Number(match[1])
+      month = Number(match[2])
+      day = Number(match[3])
+      hours = Number(match[4] || 0)
+      minutes = Number(match[5] || 0)
+      if (explicitTime) {
+        const timeMatch = String(explicitTime).trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i)
+        if (timeMatch) {
+          hours = Number(timeMatch[1])
+          minutes = Number(timeMatch[2])
+          const meridiem = (timeMatch[3] || '').toUpperCase()
+          if (meridiem === 'PM' && hours < 12) hours += 12
+          if (meridiem === 'AM' && hours === 12) hours = 0
+        }
+      }
+      if (month < 1 || month > 12 || day < 1 || day > 31 || hours > 23 || minutes > 59) return 'Unknown'
+    }
+
+    if (day === 1 && (hours < 7 || (hours === 7 && minutes === 0))) {
+      const previousMonth = new Date(Date.UTC(year, month - 2, 1))
+      year = previousMonth.getUTCFullYear()
+      month = previousMonth.getUTCMonth() + 1
+    }
+    return `${year}-${String(month).padStart(2, '0')}`
   }
 
   function getTicketMonthLabel(monthKey: string) {
